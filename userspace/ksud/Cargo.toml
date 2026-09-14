@@ -43,7 +43,7 @@ zip-extensions = { version = "0.14", features = [
     "lzma",
     "xz",
 ], default-features = false }
-java-properties = { git = "https://github.com/Kernel-SU/java-properties.git", branch = "master", default-features = false }
+java-properties = { git = "https://github.com/ReSukiSU/java-properties", rev = "42a4aa941b70ded2dd3be9e9f892471023e70229", default-features = false }
 serde_json = "1"
 encoding_rs = "0.8"
 humansize = "2"
