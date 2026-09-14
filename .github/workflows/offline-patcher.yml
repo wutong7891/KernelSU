@@ -1,0 +1,43 @@
+name: Build YipaSU Offline Patcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Build Manager run containing the Windows ksud artifact"
+        required: true
+        default: "34855059884"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download GitHub-built Windows patch engine
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ksud-x86_64-pc-windows-gnu
+          path: artifacts/ksud
+
+      - name: Embed patch engine and exclusive KMI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools/offline-patcher/assets | Out-Null
+          Copy-Item artifacts/ksud/ksud.exe tools/offline-patcher/assets/ksud.exe -Force
+
+      - name: Build single-file Windows tool
+        run: dotnet build tools/offline-patcher/YipaSUOfflinePatcher.csproj -c Release
+
+      - name: Upload offline patcher
+        uses: actions/upload-artifact@v7
+        with:
+          name: yipasu-offline-patcher
+          path: tools/offline-patcher/bin/Release/net48/YipaSUOfflinePatcher.exe
