@@ -116,6 +116,7 @@ android {
     ndkVersion = androidCompileNdkVersion
 
     defaultConfig {
+        applicationId = "com.jinfuwei.luoyu"
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
         versionCode = managerVersionCode
@@ -155,7 +156,7 @@ androidComponents {
 
 base {
     archivesName.set(
-        "KernelSU_${managerVersionName}_${managerVersionCode}"
+        "YipaSU_${managerVersionName}_${managerVersionCode}"
     )
 }
 

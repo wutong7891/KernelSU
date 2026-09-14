@@ -17,5 +17,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KernelSU"
+rootProject.name = "YipaSU"
 include(":app")
+include(":license-signer")

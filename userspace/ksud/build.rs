@@ -5,6 +5,9 @@ use std::path::Path;
 use std::process::Command;
 
 fn get_git_version() -> Result<(u32, String), std::io::Error> {
+    if env::var("YIPASU_FIXED_VERSION").as_deref() != Ok("0") {
+        return Ok((32525, "3.2.5ksu".to_string()));
+    }
     let output = Command::new("git")
         .args(["rev-list", "--count", "HEAD"])
         .output()?;

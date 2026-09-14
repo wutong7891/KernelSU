@@ -25,11 +25,6 @@ fun getGitDescribe(): String {
     return process.inputStream.bufferedReader().use { it.readText().trim() }
 }
 
-fun getVersionCode(): Int {
-    val commitCount = getGitCommitCount()
-    return 30000 + commitCount
-}
+fun getVersionCode(): Int = 32525
 
-fun getVersionName(): String {
-    return getGitDescribe()
-}
+fun getVersionName(): String = "3.2.5ksu"

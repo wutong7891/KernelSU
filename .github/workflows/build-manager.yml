@@ -28,6 +28,7 @@ on:
       - 'kernel/**'
       - 'userspace/**'
   workflow_call:
+  workflow_dispatch:
 
 jobs:
   generate-key:
@@ -40,7 +41,6 @@ jobs:
       key_password: ${{ steps.gen.outputs.key_password }}
     steps:
       - name: Generate temporary keystore
-        if: github.event_name == 'pull_request'
         id: gen
         run: |
           KEYSTORE_PASSWORD=$(openssl rand -hex 32)
@@ -61,7 +61,6 @@ jobs:
           echo "keystore=$(base64 -w 0 pr-key.jks)" >> $GITHUB_OUTPUT
 
       - name: Extract certificate hash and size
-        if: github.event_name == 'pull_request'
         id: extract
         env:
           STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
@@ -145,32 +144,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Write key
-        if: ${{ ( github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' )) || github.ref_type == 'tag' }}
-        run: |
-          if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
-            {
-              echo KEYSTORE_PASSWORD='${{ secrets.KEYSTORE_PASSWORD }}'
-              echo KEY_ALIAS='${{ secrets.KEY_ALIAS }}'
-              echo KEY_PASSWORD='${{ secrets.KEY_PASSWORD }}'
-              echo KEYSTORE_FILE='key.jks'
-            } >> gradle.properties
-            echo ${{ secrets.KEYSTORE }} | base64 -d > key.jks
-          fi
-
-      - name: Write PR key
-        if: github.event_name == 'pull_request'
+      - name: Write build key
         env:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
           PR_KEY_PASSWORD: ${{ needs.generate-key.outputs.key_password }}
+          YIPASU_LICENSE_PRIVATE_KEY: ${{ secrets.YIPASU_LICENSE_PRIVATE_KEY }}
         run: |
+          test -n "$YIPASU_LICENSE_PRIVATE_KEY"
           echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
           {
             echo KEYSTORE_PASSWORD="$PR_KEYSTORE_PASSWORD"
             echo KEY_ALIAS='pr-key'
             echo KEY_PASSWORD="$PR_KEY_PASSWORD"
             echo KEYSTORE_FILE='pr-key.jks'
+            echo YIPASU_LICENSE_PRIVATE_KEY="$YIPASU_LICENSE_PRIVATE_KEY"
           } >> gradle.properties
 
       - name: Setup Java
@@ -188,9 +176,9 @@ jobs:
       - name: Build with Gradle
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            ./gradlew clean assembleRelease -PIS_PR_BUILD=true
+            ./gradlew clean :app:assembleRelease :license-signer:assembleRelease -PIS_PR_BUILD=true
           else
-            ./gradlew clean assembleRelease
+            ./gradlew clean :app:assembleRelease :license-signer:assembleRelease
           fi
 
       - name: Upload build artifact
@@ -199,6 +187,12 @@ jobs:
         with:
           name: manager-gradle
           path: manager/app/build/outputs/apk/release/*.apk
+
+      - name: Upload license signer
+        uses: actions/upload-artifact@v7
+        with:
+          name: yipasu-license-signer
+          path: manager/license-signer/build/outputs/apk/release/*.apk
 
       - name: Upload mappings
         uses: actions/upload-artifact@v7
@@ -270,25 +264,12 @@ jobs:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
           PR_KEY_PASSWORD: ${{ needs.generate-key.outputs.key_password }}
-          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
-            echo "SIGN_KEYSTORE_FILE=pr-key.jks" >> $GITHUB_ENV
-            echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-          else
-            test -n "$PROD_KEYSTORE"
-            echo "$PROD_KEYSTORE" | base64 -d > key.jks
-            echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
-            echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
-          fi
+          echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
+          echo "SIGN_KEYSTORE_FILE=pr-key.jks" >> $GITHUB_ENV
+          echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
+          echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
 
       - name: Repack and resign
         if: ${{ github.event_name == 'pull_request' || (github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || github.ref_type == 'tag' }}
