@@ -20,3 +20,4 @@ dependencyResolutionManagement {
 rootProject.name = "YipaSU"
 include(":app")
 include(":license-signer")
+include(":offline-patcher")
