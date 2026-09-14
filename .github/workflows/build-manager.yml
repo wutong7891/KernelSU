@@ -14,6 +14,7 @@ on:
       - 'manager/**'
       - 'kernel/**'
       - 'userspace/**'
+      - 'tools/**'
   pull_request:
     branches: [ "main", "dev" ]
     paths:
@@ -27,6 +28,7 @@ on:
       - 'manager/**'
       - 'kernel/**'
       - 'userspace/**'
+      - 'tools/**'
   workflow_call:
   workflow_dispatch:
 
@@ -106,7 +108,8 @@ jobs:
     uses: ./.github/workflows/ksud.yml
     with:
       target: ${{ matrix.target }}
-      pack_lkm: true
+      # The Android manager must not contain any built-in KMI modules.
+      pack_lkm: false
       pack_ksuinit: true
   
   build-ksud-extra:
@@ -201,6 +204,36 @@ jobs:
         with:
           name: "mappings"
           path: "manager/app/build/outputs/mapping/release/"
+
+  build-offline-patcher:
+    needs: [build-ksud-extra]
+    if: always() && needs.build-ksud-extra.result == 'success'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Windows patch engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-pc-windows-gnu
+          path: artifacts/ksud
+
+      - name: Embed offline patch engine
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools/offline-patcher/assets | Out-Null
+          Copy-Item artifacts/ksud/ksud.exe tools/offline-patcher/assets/ksud.exe -Force
+
+      - name: Build offline patcher
+        run: dotnet build tools/offline-patcher/YipaSUOfflinePatcher.csproj -c Release
+
+      - name: Upload offline patcher
+        uses: actions/upload-artifact@v7
+        with:
+          name: yipasu-offline-patcher
+          path: tools/offline-patcher/bin/Release/net48/YipaSUOfflinePatcher.exe
 
   repack-manager:
     needs: [build-manager, build-ksud, generate-key]
