@@ -2,15 +2,17 @@ name: Build LKM for KernelSU
 on:
   workflow_call:
     inputs:
-      expected_size2:
-        description: 'Second expected signature size (for PR builds)'
-        required: false
-        default: ''
+      expected_size:
+        description: 'Exclusive manager certificate size'
+        required: true
         type: string
-      expected_hash2:
-        description: 'Second expected signature hash (for PR builds)'
-        required: false
-        default: ''
+      expected_hash:
+        description: 'Exclusive manager certificate SHA-256'
+        required: true
+        type: string
+      manager_package:
+        description: 'Exclusive manager application ID'
+        required: true
         type: string
   workflow_dispatch:
 jobs:
@@ -29,5 +31,6 @@ jobs:
     with:
       kmi: ${{ matrix.kmi }}
       ddk_release: '20260313'
-      expected_size2: ${{ inputs.expected_size2 || '' }}
-      expected_hash2: ${{ inputs.expected_hash2 || '' }}
+      expected_size: ${{ inputs.expected_size }}
+      expected_hash: ${{ inputs.expected_hash }}
+      manager_package: ${{ inputs.manager_package }}

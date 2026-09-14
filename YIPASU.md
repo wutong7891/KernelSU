@@ -25,4 +25,4 @@ Pushing to `main`, `dev`, or `ci` runs `.github/workflows/build-manager.yml` and
 - `kernelsu.ko` artifacts for `android12-5.10`, `android13-5.10`, `android13-5.15`, `android14-5.15`, `android14-6.1`, `android15-6.6`, and `android16-6.12`;
 - matching `ksud` and `ksuinit` artifacts.
 
-The manager signing certificate is generated per workflow run and its hash is compiled into the KMI modules from the same run. Always install a manager APK and KMI module downloaded from the same Actions run.
+The manager signing certificate is generated per workflow run. Its hash and the exact package name `com.jinfuwei.luoyu` replace the upstream manager identity in every KMI module, so the modules accept only the YipaSU manager from the same run. Always install a manager APK and KMI module downloaded from that same Actions run.

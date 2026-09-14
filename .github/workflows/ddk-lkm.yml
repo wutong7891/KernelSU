@@ -12,15 +12,17 @@ on:
         required: false
         default: '20260313'
         type: string
-      expected_size2:
-        description: 'Second expected signature size (for PR builds)'
-        required: false
-        default: ''
+      expected_size:
+        description: 'Exclusive manager certificate size'
+        required: true
         type: string
-      expected_hash2:
-        description: 'Second expected signature hash (for PR builds)'
-        required: false
-        default: ''
+      expected_hash:
+        description: 'Exclusive manager certificate SHA-256'
+        required: true
+        type: string
+      manager_package:
+        description: 'Exclusive manager application ID'
+        required: true
         type: string
 
 jobs:
@@ -37,8 +39,9 @@ jobs:
 
     - name: Build kernelsu.ko
       env:
-        EXPECTED_SIZE2: ${{ inputs.expected_size2 }}
-        EXPECTED_HASH2: ${{ inputs.expected_hash2 }}
+        EXPECTED_SIZE: ${{ inputs.expected_size }}
+        EXPECTED_HASH: ${{ inputs.expected_hash }}
+        MANAGER_PACKAGE: ${{ inputs.manager_package }}
       run: |
         git config --global --add safe.directory /__w/KernelSU/KernelSU
 
@@ -47,17 +50,11 @@ jobs:
         echo "=== Building kernelsu.ko for KMI: ${{ inputs.kmi }} ==="
 
         EXTRA_ARGS=""
-        if [ -n "$EXPECTED_SIZE2" ] && [ -z "$EXPECTED_HASH2" ]; then
-          echo "ERROR: expected_hash2 must be provided when expected_size2 is set."
+        if [ -z "$EXPECTED_SIZE" ] || [ -z "$EXPECTED_HASH" ] || [ -z "$MANAGER_PACKAGE" ]; then
+          echo "ERROR: exclusive manager certificate and package inputs are required."
           exit 1
         fi
-        if [ -z "$EXPECTED_SIZE2" ] && [ -n "$EXPECTED_HASH2" ]; then
-          echo "ERROR: expected_size2 must be provided when expected_hash2 is set."
-          exit 1
-        fi
-        if [ -n "$EXPECTED_SIZE2" ]; then
-          EXTRA_ARGS="KSU_EXPECTED_SIZE2=$EXPECTED_SIZE2 KSU_EXPECTED_HASH2=$EXPECTED_HASH2"
-        fi
+        EXTRA_ARGS="KSU_EXPECTED_SIZE=$EXPECTED_SIZE KSU_EXPECTED_HASH=$EXPECTED_HASH KSU_MANAGER_PACKAGE=$MANAGER_PACKAGE"
         CONFIG_KSU=m CC=clang make $EXTRA_ARGS
         
         echo "=== Build completed ==="
