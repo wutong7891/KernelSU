@@ -41,3 +41,106 @@ jobs:
         with:
           name: yipasu-offline-patcher
           path: tools/offline-patcher/bin/Release/net48/YipaSUOfflinePatcher.exe
+
+  build-license-signer-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Write activation private key resource
+        shell: pwsh
+        env:
+          YIPASU_LICENSE_PRIVATE_KEY: ${{ secrets.YIPASU_LICENSE_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:YIPASU_LICENSE_PRIVATE_KEY)) {
+            throw "YIPASU_LICENSE_PRIVATE_KEY is missing"
+          }
+          Set-Content -LiteralPath tools/license-signer-windows/private.key `
+            -Value $env:YIPASU_LICENSE_PRIVATE_KEY -NoNewline
+
+      - name: Build Windows signer
+        run: dotnet build tools/license-signer-windows/YipaSULicenseSigner.csproj -c Release
+
+      - name: Upload Windows signer
+        uses: actions/upload-artifact@v7
+        with:
+          name: yipasu-license-signer-exe
+          path: tools/license-signer-windows/bin/Release/net48/YipaSULicenseSigner.exe
+
+  build-offline-patcher-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./manager
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download ARM64 patch engine
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ksud-aarch64-linux-android
+          path: artifacts/ksud-arm64
+
+      - name: Download x86_64 patch engine
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ksud-x86_64-linux-android
+          path: artifacts/ksud-x86_64
+
+      - name: Download exclusive KMI set
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: android*-lkm
+          merge-multiple: true
+          path: artifacts/kmi
+
+      - name: Prepare APK offline resources
+        working-directory: .
+        run: |
+          mkdir -p manager/offline-patcher/src/main/jniLibs/arm64-v8a
+          mkdir -p manager/offline-patcher/src/main/jniLibs/x86_64
+          mkdir -p manager/offline-patcher/src/main/assets/kmi
+          cp artifacts/ksud-arm64/ksud manager/offline-patcher/src/main/jniLibs/arm64-v8a/libksud.so
+          cp artifacts/ksud-x86_64/ksud manager/offline-patcher/src/main/jniLibs/x86_64/libksud.so
+          cp artifacts/kmi/*_kernelsu.ko manager/offline-patcher/src/main/assets/kmi/
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Create APK signing key
+        run: |
+          keytool -genkeypair -alias patcher -keyalg RSA -keysize 2048 -validity 3650 \
+            -storepass yipasu-patcher -keypass yipasu-patcher \
+            -dname "CN=YipaSU Offline Patcher" -storetype JKS -keystore patcher.jks
+          {
+            echo KEYSTORE_PASSWORD=yipasu-patcher
+            echo KEY_ALIAS=patcher
+            echo KEY_PASSWORD=yipasu-patcher
+            echo KEYSTORE_FILE=patcher.jks
+          } >> gradle.properties
+
+      - name: Build offline patcher APK
+        run: ./gradlew :offline-patcher:assembleRelease
+
+      - name: Upload offline patcher APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: yipasu-offline-patcher-apk
+          path: manager/offline-patcher/build/outputs/apk/release/*.apk
