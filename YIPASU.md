@@ -28,3 +28,8 @@ Pushing to `main`, `dev`, or `ci` runs `.github/workflows/build-manager.yml` and
 The manager signing certificate is generated per workflow run. Its hash and the exact package name `com.jinfuwei.luoyu` replace the upstream manager identity in every KMI module, so the modules accept only the YipaSU manager from the same run. Always install a manager APK and KMI module downloaded from that same Actions run.
 
 The Android `ksud` binaries repacked into the manager are built with `pack_lkm: false`, so the manager APK contains no built-in KMI modules. The separate `YipaSUOfflinePatcher.exe` is built on GitHub Actions and embeds the Windows patch engine plus the exclusive KMI set for fully offline boot/init_boot patching.
+
+Additional GitHub-built tools are provided for the requested platform split:
+
+- `YipaSULicenseSigner.exe`: a Windows offline Android ID activation-code signer with the private key injected from the encrypted Actions secret;
+- `YipaSU-Offline-Patcher-release.apk`: an Android app with no Internet permission that contains the exclusive KMI files and patches a user-selected boot/init_boot image through Android's document picker.
