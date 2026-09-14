@@ -55,8 +55,8 @@ nom = "8"
 derive-new = "0.7"
 getopts = "0.2"
 ksuinit = { path = "../ksuinit" }
-adb_client = { git = "https://github.com/Kernel-SU/adb_client" }
-prop-rs-android = { git = "https://github.com/Kernel-SU/ksu_props" }
+adb_client = { git = "https://github.com/cocool97/adb_client", rev = "d97a966435bebaa55017834869dec08150826aa7" }
+prop-rs-android = { git = "https://github.com/ReSukiSU/ksu_props", rev = "699849f3e4db47b622bcb7fae8e76c728b1b65a6" }
 
 [build-dependencies]
 bindgen = "0.72"
