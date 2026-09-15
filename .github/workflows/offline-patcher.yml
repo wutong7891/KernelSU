@@ -6,7 +6,7 @@ on:
       source_run_id:
         description: "Build Manager run containing the Windows ksud artifact"
         required: true
-        default: "34855059884"
+        default: "34964069043"
 
 permissions:
   actions: read
@@ -123,6 +123,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Create APK signing key
         run: |
