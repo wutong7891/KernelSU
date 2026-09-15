@@ -176,6 +176,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Build with Gradle
         run: |
@@ -257,6 +259,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Download gradle manager artifact
         uses: actions/download-artifact@v8
