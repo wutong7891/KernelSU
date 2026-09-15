@@ -267,4 +267,19 @@
     <string name="sort_by_update_time">更新时间</string>
     <string name="sort_reverse">倒序</string>
     <string name="profile_flags_desc_no_new_privs">禁止从此 Root Profile 的上下文中通过 KernelSU 进一步提升权限</string>
+    <string name="file_executor">Root 终端</string>
+    <string name="file_executor_summary">浏览全部路径，并以 Root 权限执行所选文件</string>
+    <string name="file_executor_path">当前路径</string>
+    <string name="file_executor_go">前往</string>
+    <string name="file_executor_up">上一级</string>
+    <string name="file_executor_empty">目录为空或无法读取</string>
+    <string name="file_executor_limited">仅显示前 500 项</string>
+    <string name="file_executor_arguments">终端参数（可选）</string>
+    <string name="file_executor_execute">执行</string>
+    <string name="file_executor_confirm_title">使用 Root 权限执行？</string>
+    <string name="file_executor_confirm_message">所选文件将获得不受限制的 Root 权限，确定继续吗？</string>
+    <string name="file_executor_output">终端输出</string>
+    <string name="file_executor_running">正在执行…</string>
+    <string name="file_executor_exit_code">进程退出码：%1$d</string>
+    <string name="file_executor_select_tip">点击目录进入，点击文件选择。</string>
 </resources>

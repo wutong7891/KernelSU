@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircleOutline
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -166,6 +167,13 @@ fun HomePagerMiuix(
                             state = state,
                             actions = actions,
                         )
+                        AnimatedVisibility(
+                            visible = state.isFullFeatured,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            RootTerminalCard(actions.onFileExecutorClick)
+                        }
                         if (state.checkUpdateEnabled) {
                             UpdateCard(state = state, actions = actions)
                         }
@@ -177,6 +185,31 @@ fun HomePagerMiuix(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RootTerminalCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = colorScheme.primaryContainer),
+        onClick = onClick,
+        showIndication = true,
+        pressFeedbackType = PressFeedbackType.Tilt,
+    ) {
+        BasicComponent(
+            title = stringResource(R.string.file_executor),
+            summary = stringResource(R.string.file_executor_summary),
+            startAction = {
+                Icon(
+                    imageVector = Icons.Rounded.Terminal,
+                    contentDescription = null,
+                    tint = colorScheme.primary,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+            },
+            onClick = onClick,
+        )
     }
 }
 

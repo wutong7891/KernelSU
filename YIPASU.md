@@ -2,6 +2,13 @@
 
 This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at version code 32525.
 
+## UI refresh and Root terminal
+
+- Uses the supplied “无痛定制” artwork as the adaptive and legacy launcher icon.
+- Adds a polished Root terminal card to both Material and Miuix home screens.
+- Adds a Root file browser that can navigate from `/`, jump to a typed path, select a file, pass optional terminal arguments, confirm execution, and display stdout/stderr plus the exit code.
+- Root paths are shell-escaped before browsing or execution; raw arguments remain intentionally available as an advanced terminal field.
+
 ## Packages
 
 - Manager display name: `YipaSU`
