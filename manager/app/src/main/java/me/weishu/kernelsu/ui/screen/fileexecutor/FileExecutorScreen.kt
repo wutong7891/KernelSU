@@ -1,5 +1,6 @@
 package me.weishu.kernelsu.ui.screen.fileexecutor
 
+import android.content.Context
 import android.util.Base64
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -7,6 +8,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Folder
@@ -43,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,9 +59,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -63,6 +74,9 @@ import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.util.getRootShell
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 private const val MAX_VISIBLE_ENTRIES = 500
 private const val MAX_TERMINAL_CHARS = 200_000
@@ -76,18 +90,45 @@ private data class RootFileEntry(
 @Composable
 fun FileExecutorScreen() {
     val navigator = LocalNavigator.current
+    val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+    val terminalFocusRequester = remember { FocusRequester() }
+    val terminalScrollState = rememberScrollState()
     var currentPath by remember { mutableStateOf("/") }
     var pathInput by remember { mutableStateOf("/") }
     var entries by remember { mutableStateOf(emptyList<RootFileEntry>()) }
     var selectedFile by remember { mutableStateOf<RootFileEntry?>(null) }
-    var arguments by remember { mutableStateOf("") }
+    var terminalInput by remember { mutableStateOf("") }
     var terminalOutput by remember { mutableStateOf("") }
     var directoryError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var running by remember { mutableStateOf(false) }
     var confirmExecution by remember { mutableStateOf(false) }
+    var confirmMoveToAdb by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableStateOf(0) }
+    var terminalProcess by remember { mutableStateOf<Process?>(null) }
+    var terminalWriter by remember { mutableStateOf<OutputStreamWriter?>(null) }
+
+    fun appendTerminal(text: String) {
+        terminalOutput = (terminalOutput + text).takeLast(MAX_TERMINAL_CHARS)
+    }
+
+    fun closeTerminal() {
+        runCatching { terminalWriter?.close() }
+        runCatching { terminalProcess?.destroy() }
+        terminalWriter = null
+        terminalProcess = null
+        running = false
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { closeTerminal() }
+    }
+
+    LaunchedEffect(terminalOutput) {
+        terminalScrollState.animateScrollTo(terminalScrollState.maxValue)
+    }
 
     LaunchedEffect(currentPath, refreshKey) {
         loading = true
@@ -110,13 +151,82 @@ fun FileExecutorScreen() {
     fun executeSelected() {
         val file = selectedFile ?: return
         confirmExecution = false
-        running = true
-        terminalOutput = "\$ ${file.path}${if (arguments.isBlank()) "" else " $arguments"}\n\n"
         scope.launch {
-            val execution = withContext(Dispatchers.IO) { executeRootFile(file.path, arguments) }
-            terminalOutput += execution.output.takeLast(MAX_TERMINAL_CHARS)
-            terminalOutput += "\n\n" + execution.status
-            running = false
+            try {
+                closeTerminal()
+                terminalOutput = "# ${file.path}\n"
+                val process = withContext(Dispatchers.IO) { startRootTerminal(context) }
+                val writer = OutputStreamWriter(process.outputStream, Charsets.UTF_8)
+                terminalProcess = process
+                terminalWriter = writer
+                running = true
+
+                val command = buildExecutionCommand(file.path)
+                withContext(Dispatchers.IO) {
+                    writer.write(command)
+                    writer.write("\n")
+                    writer.flush()
+                }
+
+                scope.launch(Dispatchers.IO) {
+                    BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            withContext(Dispatchers.Main) {
+                                if (line.startsWith("__YIPASU_EXIT__:")) {
+                                    appendTerminal("\n[${line.removePrefix("__YIPASU_EXIT__:")}]\n# ")
+                                } else {
+                                    appendTerminal(line + "\n")
+                                }
+                            }
+                        }
+                    }
+                    val exitCode = process.waitFor()
+                    withContext(Dispatchers.Main) {
+                        appendTerminal("\n[Root shell exited: $exitCode]\n")
+                        terminalWriter = null
+                        terminalProcess = null
+                        running = false
+                    }
+                }
+                terminalFocusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (e: Throwable) {
+                appendTerminal("\n${e.message ?: e.javaClass.simpleName}\n")
+                closeTerminal()
+            }
+        }
+    }
+
+    fun sendTerminalInput() {
+        val input = terminalInput
+        val writer = terminalWriter ?: return
+        terminalInput = ""
+        appendTerminal(input + "\n")
+        scope.launch(Dispatchers.IO) {
+            try {
+                writer.write(input)
+                writer.write("\n")
+                writer.flush()
+            } catch (error: Throwable) {
+                withContext(Dispatchers.Main) {
+                    appendTerminal("\n${error.message ?: "stdin closed"}\n")
+                    closeTerminal()
+                }
+            }
+        }
+    }
+
+    fun moveSelectedToAdb() {
+        val file = selectedFile ?: return
+        confirmMoveToAdb = false
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { moveRootFileToAdb(file.path) }
+            terminalOutput = result.output
+            if (result.success) {
+                navigate("/data/adb")
+                refreshKey++
+            }
         }
     }
 
@@ -179,25 +289,38 @@ fun FileExecutorScreen() {
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = pathInput,
                     onValueChange = { pathInput = it },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     label = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_path)) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 )
-                FilledTonalButton(onClick = { navigate(parentPath(currentPath)) }) {
-                    Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_up))
-                }
-                Button(onClick = { navigate(pathInput) }) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_go))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilledTonalButton(
+                        onClick = { navigate(parentPath(currentPath)) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
+                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_up))
+                    }
+                    FilledTonalButton(
+                        onClick = { navigate("/data/adb") },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_adb_shortcut))
+                    }
+                    Button(
+                        onClick = { navigate(pathInput) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_go))
+                    }
                 }
             }
 
@@ -270,32 +393,23 @@ fun FileExecutorScreen() {
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            OutlinedTextField(
-                                value = arguments,
-                                onValueChange = { arguments = it },
+                            FilledTonalButton(
+                                onClick = { confirmMoveToAdb = true },
                                 modifier = Modifier.weight(1f),
                                 enabled = !running,
-                                singleLine = true,
-                                label = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_arguments)) },
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                            )
+                            ) {
+                                Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_adb))
+                            }
                             Button(
                                 onClick = { confirmExecution = true },
+                                modifier = Modifier.weight(1f),
                                 enabled = !running,
                             ) {
-                                if (running) {
-                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                                }
-                                Text(
-                                    text = androidx.compose.ui.res.stringResource(
-                                        if (running) R.string.file_executor_running else R.string.file_executor_execute
-                                    )
-                                )
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                                Text(androidx.compose.ui.res.stringResource(R.string.file_executor_execute))
                             }
                         }
                     }
@@ -308,18 +422,61 @@ fun FileExecutorScreen() {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(156.dp),
+                                .height(210.dp)
+                                .clickable {
+                                    if (running) {
+                                        terminalFocusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    }
+                                },
                             shape = RoundedCornerShape(18.dp),
                             color = androidx.compose.ui.graphics.Color(0xFF101318),
                         ) {
-                            LazyColumn(modifier = Modifier.padding(14.dp)) {
-                                item {
-                                    Text(
-                                        text = terminalOutput,
-                                        color = androidx.compose.ui.graphics.Color(0xFFD8F8D0),
-                                        fontFamily = FontFamily.Monospace,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = terminalOutput,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .verticalScroll(terminalScrollState),
+                                    color = androidx.compose.ui.graphics.Color(0xFFD8F8D0),
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                OutlinedTextField(
+                                    value = terminalInput,
+                                    onValueChange = { terminalInput = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(terminalFocusRequester),
+                                    enabled = running,
+                                    singleLine = true,
+                                    leadingIcon = {
+                                        Text(
+                                            text = "#",
+                                            color = androidx.compose.ui.graphics.Color(0xFFD8F8D0),
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    },
+                                    placeholder = {
+                                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_terminal_input))
+                                    },
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                    keyboardActions = KeyboardActions(onSend = { sendTerminalInput() }),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                )
+                                if (running) {
+                                    TextButton(
+                                        onClick = { closeTerminal() },
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) {
+                                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_stop_terminal))
+                                    }
                                 }
                             }
                         }
@@ -352,6 +509,34 @@ fun FileExecutorScreen() {
             },
             dismissButton = {
                 TextButton(onClick = { confirmExecution = false }) {
+                    Text(androidx.compose.ui.res.stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (confirmMoveToAdb) {
+        AlertDialog(
+            onDismissRequest = { confirmMoveToAdb = false },
+            icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_confirm_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_confirm_message))
+                    Text(
+                        text = selectedFile?.path.orEmpty(),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = ::moveSelectedToAdb) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_adb))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmMoveToAdb = false }) {
                     Text(androidx.compose.ui.res.stringResource(android.R.string.cancel))
                 }
             },
@@ -403,7 +588,7 @@ private fun RootFileRow(
     }
 }
 
-private data class ExecutionResult(val output: String, val status: String)
+private data class MoveResult(val success: Boolean, val output: String)
 
 private fun listRootDirectory(path: String): Result<List<RootFileEntry>> = runCatching {
     val quotedPath = shellQuote(path)
@@ -430,19 +615,28 @@ private fun runPathQuery(command: String): List<String> {
         .filter { it.isNotBlank() }
 }
 
-private fun executeRootFile(path: String, arguments: String): ExecutionResult {
+private fun startRootTerminal(context: Context): Process {
+    val engine = context.applicationInfo.nativeLibraryDir + "/libksud.so"
+    return ProcessBuilder(engine, "debug", "su")
+        .redirectErrorStream(true)
+        .start()
+}
+
+private fun buildExecutionCommand(path: String): String = buildString {
+    append("target=")
+    append(shellQuote(path))
+    append("; if [ -x \"\$target\" ]; then \"\$target\"; else /system/bin/sh \"\$target\"; fi")
+    append("; yipasu_code=\$?; echo __YIPASU_EXIT__:\$yipasu_code")
+}
+
+private fun moveRootFileToAdb(path: String): MoveResult {
     val stdout = arrayListOf<String>()
     val stderr = arrayListOf<String>()
-    val rawArguments = arguments.trim()
-    val command = buildString {
-        append("target=")
-        append(shellQuote(path))
-        append("; if [ -x \"\$target\" ]; then \"\$target\"")
-        if (rawArguments.isNotEmpty()) append(" ").append(rawArguments)
-        append("; else /system/bin/sh \"\$target\"")
-        if (rawArguments.isNotEmpty()) append(" ").append(rawArguments)
-        append("; fi")
-    }
+    val destination = "/data/adb/${displayName(path)}"
+    val command = "mkdir -p /data/adb; " +
+        "if [ -e ${shellQuote(destination)} ]; then " +
+        "echo ${shellQuote("Target already exists: $destination")}; exit 17; " +
+        "fi; mv ${shellQuote(path)} /data/adb/"
     val result = getRootShell().newJob().add(command).to(stdout, stderr).exec()
     val combined = buildString {
         if (stdout.isNotEmpty()) append(stdout.joinToString("\n"))
@@ -451,9 +645,13 @@ private fun executeRootFile(path: String, arguments: String): ExecutionResult {
             append(stderr.joinToString("\n"))
         }
     }
-    return ExecutionResult(
-        output = combined.ifBlank { "(no output)" },
-        status = "Process exited with code ${result.code}",
+    return MoveResult(
+        success = result.isSuccess,
+        output = if (result.isSuccess) {
+            "Moved to $destination\n"
+        } else {
+            combined.ifBlank { "Move failed with code ${result.code}" }
+        },
     )
 }
 

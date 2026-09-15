@@ -6,8 +6,10 @@ This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at ver
 
 - Uses the supplied “无痛定制” artwork as the adaptive and legacy launcher icon.
 - Adds a polished Root terminal card to both Material and Miuix home screens.
-- Adds a Root file browser that can navigate from `/`, jump to a typed path, select a file, pass optional terminal arguments, confirm execution, and display stdout/stderr plus the exit code.
-- Root paths are shell-escaped before browsing or execution; raw arguments remain intentionally available as an advanced terminal field.
+- Adds a Root file browser that can navigate from `/`, jump to a typed path, select a file, confirm execution, and display stdout/stderr plus the exit code.
+- Root paths are shell-escaped before browsing, moving, or execution.
+- The Root terminal now uses an interactive stdin session: tap the terminal, type while the selected program is running, and press Enter to send input. The separate argument field has been removed.
+- Adds a `/data/adb` directory shortcut and a confirmed one-click Root move action that refuses to overwrite an existing destination file.
 
 ## Packages
 

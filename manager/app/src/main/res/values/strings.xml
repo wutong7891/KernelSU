@@ -304,4 +304,10 @@
     <string name="file_executor_running">Running…</string>
     <string name="file_executor_exit_code">Process exited with code %1$d</string>
     <string name="file_executor_select_tip">Tap a directory to open it, or tap a file to select it.</string>
+    <string name="file_executor_adb_shortcut">/data/adb</string>
+    <string name="file_executor_move_adb">Move to /data/adb</string>
+    <string name="file_executor_move_confirm_title">Move this file?</string>
+    <string name="file_executor_move_confirm_message">The selected file will be moved to /data/adb with root privileges. Existing files will not be overwritten.</string>
+    <string name="file_executor_terminal_input">Tap here, type, then press Enter</string>
+    <string name="file_executor_stop_terminal">Close Root terminal</string>
 </resources>

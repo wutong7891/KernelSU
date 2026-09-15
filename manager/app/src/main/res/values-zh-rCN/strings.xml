@@ -282,4 +282,10 @@
     <string name="file_executor_running">正在执行…</string>
     <string name="file_executor_exit_code">进程退出码：%1$d</string>
     <string name="file_executor_select_tip">点击目录进入，点击文件选择。</string>
+    <string name="file_executor_adb_shortcut">/data/adb</string>
+    <string name="file_executor_move_adb">一键转到 /data/adb</string>
+    <string name="file_executor_move_confirm_title">确认移动此文件？</string>
+    <string name="file_executor_move_confirm_message">将使用 Root 权限把所选文件移动到 /data/adb；如果存在同名文件则不会覆盖。</string>
+    <string name="file_executor_terminal_input">点击此处输入，按回车发送</string>
+    <string name="file_executor_stop_terminal">关闭 Root 终端</string>
 </resources>
