@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Cottage
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -100,7 +101,7 @@ fun BottomBarMiuix(
                     onClick = {
                         mainState.animateToPage(index)
                     },
-                    modifier = Modifier.defaultMinSize(minWidth = 76.dp)
+                    modifier = Modifier.defaultMinSize(minWidth = 60.dp)
                 ) {
                     Icon(
                         imageVector = item.icon,
@@ -129,5 +130,6 @@ enum class BottomBarDestination(
     Home(R.string.home, Icons.Rounded.Cottage),
     SuperUser(R.string.superuser, Icons.Rounded.Security),
     Module(R.string.module, Icons.Rounded.Extension),
-    Setting(R.string.settings, Icons.Rounded.Settings)
+    Setting(R.string.settings, Icons.Rounded.Settings),
+    Terminal(R.string.terminal, Icons.Rounded.Terminal)
 }

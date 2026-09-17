@@ -288,4 +288,9 @@
     <string name="file_executor_move_confirm_message">将使用 Root 权限把所选文件移动到 /data/adb；如果存在同名文件则不会覆盖。</string>
     <string name="file_executor_terminal_input">点击此处输入，按回车发送</string>
     <string name="file_executor_stop_terminal">关闭 Root 终端</string>
+    <string name="terminal">终端</string>
+    <string name="file_executor_more">更多选项</string>
+    <string name="file_executor_refresh">刷新目录</string>
+    <string name="file_executor_selected_title">已选择文件</string>
+    <string name="file_executor_terminal_back">返回文件目录</string>
 </resources>

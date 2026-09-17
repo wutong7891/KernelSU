@@ -5,11 +5,13 @@ This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at ver
 ## UI refresh and Root terminal
 
 - Uses the supplied “无痛定制” artwork as the adaptive and legacy launcher icon.
-- Adds a polished Root terminal card to both Material and Miuix home screens.
-- Adds a Root file browser that can navigate from `/`, jump to a typed path, select a file, confirm execution, and display stdout/stderr plus the exit code.
+- Adds a dedicated **Terminal** page at the right side of the main bottom navigation, next to Settings.
+- Adds a full-screen Root file browser with a cyber-style dark cyan interface that can navigate from `/`, jump to a typed path, select a file, confirm execution, and display stdout/stderr plus the exit code.
 - Root paths are shell-escaped before browsing, moving, or execution.
 - The Root terminal now uses an interactive stdin session: tap the terminal, type while the selected program is running, and press Enter to send input. The separate argument field has been removed.
-- Adds a `/data/adb` directory shortcut and a confirmed one-click Root move action that refuses to overwrite an existing destination file.
+- Moves the `/data/adb` shortcut and refresh action into the top-right overflow menu.
+- Tapping a file opens centered Execute and Move-to-`/data/adb` actions; execution switches to a full-screen interactive terminal view.
+- The confirmed one-click Root move action refuses to overwrite an existing destination file.
 
 ## Packages
 

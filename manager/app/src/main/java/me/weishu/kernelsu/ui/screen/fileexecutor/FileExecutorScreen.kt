@@ -2,15 +2,10 @@ package me.weishu.kernelsu.ui.screen.fileexecutor
 
 import android.content.Context
 import android.util.Base64
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,30 +18,39 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,16 +61,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -80,6 +86,12 @@ import java.io.OutputStreamWriter
 
 private const val MAX_VISIBLE_ENTRIES = 500
 private const val MAX_TERMINAL_CHARS = 200_000
+private val TechBackground = Color(0xFF050811)
+private val TechSurface = Color(0xFF0B1220)
+private val TechCyan = Color(0xFF37E6FF)
+private val TechGreen = Color(0xFF7DFFB2)
+private val TechText = Color(0xFFE6F7FF)
+private val TechMuted = Color(0xFF86A1B5)
 
 private data class RootFileEntry(
     val path: String,
@@ -88,8 +100,21 @@ private data class RootFileEntry(
 )
 
 @Composable
+fun TerminalPager(bottomInnerPadding: Dp) {
+    FileExecutorContent(bottomInnerPadding = bottomInnerPadding, onNavigateBack = null)
+}
+
+@Composable
 fun FileExecutorScreen() {
     val navigator = LocalNavigator.current
+    FileExecutorContent(bottomInnerPadding = 0.dp, onNavigateBack = navigator::pop)
+}
+
+@Composable
+private fun FileExecutorContent(
+    bottomInnerPadding: Dp,
+    onNavigateBack: (() -> Unit)?,
+) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -99,13 +124,17 @@ fun FileExecutorScreen() {
     var pathInput by remember { mutableStateOf("/") }
     var entries by remember { mutableStateOf(emptyList<RootFileEntry>()) }
     var selectedFile by remember { mutableStateOf<RootFileEntry?>(null) }
+    var showSelectedActions by remember { mutableStateOf(false) }
     var terminalInput by remember { mutableStateOf("") }
     var terminalOutput by remember { mutableStateOf("") }
     var directoryError by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var running by remember { mutableStateOf(false) }
+    var terminalFullscreen by remember { mutableStateOf(false) }
     var confirmExecution by remember { mutableStateOf(false) }
     var confirmMoveToAdb by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableStateOf(0) }
     var terminalProcess by remember { mutableStateOf<Process?>(null) }
     var terminalWriter by remember { mutableStateOf<OutputStreamWriter?>(null) }
@@ -126,14 +155,15 @@ fun FileExecutorScreen() {
         onDispose { closeTerminal() }
     }
 
-    LaunchedEffect(terminalOutput) {
-        terminalScrollState.animateScrollTo(terminalScrollState.maxValue)
+    LaunchedEffect(terminalOutput, terminalFullscreen) {
+        if (terminalFullscreen) terminalScrollState.animateScrollTo(terminalScrollState.maxValue)
     }
 
     LaunchedEffect(currentPath, refreshKey) {
         loading = true
         directoryError = null
         selectedFile = null
+        showSelectedActions = false
         val result = withContext(Dispatchers.IO) { listRootDirectory(currentPath) }
         entries = result.getOrElse {
             directoryError = it.message ?: it.javaClass.simpleName
@@ -146,35 +176,35 @@ fun FileExecutorScreen() {
         val normalized = normalizePath(path)
         pathInput = normalized
         currentPath = normalized
+        statusMessage = null
     }
 
     fun executeSelected() {
         val file = selectedFile ?: return
         confirmExecution = false
+        showSelectedActions = false
+        terminalFullscreen = true
         scope.launch {
             try {
                 closeTerminal()
-                terminalOutput = "# ${file.path}\n"
+                terminalOutput = "YipaSU ROOT CONSOLE\n# ${file.path}\n"
                 val process = withContext(Dispatchers.IO) { startRootTerminal(context) }
                 val writer = OutputStreamWriter(process.outputStream, Charsets.UTF_8)
                 terminalProcess = process
                 terminalWriter = writer
                 running = true
-
-                val command = buildExecutionCommand(file.path)
                 withContext(Dispatchers.IO) {
-                    writer.write(command)
+                    writer.write(buildExecutionCommand(file.path))
                     writer.write("\n")
                     writer.flush()
                 }
-
                 scope.launch(Dispatchers.IO) {
                     BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
                         while (true) {
                             val line = reader.readLine() ?: break
                             withContext(Dispatchers.Main) {
                                 if (line.startsWith("__YIPASU_EXIT__:")) {
-                                    appendTerminal("\n[${line.removePrefix("__YIPASU_EXIT__:")}]\n# ")
+                                    appendTerminal("\n[exit ${line.removePrefix("__YIPASU_EXIT__:")}]\n# ")
                                 } else {
                                     appendTerminal(line + "\n")
                                 }
@@ -191,16 +221,16 @@ fun FileExecutorScreen() {
                 }
                 terminalFocusRequester.requestFocus()
                 keyboardController?.show()
-            } catch (e: Throwable) {
-                appendTerminal("\n${e.message ?: e.javaClass.simpleName}\n")
+            } catch (error: Throwable) {
+                appendTerminal("\n${error.message ?: error.javaClass.simpleName}\n")
                 closeTerminal()
             }
         }
     }
 
     fun sendTerminalInput() {
-        val input = terminalInput
         val writer = terminalWriter ?: return
+        val input = terminalInput
         terminalInput = ""
         appendTerminal(input + "\n")
         scope.launch(Dispatchers.IO) {
@@ -220,9 +250,10 @@ fun FileExecutorScreen() {
     fun moveSelectedToAdb() {
         val file = selectedFile ?: return
         confirmMoveToAdb = false
+        showSelectedActions = false
         scope.launch {
             val result = withContext(Dispatchers.IO) { moveRootFileToAdb(file.path) }
-            terminalOutput = result.output
+            statusMessage = result.output.trim()
             if (result.success) {
                 navigate("/data/adb")
                 refreshKey++
@@ -231,286 +262,165 @@ fun FileExecutorScreen() {
     }
 
     Scaffold(
+        containerColor = TechBackground,
         topBar = {
             TopAppBar(
-                title = { Text(text = "YipaSU · " + androidx.compose.ui.res.stringResource(R.string.file_executor)) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TechBackground,
+                    titleContentColor = TechText,
+                    navigationIconContentColor = TechCyan,
+                    actionIconContentColor = TechCyan,
+                ),
+                title = {
+                    Column {
+                        Text(
+                            text = if (terminalFullscreen) stringResource(R.string.file_executor_output)
+                            else "YipaSU · ${stringResource(R.string.terminal)}",
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = if (terminalFullscreen) "ROOT // LIVE SESSION" else "ROOT FILE MATRIX",
+                            color = TechMuted,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = navigator::pop) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                    when {
+                        terminalFullscreen -> IconButton(onClick = { terminalFullscreen = false }) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = stringResource(R.string.file_executor_terminal_back),
+                            )
+                        }
+                        onNavigateBack != null -> IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { refreshKey++ }, enabled = !loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    if (terminalFullscreen) {
+                        IconButton(
+                            onClick = {
+                                closeTerminal()
+                                terminalFullscreen = false
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.file_executor_stop_terminal))
+                        }
+                    } else {
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.file_executor_more))
+                            }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.file_executor_adb_shortcut)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        navigate("/data/adb")
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.file_executor_refresh)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        refreshKey++
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
+        if (terminalFullscreen) {
+            FullscreenTerminal(
+                output = terminalOutput,
+                input = terminalInput,
+                running = running,
+                scrollState = terminalScrollState,
+                focusRequester = terminalFocusRequester,
+                onInputChanged = { terminalInput = it },
+                onSend = ::sendTerminalInput,
+                onFocusRequest = {
+                    terminalFocusRequester.requestFocus()
+                    keyboardController?.show()
+                },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.tertiaryContainer,
-                            )
-                        )
-                    )
-                    .padding(20.dp),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Terminal,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = androidx.compose.ui.res.stringResource(R.string.file_executor),
-                            modifier = Modifier.padding(start = 12.dp),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(bottom = bottomInnerPadding),
+            )
+        } else {
+            FileBrowser(
+                currentPath = currentPath,
+                pathInput = pathInput,
+                entries = entries,
+                loading = loading,
+                directoryError = directoryError,
+                statusMessage = statusMessage,
+                selectedPath = selectedFile?.path,
+                onPathInputChanged = { pathInput = it },
+                onNavigate = ::navigate,
+                onSelect = { entry ->
+                    if (entry.isDirectory) navigate(entry.path) else {
+                        selectedFile = entry
+                        showSelectedActions = true
                     }
-                    Text(
-                        text = androidx.compose.ui.res.stringResource(R.string.file_executor_select_tip),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = pathInput,
-                    onValueChange = { pathInput = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_path)) },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilledTonalButton(
-                        onClick = { navigate(parentPath(currentPath)) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
-                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_up))
-                    }
-                    FilledTonalButton(
-                        onClick = { navigate("/data/adb") },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_adb_shortcut))
-                    }
-                    Button(
-                        onClick = { navigate(pathInput) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_go))
-                    }
-                }
-            }
-
-            Surface(
+                },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-            ) {
-                when {
-                    loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-
-                    entries.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = directoryError
-                                ?: androidx.compose.ui.res.stringResource(R.string.file_executor_empty),
-                            modifier = Modifier.padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(entries, key = { it.path }) { entry ->
-                            RootFileRow(
-                                entry = entry,
-                                selected = selectedFile?.path == entry.path,
-                                onClick = {
-                                    if (entry.isDirectory) navigate(entry.path) else selectedFile = entry
-                                },
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 56.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            )
-                        }
-                        if (entries.size >= MAX_VISIBLE_ENTRIES) {
-                            item {
-                                Text(
-                                    text = androidx.compose.ui.res.stringResource(R.string.file_executor_limited),
-                                    modifier = Modifier.padding(16.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            AnimatedVisibility(
-                visible = selectedFile != null || terminalOutput.isNotEmpty(),
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateContentSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    selectedFile?.let { file ->
-                        Text(
-                            text = file.path,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            FilledTonalButton(
-                                onClick = { confirmMoveToAdb = true },
-                                modifier = Modifier.weight(1f),
-                                enabled = !running,
-                            ) {
-                                Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_adb))
-                            }
-                            Button(
-                                onClick = { confirmExecution = true },
-                                modifier = Modifier.weight(1f),
-                                enabled = !running,
-                            ) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                                Text(androidx.compose.ui.res.stringResource(R.string.file_executor_execute))
-                            }
-                        }
-                    }
-
-                    if (terminalOutput.isNotEmpty()) {
-                        Text(
-                            text = androidx.compose.ui.res.stringResource(R.string.file_executor_output),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(210.dp)
-                                .clickable {
-                                    if (running) {
-                                        terminalFocusRequester.requestFocus()
-                                        keyboardController?.show()
-                                    }
-                                },
-                            shape = RoundedCornerShape(18.dp),
-                            color = androidx.compose.ui.graphics.Color(0xFF101318),
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = terminalOutput,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                        .verticalScroll(terminalScrollState),
-                                    color = androidx.compose.ui.graphics.Color(0xFFD8F8D0),
-                                    fontFamily = FontFamily.Monospace,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                                OutlinedTextField(
-                                    value = terminalInput,
-                                    onValueChange = { terminalInput = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(terminalFocusRequester),
-                                    enabled = running,
-                                    singleLine = true,
-                                    leadingIcon = {
-                                        Text(
-                                            text = "#",
-                                            color = androidx.compose.ui.graphics.Color(0xFFD8F8D0),
-                                            fontFamily = FontFamily.Monospace,
-                                        )
-                                    },
-                                    placeholder = {
-                                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_terminal_input))
-                                    },
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(onSend = { sendTerminalInput() }),
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                )
-                                if (running) {
-                                    TextButton(
-                                        onClick = { closeTerminal() },
-                                        modifier = Modifier.align(Alignment.End),
-                                    ) {
-                                        Text(androidx.compose.ui.res.stringResource(R.string.file_executor_stop_terminal))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(bottom = bottomInnerPadding),
+            )
         }
+    }
+
+    if (showSelectedActions && selectedFile != null) {
+        AlertDialog(
+            onDismissRequest = { showSelectedActions = false },
+            icon = { Icon(Icons.Rounded.InsertDriveFile, contentDescription = null) },
+            title = { Text(stringResource(R.string.file_executor_selected_title)) },
+            text = { Text(selectedFile?.path.orEmpty(), fontFamily = FontFamily.Monospace) },
+            confirmButton = {
+                Button(onClick = {
+                    showSelectedActions = false
+                    confirmExecution = true
+                }) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                    Text(stringResource(R.string.file_executor_execute))
+                }
+            },
+            dismissButton = {
+                FilledTonalButton(onClick = {
+                    showSelectedActions = false
+                    confirmMoveToAdb = true
+                }) {
+                    Text(stringResource(R.string.file_executor_move_adb))
+                }
+            },
+        )
     }
 
     if (confirmExecution) {
         AlertDialog(
             onDismissRequest = { confirmExecution = false },
             icon = { Icon(Icons.Rounded.Terminal, contentDescription = null) },
-            title = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_confirm_title)) },
+            title = { Text(stringResource(R.string.file_executor_confirm_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_confirm_message))
-                    Text(
-                        text = selectedFile?.path.orEmpty(),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(stringResource(R.string.file_executor_confirm_message))
+                    Text(selectedFile?.path.orEmpty(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = {
-                Button(onClick = ::executeSelected) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_execute))
-                }
-            },
+            confirmButton = { Button(onClick = ::executeSelected) { Text(stringResource(R.string.file_executor_execute)) } },
             dismissButton = {
-                TextButton(onClick = { confirmExecution = false }) {
-                    Text(androidx.compose.ui.res.stringResource(android.R.string.cancel))
-                }
+                TextButton(onClick = { confirmExecution = false }) { Text(stringResource(android.R.string.cancel)) }
             },
         )
     }
@@ -519,46 +429,208 @@ fun FileExecutorScreen() {
         AlertDialog(
             onDismissRequest = { confirmMoveToAdb = false },
             icon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
-            title = { Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_confirm_title)) },
+            title = { Text(stringResource(R.string.file_executor_move_confirm_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_confirm_message))
-                    Text(
-                        text = selectedFile?.path.orEmpty(),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(stringResource(R.string.file_executor_move_confirm_message))
+                    Text(selectedFile?.path.orEmpty(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = {
-                Button(onClick = ::moveSelectedToAdb) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.file_executor_move_adb))
-                }
-            },
+            confirmButton = { Button(onClick = ::moveSelectedToAdb) { Text(stringResource(R.string.file_executor_move_adb)) } },
             dismissButton = {
-                TextButton(onClick = { confirmMoveToAdb = false }) {
-                    Text(androidx.compose.ui.res.stringResource(android.R.string.cancel))
-                }
+                TextButton(onClick = { confirmMoveToAdb = false }) { Text(stringResource(android.R.string.cancel)) }
             },
         )
     }
 }
 
 @Composable
-private fun RootFileRow(
-    entry: RootFileEntry,
-    selected: Boolean,
-    onClick: () -> Unit,
+private fun FileBrowser(
+    currentPath: String,
+    pathInput: String,
+    entries: List<RootFileEntry>,
+    loading: Boolean,
+    directoryError: String?,
+    statusMessage: String?,
+    selectedPath: String?,
+    onPathInputChanged: (String) -> Unit,
+    onNavigate: (String) -> Unit,
+    onSelect: (RootFileEntry) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val color = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        androidx.compose.ui.graphics.Color.Transparent
+    Column(
+        modifier = modifier
+            .background(Brush.verticalGradient(listOf(TechBackground, Color(0xFF071322), TechBackground)))
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedTextField(
+            value = pathInput,
+            onValueChange = onPathInputChanged,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(stringResource(R.string.file_executor_path)) },
+            leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+            trailingIcon = {
+                IconButton(onClick = { onNavigate(pathInput) }) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.file_executor_go))
+                }
+            },
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TechText,
+                unfocusedTextColor = TechText,
+                focusedBorderColor = TechCyan,
+                unfocusedBorderColor = TechMuted,
+                focusedLabelColor = TechCyan,
+                unfocusedLabelColor = TechMuted,
+                focusedLeadingIconColor = TechCyan,
+                unfocusedLeadingIconColor = TechMuted,
+                focusedTrailingIconColor = TechCyan,
+                unfocusedTrailingIconColor = TechMuted,
+                cursorColor = TechCyan,
+            ),
+        )
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalButton(onClick = { onNavigate(parentPath(currentPath)) }) {
+                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
+                Text(stringResource(R.string.file_executor_up))
+            }
+            Text(
+                text = currentPath,
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
+                color = TechCyan,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        statusMessage?.let {
+            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = TechGreen.copy(alpha = 0.12f)) {
+                Text(
+                    text = it,
+                    modifier = Modifier.padding(10.dp),
+                    color = TechGreen,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+            color = TechSurface.copy(alpha = 0.96f),
+            border = BorderStroke(1.dp, TechCyan.copy(alpha = 0.24f)),
+        ) {
+            when {
+                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = TechCyan)
+                }
+                entries.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = directoryError ?: stringResource(R.string.file_executor_empty),
+                        modifier = Modifier.padding(24.dp),
+                        color = TechMuted,
+                    )
+                }
+                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(entries, key = { it.path }) { entry ->
+                        RootFileRow(entry = entry, selected = selectedPath == entry.path, onClick = { onSelect(entry) })
+                        HorizontalDivider(modifier = Modifier.padding(start = 58.dp), color = TechCyan.copy(alpha = 0.10f))
+                    }
+                    if (entries.size >= MAX_VISIBLE_ENTRIES) {
+                        item {
+                            Text(
+                                text = stringResource(R.string.file_executor_limited),
+                                modifier = Modifier.padding(16.dp),
+                                color = TechMuted,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun FullscreenTerminal(
+    output: String,
+    input: String,
+    running: Boolean,
+    scrollState: ScrollState,
+    focusRequester: FocusRequester,
+    onInputChanged: (String) -> Unit,
+    onSend: () -> Unit,
+    onFocusRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(Brush.radialGradient(colors = listOf(Color(0xFF0A2630), TechBackground)))
+            .clickable(onClick = onFocusRequest)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(8.dp).background(if (running) TechGreen else TechMuted, RoundedCornerShape(50)),
+            )
+            Text(
+                text = if (running) " ROOT LINK ONLINE" else " ROOT LINK CLOSED",
+                color = if (running) TechGreen else TechMuted,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xF2070B10),
+            border = BorderStroke(1.dp, TechGreen.copy(alpha = 0.30f)),
+        ) {
+            Text(
+                text = output.ifEmpty { "YipaSU ROOT CONSOLE\n# " },
+                modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(14.dp),
+                color = TechGreen,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = input,
+            onValueChange = onInputChanged,
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+            enabled = running,
+            singleLine = true,
+            leadingIcon = { Text("#", color = TechGreen, fontFamily = FontFamily.Monospace) },
+            placeholder = { Text(stringResource(R.string.file_executor_terminal_input)) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { onSend() }),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TechText,
+                unfocusedTextColor = TechText,
+                disabledTextColor = TechMuted,
+                focusedBorderColor = TechGreen,
+                unfocusedBorderColor = TechMuted,
+                disabledBorderColor = TechMuted.copy(alpha = 0.4f),
+                cursorColor = TechGreen,
+                focusedPlaceholderColor = TechMuted,
+                unfocusedPlaceholderColor = TechMuted,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun RootFileRow(entry: RootFileEntry, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color)
+            .background(if (selected) TechCyan.copy(alpha = 0.12f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -566,13 +638,14 @@ private fun RootFileRow(
         Icon(
             imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
             contentDescription = null,
-            tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (entry.isDirectory) TechCyan else TechMuted,
         )
         Column(Modifier.padding(start = 16.dp)) {
             Text(
                 text = entry.name,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = TechText,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (entry.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
             )
@@ -581,7 +654,7 @@ private fun RootFileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = TechMuted,
                 fontFamily = FontFamily.Monospace,
             )
         }
@@ -617,9 +690,7 @@ private fun runPathQuery(command: String): List<String> {
 
 private fun startRootTerminal(context: Context): Process {
     val engine = context.applicationInfo.nativeLibraryDir + "/libksud.so"
-    return ProcessBuilder(engine, "debug", "su")
-        .redirectErrorStream(true)
-        .start()
+    return ProcessBuilder(engine, "debug", "su").redirectErrorStream(true).start()
 }
 
 private fun buildExecutionCommand(path: String): String = buildString {
@@ -647,11 +718,8 @@ private fun moveRootFileToAdb(path: String): MoveResult {
     }
     return MoveResult(
         success = result.isSuccess,
-        output = if (result.isSuccess) {
-            "Moved to $destination\n"
-        } else {
-            combined.ifBlank { "Move failed with code ${result.code}" }
-        },
+        output = if (result.isSuccess) "Moved to $destination"
+        else combined.ifBlank { "Move failed with code ${result.code}" },
     )
 }
 

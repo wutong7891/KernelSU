@@ -310,4 +310,9 @@
     <string name="file_executor_move_confirm_message">The selected file will be moved to /data/adb with root privileges. Existing files will not be overwritten.</string>
     <string name="file_executor_terminal_input">Tap here, type, then press Enter</string>
     <string name="file_executor_stop_terminal">Close Root terminal</string>
+    <string name="terminal">Terminal</string>
+    <string name="file_executor_more">More options</string>
+    <string name="file_executor_refresh">Refresh directory</string>
+    <string name="file_executor_selected_title">Selected file</string>
+    <string name="file_executor_terminal_back">Back to files</string>
 </resources>
