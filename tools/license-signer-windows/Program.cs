@@ -93,7 +93,7 @@ namespace YipaSULicenseSigner
                 if (id.Length == 0) throw new InvalidOperationException("请输入 Android ID。");
                 var keyBytes = Convert.FromBase64String(ReadPrivateKey());
                 byte[] rawSignature;
-                using (var key = CngKey.Import(keyBytes, CngKeyBlobFormat.Pkcs8PrivateBlob))
+                using (var key = ImportPrivateKey(keyBytes))
                 using (var ecdsa = new ECDsaCng(key))
                 {
                     rawSignature = ecdsa.SignData(
@@ -116,6 +116,42 @@ namespace YipaSULicenseSigner
                 .GetManifestResourceStream("YipaSULicenseSigner.private.key"))
             using (var reader = new StreamReader(stream ?? throw new InvalidOperationException("内置私钥缺失。")))
                 return reader.ReadToEnd().Trim();
+        }
+
+        private static CngKey ImportPrivateKey(byte[] pkcs8)
+        {
+            try
+            {
+                return CngKey.Import(pkcs8, CngKeyBlobFormat.Pkcs8PrivateBlob);
+            }
+            catch (CryptographicException)
+            {
+                // Some Windows/.NET Framework combinations expose the PKCS#8
+                // blob type but fail to import an EC key. Convert the embedded
+                // P-256 key to the native BCRYPT_ECCPRIVATE_BLOB layout.
+                var privateOffset = -1;
+                for (var i = 0; i <= pkcs8.Length - 37; i++)
+                {
+                    if (pkcs8[i] == 0x02 && pkcs8[i + 1] == 0x01 && pkcs8[i + 2] == 0x01 &&
+                        pkcs8[i + 3] == 0x04 && pkcs8[i + 4] == 0x20)
+                    {
+                        privateOffset = i + 5;
+                        break;
+                    }
+                }
+
+                var pointOffset = pkcs8.Length - 65;
+                if (privateOffset < 0 || pointOffset < 0 || pkcs8[pointOffset] != 0x04)
+                    throw new CryptographicException("不支持的 EC 私钥格式。需要带公钥点的 P-256 PKCS#8 密钥。");
+
+                var blob = new byte[8 + 32 + 32 + 32];
+                Buffer.BlockCopy(BitConverter.GetBytes(0x32534345u), 0, blob, 0, 4); // ECS2
+                Buffer.BlockCopy(BitConverter.GetBytes(32u), 0, blob, 4, 4);
+                Buffer.BlockCopy(pkcs8, pointOffset + 1, blob, 8, 32);  // X
+                Buffer.BlockCopy(pkcs8, pointOffset + 33, blob, 40, 32); // Y
+                Buffer.BlockCopy(pkcs8, privateOffset, blob, 72, 32);    // D
+                return CngKey.Import(blob, CngKeyBlobFormat.EccPrivateBlob);
+            }
         }
 
         private static bool IsDer(byte[] value) => value.Length > 8 && value[0] == 0x30;
