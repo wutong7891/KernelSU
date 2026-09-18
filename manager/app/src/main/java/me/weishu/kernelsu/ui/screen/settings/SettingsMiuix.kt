@@ -28,8 +28,10 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.RemoveCircle
 import androidx.compose.material.icons.rounded.RemoveModerator
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -175,6 +177,41 @@ fun SettingPagerMiuix(
                             },
                             onClick = actions.onOpenTheme
                         )
+                    }
+
+                    KsuIsValid {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            ArrowPreference(
+                                title = stringResource(R.string.settings_soft_restart),
+                                summary = stringResource(R.string.settings_soft_restart_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.RestartAlt,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = null,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onSoftRestart,
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.settings_soter_fix),
+                                summary = stringResource(R.string.settings_soter_fix_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.VpnKey,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = null,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onRestartAndFixSoter,
+                            )
+                        }
                     }
 
                     KsuIsValid {

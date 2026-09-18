@@ -17,11 +17,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -40,13 +42,24 @@ class MainActivity : ComponentActivity() {
             val clipboard = LocalClipboardManager.current
             val context = LocalContext.current
 
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = Color(0xFF37E6FF),
+                    secondary = Color(0xFF7DFFB2),
+                    background = Color(0xFF050811),
+                    surface = Color(0xFF0B1220),
+                ),
+            ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Text("YipaSU 激活码签发器", style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            "YipaSU // 激活码签发器",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                         Spacer(Modifier.height(12.dp))
                         Text("输入目标 YipaSU 管理器显示的 Android ID。私钥内置在此签发器中，请勿公开分发。")
                         Spacer(Modifier.height(16.dp))

@@ -25,10 +25,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -131,7 +131,9 @@ private fun FileExecutorContent(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var running by remember { mutableStateOf(false) }
-    var terminalFullscreen by remember { mutableStateOf(false) }
+    var terminalFullscreen by remember { mutableStateOf(true) }
+    var commandHistory by remember { mutableStateOf(emptyList<String>()) }
+    var historyIndex by remember { mutableStateOf(0) }
     var confirmExecution by remember { mutableStateOf(false) }
     var confirmMoveToAdb by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -151,8 +153,73 @@ private fun FileExecutorContent(
         running = false
     }
 
+    fun startRootSession(initialCommand: String? = null) {
+        terminalFullscreen = true
+        scope.launch {
+            try {
+                closeTerminal()
+                terminalOutput = "YipaSU ROOT TERMINAL\nMT-style interactive session\n\nroot@yipasu:/ # "
+                val process = withContext(Dispatchers.IO) { startRootTerminal(context) }
+                val writer = OutputStreamWriter(process.outputStream, Charsets.UTF_8)
+                terminalProcess = process
+                terminalWriter = writer
+                running = true
+                scope.launch(Dispatchers.IO) {
+                    BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            withContext(Dispatchers.Main) {
+                                if (line.startsWith("__YIPASU_EXIT__:")) {
+                                    appendTerminal("\n[exit ${line.removePrefix("__YIPASU_EXIT__:")}]\nroot@yipasu:/ # ")
+                                } else {
+                                    appendTerminal(line + "\n")
+                                }
+                            }
+                        }
+                    }
+                    val exitCode = process.waitFor()
+                    withContext(Dispatchers.Main) {
+                        appendTerminal("\n[Root shell exited: $exitCode]\n")
+                        terminalWriter = null
+                        terminalProcess = null
+                        running = false
+                    }
+                }
+                if (initialCommand != null) {
+                    withContext(Dispatchers.IO) {
+                        writer.write(initialCommand)
+                        writer.write("\n")
+                        writer.flush()
+                    }
+                }
+            } catch (error: Throwable) {
+                appendTerminal("\n${error.message ?: error.javaClass.simpleName}\n")
+                closeTerminal()
+            }
+        }
+    }
+
+    fun sendRawTerminalInput(value: String) {
+        val writer = terminalWriter ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                writer.write(value)
+                writer.flush()
+            } catch (error: Throwable) {
+                withContext(Dispatchers.Main) {
+                    appendTerminal("\n${error.message ?: "stdin closed"}\n")
+                    closeTerminal()
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { closeTerminal() }
+    }
+
+    LaunchedEffect(Unit) {
+        startRootSession()
     }
 
     LaunchedEffect(terminalOutput, terminalFullscreen) {
@@ -184,46 +251,16 @@ private fun FileExecutorContent(
         confirmExecution = false
         showSelectedActions = false
         terminalFullscreen = true
-        scope.launch {
-            try {
-                closeTerminal()
-                terminalOutput = "YipaSU ROOT CONSOLE\n# ${file.path}\n"
-                val process = withContext(Dispatchers.IO) { startRootTerminal(context) }
-                val writer = OutputStreamWriter(process.outputStream, Charsets.UTF_8)
-                terminalProcess = process
-                terminalWriter = writer
-                running = true
-                withContext(Dispatchers.IO) {
-                    writer.write(buildExecutionCommand(file.path))
-                    writer.write("\n")
-                    writer.flush()
-                }
-                scope.launch(Dispatchers.IO) {
-                    BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            withContext(Dispatchers.Main) {
-                                if (line.startsWith("__YIPASU_EXIT__:")) {
-                                    appendTerminal("\n[exit ${line.removePrefix("__YIPASU_EXIT__:")}]\n# ")
-                                } else {
-                                    appendTerminal(line + "\n")
-                                }
-                            }
-                        }
-                    }
-                    val exitCode = process.waitFor()
-                    withContext(Dispatchers.Main) {
-                        appendTerminal("\n[Root shell exited: $exitCode]\n")
-                        terminalWriter = null
-                        terminalProcess = null
-                        running = false
-                    }
-                }
-                terminalFocusRequester.requestFocus()
-                keyboardController?.show()
-            } catch (error: Throwable) {
-                appendTerminal("\n${error.message ?: error.javaClass.simpleName}\n")
-                closeTerminal()
+        val command = buildExecutionCommand(file.path)
+        val writer = terminalWriter
+        if (writer == null || !running) {
+            startRootSession(command)
+        } else {
+            appendTerminal("${file.path}\n")
+            scope.launch(Dispatchers.IO) {
+                writer.write(command)
+                writer.write("\n")
+                writer.flush()
             }
         }
     }
@@ -231,7 +268,10 @@ private fun FileExecutorContent(
     fun sendTerminalInput() {
         val writer = terminalWriter ?: return
         val input = terminalInput
+        if (input.isBlank()) return
         terminalInput = ""
+        commandHistory = (commandHistory + input).takeLast(100)
+        historyIndex = commandHistory.size + 1
         appendTerminal(input + "\n")
         scope.launch(Dispatchers.IO) {
             try {
@@ -245,6 +285,14 @@ private fun FileExecutorContent(
                 }
             }
         }
+    }
+
+    fun browseHistory(delta: Int) {
+        if (commandHistory.isEmpty()) return
+        historyIndex = (historyIndex + delta).coerceIn(0, commandHistory.lastIndex)
+        terminalInput = commandHistory[historyIndex]
+        terminalFocusRequester.requestFocus()
+        keyboardController?.show()
     }
 
     fun moveSelectedToAdb() {
@@ -274,8 +322,8 @@ private fun FileExecutorContent(
                 title = {
                     Column {
                         Text(
-                            text = if (terminalFullscreen) stringResource(R.string.file_executor_output)
-                            else "YipaSU · ${stringResource(R.string.terminal)}",
+                            text = if (terminalFullscreen) "YipaSU · ${stringResource(R.string.terminal)}"
+                            else stringResource(R.string.file_executor_files),
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
@@ -288,7 +336,7 @@ private fun FileExecutorContent(
                 },
                 navigationIcon = {
                     when {
-                        terminalFullscreen -> IconButton(onClick = { terminalFullscreen = false }) {
+                        !terminalFullscreen -> IconButton(onClick = { terminalFullscreen = true }) {
                             Icon(
                                 Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = stringResource(R.string.file_executor_terminal_back),
@@ -301,13 +349,11 @@ private fun FileExecutorContent(
                 },
                 actions = {
                     if (terminalFullscreen) {
-                        IconButton(
-                            onClick = {
-                                closeTerminal()
-                                terminalFullscreen = false
-                            },
-                        ) {
-                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.file_executor_stop_terminal))
+                        IconButton(onClick = { terminalFullscreen = false }) {
+                            Icon(Icons.Rounded.Folder, contentDescription = stringResource(R.string.file_executor_files))
+                        }
+                        IconButton(onClick = { startRootSession() }) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.file_executor_new_session))
                         }
                     } else {
                         Box {
@@ -347,6 +393,11 @@ private fun FileExecutorContent(
                 focusRequester = terminalFocusRequester,
                 onInputChanged = { terminalInput = it },
                 onSend = ::sendTerminalInput,
+                onHistoryPrevious = { browseHistory(-1) },
+                onHistoryNext = { browseHistory(1) },
+                onTab = { sendRawTerminalInput("\t") },
+                onInterrupt = { sendRawTerminalInput("\u0003") },
+                onClear = { terminalOutput = "root@yipasu:/ # " },
                 onFocusRequest = {
                     terminalFocusRequester.requestFocus()
                     keyboardController?.show()
@@ -563,6 +614,11 @@ private fun FullscreenTerminal(
     focusRequester: FocusRequester,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
+    onHistoryPrevious: () -> Unit,
+    onHistoryNext: () -> Unit,
+    onTab: () -> Unit,
+    onInterrupt: () -> Unit,
+    onClear: () -> Unit,
     onFocusRequest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -599,6 +655,26 @@ private fun FullscreenTerminal(
             )
         }
         Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            TextButton(onClick = onTab, enabled = running, modifier = Modifier.weight(1f)) {
+                Text("TAB", fontFamily = FontFamily.Monospace)
+            }
+            TextButton(onClick = onHistoryPrevious, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = stringResource(R.string.file_executor_history_previous))
+            }
+            TextButton(onClick = onHistoryNext, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = stringResource(R.string.file_executor_history_next))
+            }
+            TextButton(onClick = onInterrupt, enabled = running, modifier = Modifier.weight(1f)) {
+                Text("CTRL+C", fontFamily = FontFamily.Monospace)
+            }
+            TextButton(onClick = onClear, modifier = Modifier.weight(1f)) {
+                Text("CLS", fontFamily = FontFamily.Monospace)
+            }
+        }
         OutlinedTextField(
             value = input,
             onValueChange = onInputChanged,

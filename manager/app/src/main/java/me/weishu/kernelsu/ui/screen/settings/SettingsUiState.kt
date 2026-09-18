@@ -68,5 +68,7 @@ data class SettingsScreenActions(
     val onSetDefaultUmountModules: (Boolean) -> Unit,
     val onSetEnableWebDebugging: (Boolean) -> Unit,
     val onSetAutoJailbreak: (Boolean) -> Unit,
+    val onSoftRestart: () -> Unit,
+    val onRestartAndFixSoter: () -> Unit,
     val onOpenAbout: () -> Unit,
 )

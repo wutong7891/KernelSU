@@ -2,8 +2,12 @@ package com.jinfuwei.luoyu.patcher
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -21,40 +25,59 @@ class MainActivity : Activity() {
         "android14-6.1", "android15-6.6", "android16-6.12"
     )
     private lateinit var sourceLabel: TextView
+    private lateinit var outputLabel: TextView
     private lateinit var kmiSpinner: Spinner
     private lateinit var allowShell: CheckBox
     private lateinit var enableAdb: CheckBox
     private lateinit var patchButton: Button
     private lateinit var logView: TextView
     private var sourceUri: Uri? = null
+    private var sourceName: String = "boot.img"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.rgb(5, 8, 17)
+        window.navigationBarColor = Color.rgb(5, 8, 17)
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(24), dp(20), dp(24))
+            setBackgroundColor(Color.rgb(5, 8, 17))
         }
         content.addView(TextView(this).apply {
             text = "YipaSU 脱机镜像工坊"
             textSize = 26f
+            setTextColor(Color.rgb(55, 230, 255))
         })
         content.addView(TextView(this).apply {
             text = "完全脱机修补 boot / init_boot；本 APK 不申请网络权限。"
+            setTextColor(Color.rgb(134, 161, 181))
             setPadding(0, dp(8), 0, dp(18))
         })
 
-        sourceLabel = TextView(this).apply { text = "尚未选择原始镜像" }
+        sourceLabel = TextView(this).apply {
+            text = "尚未选择原始镜像"
+            setTextColor(Color.WHITE)
+        }
         content.addView(sourceLabel)
         content.addView(Button(this).apply {
             text = "选择 boot.img / init_boot.img"
+            backgroundTintList = ColorStateList.valueOf(Color.rgb(25, 92, 112))
             setOnClickListener { chooseSource() }
         })
 
+        outputLabel = TextView(this).apply {
+            text = "输出：选择镜像后自动保存到原目录，后缀为 .img"
+            setTextColor(Color.rgb(125, 255, 178))
+            setPadding(0, dp(10), 0, 0)
+        }
+        content.addView(outputLabel)
+
         content.addView(TextView(this).apply {
             text = "选择准确的 KMI 版本"
+            setTextColor(Color.WHITE)
             setPadding(0, dp(16), 0, dp(4))
         })
         kmiSpinner = Spinner(this).apply {
@@ -69,17 +92,22 @@ class MainActivity : Activity() {
 
         allowShell = CheckBox(this).apply { text = "允许 shell 获取 Root" }
         enableAdb = CheckBox(this).apply { text = "启用调试 ADB" }
+        allowShell.setTextColor(Color.WHITE)
+        enableAdb.setTextColor(Color.WHITE)
         content.addView(allowShell)
         content.addView(enableAdb)
 
         patchButton = Button(this).apply {
-            text = "选择输出位置并开始修补"
-            setOnClickListener { chooseOutput() }
+            text = "开始脱机修补"
+            backgroundTintList = ColorStateList.valueOf(Color.rgb(43, 105, 215))
+            setOnClickListener { patch() }
         }
         content.addView(patchButton)
 
         logView = TextView(this).apply {
             text = "就绪。修补前请备份原始镜像。"
+            setTextColor(Color.rgb(125, 255, 178))
+            setBackgroundColor(Color.rgb(9, 16, 27))
             setTextIsSelectable(true)
             setPadding(0, dp(18), 0, 0)
         }
@@ -97,31 +125,25 @@ class MainActivity : Activity() {
         }, REQUEST_SOURCE)
     }
 
-    private fun chooseOutput() {
-        if (sourceUri == null) {
-            Toast.makeText(this, "请先选择原始镜像", Toast.LENGTH_SHORT).show()
-            return
-        }
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/octet-stream"
-            putExtra(Intent.EXTRA_TITLE, "YipaSU_patched.img")
-        }, REQUEST_OUTPUT)
-    }
-
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK || data?.data == null) return
         if (requestCode == REQUEST_SOURCE) {
             sourceUri = data.data
-            sourceLabel.text = "原始镜像：${data.data}"
-        } else if (requestCode == REQUEST_OUTPUT) {
-            patch(data.data!!)
+            runCatching {
+                contentResolver.takePersistableUriPermission(
+                    data.data!!,
+                    data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION),
+                )
+            }
+            sourceName = queryDisplayName(data.data!!) ?: "boot.img"
+            sourceLabel.text = "原始镜像：$sourceName"
+            outputLabel.text = "自动输出：${outputName()}（原目录）"
         }
     }
 
-    private fun patch(outputUri: Uri) {
+    private fun patch() {
         val inputUri = sourceUri ?: return
         patchButton.isEnabled = false
         logView.text = "正在准备脱机资源…"
@@ -156,6 +178,7 @@ class MainActivity : Activity() {
                 check(exitCode == 0 && outputFile.isFile) {
                     "修补失败，退出代码 $exitCode\n$output"
                 }
+                val outputUri = createSiblingOutput(inputUri, outputName())
                 contentResolver.openOutputStream(outputUri, "w")!!.use { target ->
                     outputFile.inputStream().use { it.copyTo(target) }
                 }
@@ -174,8 +197,42 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun outputName(): String {
+        val base = sourceName.substringBeforeLast('.', sourceName).ifBlank { "boot" }
+        return "${base}_YipaSU_patched.img"
+    }
+
+    private fun queryDisplayName(uri: Uri): String? = contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+
+    private fun createSiblingOutput(source: Uri, name: String): Uri {
+        check(DocumentsContract.isDocumentUri(this, source)) {
+            "当前文件提供器无法自动写入原目录，请使用系统文件管理器选择镜像。"
+        }
+        val authority = checkNotNull(source.authority)
+        val documentId = DocumentsContract.getDocumentId(source)
+        val slash = documentId.lastIndexOf('/')
+        val parentId = if (slash >= 0) {
+            documentId.substring(0, slash)
+        } else {
+            val colon = documentId.indexOf(':')
+            check(colon >= 0) { "无法识别所选镜像的原目录。" }
+            documentId.substring(0, colon + 1)
+        }
+        val parent = DocumentsContract.buildDocumentUri(authority, parentId)
+        return checkNotNull(
+            DocumentsContract.createDocument(contentResolver, parent, "application/octet-stream", name),
+        ) { "无法在原镜像目录创建输出文件，请确认目录允许写入。" }
+    }
+
     companion object {
         private const val REQUEST_SOURCE = 1001
-        private const val REQUEST_OUTPUT = 1002
     }
 }

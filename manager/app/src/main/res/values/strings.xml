@@ -315,4 +315,17 @@
     <string name="file_executor_refresh">Refresh directory</string>
     <string name="file_executor_selected_title">Selected file</string>
     <string name="file_executor_terminal_back">Back to files</string>
+    <string name="file_executor_files">Files</string>
+    <string name="file_executor_new_session">New Root session</string>
+    <string name="file_executor_history_previous">Previous command</string>
+    <string name="file_executor_history_next">Next command</string>
+    <string name="settings_soft_restart">Soft restart</string>
+    <string name="settings_soft_restart_summary">Restart Android services without a full device reboot</string>
+    <string name="settings_soft_restart_confirm">Soft restart now?</string>
+    <string name="settings_soft_restart_confirm_summary">The Android framework and apps will restart immediately.</string>
+    <string name="settings_soter_fix">Restart and auto-fix SOTER Key</string>
+    <string name="settings_soter_fix_summary">Run the SOTER repair twice after the next boot and open the Key status test after each pass</string>
+    <string name="settings_soter_fix_confirm">Install one-shot SOTER repair and restart?</string>
+    <string name="settings_soter_fix_confirm_summary">This clears com.tencent.soter.soterserver data twice. UI navigation is text-based and requires the phone to be unlocked after boot.</string>
+    <string name="settings_soter_fix_failed">Could not install the SOTER repair script</string>
 </resources>

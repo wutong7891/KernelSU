@@ -6,12 +6,20 @@ This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at ver
 
 - Uses the supplied “无痛定制” artwork as the adaptive and legacy launcher icon.
 - Adds a dedicated **Terminal** page at the right side of the main bottom navigation, next to Settings.
+- Removes the duplicate terminal card from Home, leaving the bottom-navigation Terminal as the single entry point.
 - Adds a full-screen Root file browser with a cyber-style dark cyan interface that can navigate from `/`, jump to a typed path, select a file, confirm execution, and display stdout/stderr plus the exit code.
 - Root paths are shell-escaped before browsing, moving, or execution.
 - The Root terminal now uses an interactive stdin session: tap the terminal, type while the selected program is running, and press Enter to send input. The separate argument field has been removed.
 - Moves the `/data/adb` shortcut and refresh action into the top-right overflow menu.
 - Tapping a file opens centered Execute and Move-to-`/data/adb` actions; execution switches to a full-screen interactive terminal view.
 - The confirmed one-click Root move action refuses to overwrite an existing destination file.
+- The Terminal keeps a persistent Root shell and adds command history, Tab, Ctrl+C, clear-screen, file-browser, and new-session controls in an MT-inspired original interface.
+
+## Restart and SOTER repair
+
+- The primary reboot action uses Android soft restart.
+- Settings includes a confirmed one-shot **Restart and auto-fix SOTER Key** action. It installs a Root boot script, soft-restarts, waits for Android to finish booting, runs the supplied SOTER service/data repair sequence twice, and after each pass opens the dialer test code and navigates through Manual test / Other / Key status by visible text.
+- The phone must be unlocked for the text-driven UI navigation. The script removes itself before running and writes its diagnostic log to `/data/adb/yipasu_soter_key_fix.log`.
 
 ## Packages
 
@@ -40,7 +48,11 @@ The manager signing certificate is generated per workflow run. Its hash and the 
 
 The Android `ksud` binaries repacked into the manager are built with `pack_lkm: false`, so the manager APK contains no built-in KMI modules. The separate `YipaSUOfflinePatcher.exe` is built on GitHub Actions and embeds the Windows patch engine plus the exclusive KMI set for fully offline boot/init_boot patching.
 
+Both offline patchers provide a graphical interface. They no longer ask for a separate output path: the patched file is automatically created beside the selected source image as `<source>_YipaSU_patched.img` (and the Windows restore action creates `<source>_YipaSU_restored.img`).
+
 Additional GitHub-built tools are provided for the requested platform split:
 
 - `YipaSULicenseSigner.exe`: a Windows offline Android ID activation-code signer with the private key injected from the encrypted Actions secret;
 - `YipaSU-Offline-Patcher-release.apk`: an Android app with no Internet permission that contains the exclusive KMI files and patches a user-selected boot/init_boot image through Android's document picker.
+
+The Windows and Android signing tools both provide graphical interfaces. The private signing key remains injected only during the GitHub Actions build and is never committed to the repository.

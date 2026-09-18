@@ -23,7 +23,7 @@ namespace YipaSUOfflinePatcher
     internal sealed class MainForm : Form
     {
         private readonly TextBox inputBox = new TextBox();
-        private readonly TextBox outputBox = new TextBox();
+        private readonly Label outputHint = new Label();
         private readonly ComboBox kmiBox = new ComboBox();
         private readonly CheckBox allowShellBox = new CheckBox();
         private readonly CheckBox enableAdbBox = new CheckBox();
@@ -39,21 +39,22 @@ namespace YipaSUOfflinePatcher
             MinimumSize = new Size(700, 560);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft YaHei UI", 9F);
-            BackColor = Color.FromArgb(246, 248, 252);
+            BackColor = Color.FromArgb(10, 15, 26);
+            ForeColor = Color.FromArgb(220, 240, 248);
             AllowDrop = true;
 
             var title = new Label
             {
                 Text = "YipaSU 脱机镜像工坊",
                 Font = new Font("Microsoft YaHei UI", 19F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(38, 65, 125),
+                ForeColor = Color.FromArgb(55, 230, 255),
                 AutoSize = true,
                 Location = new Point(24, 18)
             };
             var subtitle = new Label
             {
                 Text = "boot / init_boot 本地修补 · 全程无需联网 · 支持拖放镜像",
-                ForeColor = Color.DimGray,
+                ForeColor = Color.FromArgb(134, 161, 181),
                 AutoSize = true,
                 Location = new Point(28, 61)
             };
@@ -61,7 +62,14 @@ namespace YipaSUOfflinePatcher
             Controls.Add(title);
             Controls.Add(subtitle);
             AddRow("原始镜像", inputBox, 100, BrowseInput);
-            AddRow("输出镜像", outputBox, 143, BrowseOutput);
+
+            outputHint.Text = "输出：选择镜像后自动保存在原目录（.img）";
+            outputHint.ForeColor = Color.FromArgb(125, 255, 178);
+            outputHint.AutoEllipsis = true;
+            outputHint.SetBounds(125, 143, 607, 28);
+            outputHint.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(new Label { Text = "自动输出", AutoSize = true, Location = new Point(28, 147) });
+            Controls.Add(outputHint);
 
             Controls.Add(new Label { Text = "KMI 版本", AutoSize = true, Location = new Point(28, 190) });
             kmiBox.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -147,25 +155,18 @@ namespace YipaSUOfflinePatcher
             }
         }
 
-        private void BrowseOutput(object sender, EventArgs e)
-        {
-            using (var dialog = new SaveFileDialog
-            {
-                Filter = "Android 镜像 (*.img)|*.img|所有文件 (*.*)|*.*",
-                FileName = Path.GetFileName(outputBox.Text),
-                InitialDirectory = Path.GetDirectoryName(outputBox.Text)
-            })
-            {
-                if (dialog.ShowDialog(this) == DialogResult.OK) outputBox.Text = dialog.FileName;
-            }
-        }
-
         private void SetInput(string path)
         {
             inputBox.Text = path;
-            var dir = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory;
-            var name = Path.GetFileNameWithoutExtension(path);
-            outputBox.Text = Path.Combine(dir, name + "_YipaSU_patched.img");
+            outputHint.Text = "输出：" + GetOutputPath(false);
+        }
+
+        private string GetOutputPath(bool restore)
+        {
+            var source = Path.GetFullPath(inputBox.Text);
+            var dir = Path.GetDirectoryName(source) ?? Environment.CurrentDirectory;
+            var name = Path.GetFileNameWithoutExtension(source);
+            return Path.Combine(dir, name + (restore ? "_YipaSU_restored.img" : "_YipaSU_patched.img"));
         }
 
         private async Task RunPatch(bool restore)
@@ -175,22 +176,18 @@ namespace YipaSUOfflinePatcher
                 MessageBox.Show(this, "请选择有效的原始镜像。", "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            if (string.IsNullOrWhiteSpace(outputBox.Text))
-            {
-                MessageBox.Show(this, "请选择输出路径。", "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+            var outputPath = GetOutputPath(restore);
 
             patchButton.Enabled = restoreButton.Enabled = false;
             try
             {
                 EnsureEngine();
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputBox.Text)));
+                Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
                 var args = new StringBuilder();
                 args.Append(restore ? "boot-restore" : "boot-patch");
                 args.Append(" --boot ").Append(Quote(inputBox.Text));
-                args.Append(" --out ").Append(Quote(Path.GetDirectoryName(Path.GetFullPath(outputBox.Text))));
-                args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputBox.Text)));
+                args.Append(" --out ").Append(Quote(Path.GetDirectoryName(outputPath)));
+                args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputPath)));
                 if (!restore && kmiBox.SelectedIndex > 0)
                     args.Append(" --kmi ").Append(kmiBox.SelectedItem.ToString());
                 if (!restore && allowShellBox.Checked) args.Append(" --allow-shell");
@@ -217,8 +214,9 @@ namespace YipaSUOfflinePatcher
                     if (process.ExitCode != 0)
                         throw new InvalidOperationException("处理失败，退出代码：" + process.ExitCode);
                 }
-                AppendLog("完成：" + outputBox.Text + "\r\n");
-                MessageBox.Show(this, "处理完成。\n\n" + outputBox.Text, "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                outputHint.Text = "输出：" + outputPath;
+                AppendLog("完成：" + outputPath + "\r\n");
+                MessageBox.Show(this, "处理完成。\n\n" + outputPath, "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {

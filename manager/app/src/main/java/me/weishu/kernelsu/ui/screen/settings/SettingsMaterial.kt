@@ -25,7 +25,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.RemoveModerator
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Icon
@@ -148,6 +150,30 @@ fun SettingPagerMaterial(
                     }
                 }
             )
+
+            KsuIsValid {
+                SegmentedColumn(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    content = listOf(
+                        {
+                            SegmentedListItem(
+                                onClick = actions.onSoftRestart,
+                                headlineContent = { Text(stringResource(R.string.settings_soft_restart)) },
+                                supportingContent = { Text(stringResource(R.string.settings_soft_restart_summary)) },
+                                leadingContent = { Icon(Icons.Filled.RestartAlt, null) },
+                            )
+                        },
+                        {
+                            SegmentedListItem(
+                                onClick = actions.onRestartAndFixSoter,
+                                headlineContent = { Text(stringResource(R.string.settings_soter_fix)) },
+                                supportingContent = { Text(stringResource(R.string.settings_soter_fix_summary)) },
+                                leadingContent = { Icon(Icons.Filled.VpnKey, null) },
+                            )
+                        },
+                    ),
+                )
+            }
 
             val profileTemplate = stringResource(id = R.string.settings_profile_template)
             KsuIsValid {

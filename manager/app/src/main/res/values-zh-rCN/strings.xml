@@ -293,4 +293,17 @@
     <string name="file_executor_refresh">刷新目录</string>
     <string name="file_executor_selected_title">已选择文件</string>
     <string name="file_executor_terminal_back">返回文件目录</string>
+    <string name="file_executor_files">文件</string>
+    <string name="file_executor_new_session">新建 Root 会话</string>
+    <string name="file_executor_history_previous">上一条命令</string>
+    <string name="file_executor_history_next">下一条命令</string>
+    <string name="settings_soft_restart">软重启</string>
+    <string name="settings_soft_restart_summary">不完整重启设备，仅重新启动 Android 系统服务</string>
+    <string name="settings_soft_restart_confirm">立即软重启？</string>
+    <string name="settings_soft_restart_confirm_summary">Android 框架和应用将立即重新启动。</string>
+    <string name="settings_soter_fix">重启并自动修复 SOTER Key</string>
+    <string name="settings_soter_fix_summary">下次开机后执行两遍 SOTER 修复，每遍完成后自动打开 Key 状态测试页</string>
+    <string name="settings_soter_fix_confirm">安装一次性 SOTER 修复并重启？</string>
+    <string name="settings_soter_fix_confirm_summary">此操作会清除两次 com.tencent.soter.soterserver 数据。页面跳转按文字自动识别，开机后需先解锁手机。</string>
+    <string name="settings_soter_fix_failed">无法安装 SOTER 修复脚本</string>
 </resources>

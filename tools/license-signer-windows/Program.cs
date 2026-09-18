@@ -32,13 +32,14 @@ namespace YipaSULicenseSigner
             MinimumSize = new Size(620, 350);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft YaHei UI", 9F);
-            BackColor = Color.FromArgb(246, 248, 252);
+            BackColor = Color.FromArgb(10, 15, 26);
+            ForeColor = Color.FromArgb(220, 240, 248);
 
             Controls.Add(new Label
             {
                 Text = "YipaSU 激活码签发工具",
                 Font = new Font("Microsoft YaHei UI", 19F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(38, 65, 125),
+                ForeColor = Color.FromArgb(55, 230, 255),
                 AutoSize = true,
                 Location = new Point(24, 20)
             });
@@ -46,7 +47,7 @@ namespace YipaSULicenseSigner
             {
                 Text = "输入目标管理器显示的 Android ID，全程脱机签发。",
                 AutoSize = true,
-                ForeColor = Color.DimGray,
+                ForeColor = Color.FromArgb(134, 161, 181),
                 Location = new Point(28, 67)
             });
             Controls.Add(new Label { Text = "Android ID", AutoSize = true, Location = new Point(28, 111) });
@@ -55,11 +56,19 @@ namespace YipaSULicenseSigner
 
             var signButton = new Button { Text = "生成激活码" };
             signButton.SetBounds(125, 151, 160, 40);
+            signButton.BackColor = Color.FromArgb(43, 105, 215);
+            signButton.ForeColor = Color.White;
+            signButton.FlatStyle = FlatStyle.Flat;
             signButton.Click += (_, __) => Sign();
             Controls.Add(signButton);
 
+            var pasteButton = new Button { Text = "粘贴 Android ID" };
+            pasteButton.SetBounds(300, 151, 160, 40);
+            pasteButton.Click += (_, __) => { if (Clipboard.ContainsText()) androidId.Text = Clipboard.GetText().Trim(); };
+            Controls.Add(pasteButton);
+
             var copyButton = new Button { Text = "复制激活码" };
-            copyButton.SetBounds(300, 151, 160, 40);
+            copyButton.SetBounds(475, 151, 170, 40);
             copyButton.Click += (_, __) =>
             {
                 if (!string.IsNullOrWhiteSpace(activationCode.Text)) Clipboard.SetText(activationCode.Text);
@@ -69,6 +78,8 @@ namespace YipaSULicenseSigner
             activationCode.Multiline = true;
             activationCode.ReadOnly = true;
             activationCode.ScrollBars = ScrollBars.Vertical;
+            activationCode.BackColor = Color.FromArgb(9, 16, 27);
+            activationCode.ForeColor = Color.FromArgb(125, 255, 178);
             activationCode.SetBounds(28, 213, 617, 105);
             activationCode.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(activationCode);

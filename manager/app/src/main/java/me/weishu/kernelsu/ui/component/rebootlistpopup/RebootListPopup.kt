@@ -22,11 +22,10 @@ fun getRebootListOption(): List<RebootListOption> {
     val isRebootingUserspaceSupported = pm?.isRebootingUserspaceSupported == true
 
     return buildList {
-        add(RebootListOption(R.string.reboot, ""))
+        add(RebootListOption(R.string.reboot_soft, "soft_reboot"))
         if (isRebootingUserspaceSupported) {
             add(RebootListOption(R.string.reboot_userspace, "userspace"))
         }
-        add(RebootListOption(R.string.reboot_soft, "soft_reboot"))
         add(RebootListOption(R.string.reboot_recovery, "recovery"))
         add(RebootListOption(R.string.reboot_bootloader, "bootloader"))
         add(RebootListOption(R.string.reboot_download, "download"))
