@@ -302,4 +302,13 @@
     <string name="nav_rail_collapse">Collapse navigation rail</string>
     <string name="settings_navigation_badge">Navigation badge</string>
     <string name="settings_navigation_badge_summary">Show granted app and enabled module counts on the navigation bar</string>
+    <string name="terminal">Terminal</string>
+    <string name="terminal_title">Night Terminal</string>
+    <string name="terminal_subtitle">Termux-compatible root shell</string>
+    <string name="terminal_hint">Enter a command…</string>
+    <string name="terminal_run">Run</string>
+    <string name="terminal_clear">Clear</string>
+    <string name="terminal_welcome">Night root terminal. Commands run with KernelSU privileges. Type pwd or ls -la to browse files.</string>
+    <string name="night_background">Background</string>
+    <string name="night_background_choose">Choose image</string>
 </resources>
