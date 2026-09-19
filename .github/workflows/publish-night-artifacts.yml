@@ -1,0 +1,39 @@
+name: Publish Night Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout night
+        uses: actions/checkout@v7
+        with:
+          ref: night
+          fetch-depth: 0
+
+      - name: Download successful Night artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: "35449071583"
+        run: |
+          rm -rf dist-night
+          mkdir -p dist-night/apk dist-night/kmi
+          gh run download "$RUN_ID" -n manager -D dist-night/apk
+          gh run download "$RUN_ID" -p '*-lkm' -D dist-night/kmi
+          APK=$(find dist-night/apk -type f -name '*.apk' | head -n 1)
+          test -n "$APK"
+          mv "$APK" dist-night/apk/Night-e5bae65-actions.apk
+
+      - name: Commit downloadable artifacts
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dist-night
+          git commit -m "build: Publish Night APK and certificate-bound KMI"
+          git push origin HEAD:night
