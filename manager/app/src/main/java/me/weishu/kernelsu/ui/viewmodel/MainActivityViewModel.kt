@@ -51,6 +51,7 @@ class MainActivityViewModel(
             enableFloatingBottomBarBlur = settingRepo.enableFloatingBottomBarBlur,
             enableNavigationBadge = settingRepo.enableNavigationBadge,
             moduleDescriptionMaxLines = settingRepo.moduleDescriptionMaxLines,
+            backgroundUri = prefs.getString("night_background_uri", "").orEmpty(),
             uiMode = UiMode.fromValue(settingRepo.uiMode),
         )
     }
@@ -67,6 +68,7 @@ class MainActivityViewModel(
             "enable_floating_bottom_bar",
             "enable_floating_bottom_bar_blur",
             "enable_navigation_badge",
+            "night_background_uri",
             "ui_mode",
         )
     }
@@ -85,7 +87,7 @@ private class MainPageState(
 }
 
 object MainPagerConfig {
-    const val PAGE_COUNT = 4
+    const val PAGE_COUNT = 5
     const val LAST_PAGE_INDEX = PAGE_COUNT - 1
 
     fun coercePage(page: Int): Int = page.coerceIn(0, LAST_PAGE_INDEX)
