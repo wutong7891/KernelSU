@@ -18,5 +18,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KernelSU"
+rootProject.name = "Night"
 include(":app")
