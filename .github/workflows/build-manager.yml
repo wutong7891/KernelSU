@@ -333,3 +333,37 @@ jobs:
             pip3 install telethon
             python3 $GITHUB_WORKSPACE/scripts/ksubot.py $APK
           fi
+
+  publish-night-artifacts:
+    needs: [repack-manager, build-lkm]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.repack-manager.result == 'success' && needs.build-lkm.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout night
+        uses: actions/checkout@v7
+        with:
+          ref: night
+          fetch-depth: 0
+
+      - name: Download current run artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf dist-night
+          mkdir -p dist-night/apk dist-night/kmi
+          gh run download "${{ github.run_id }}" -n manager -D dist-night/apk
+          gh run download "${{ github.run_id }}" -p '*-lkm' -D dist-night/kmi
+          APK=$(find dist-night/apk -type f -name '*.apk' | head -n 1)
+          test -n "$APK"
+          mv "$APK" dist-night/apk/Night-${{ github.sha }}-actions.apk
+
+      - name: Commit downloadable artifacts
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dist-night
+          git commit -m "build: Publish Night APK and certificate-bound KMI"
+          git push origin HEAD:night
