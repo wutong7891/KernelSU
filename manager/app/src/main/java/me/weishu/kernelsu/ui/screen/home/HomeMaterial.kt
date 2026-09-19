@@ -201,9 +201,9 @@ private fun StatusCard(
         val notInstalled = !ksuActive && state.kernelVersion.isGKI()
 
         val containerColor = if (ksuActive) {
-            MaterialTheme.colorScheme.secondaryContainer
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.78f)
         } else {
-            MaterialTheme.colorScheme.errorContainer
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f)
         }
         val contentColor = MaterialTheme.colorScheme.contentColorFor(containerColor)
 
