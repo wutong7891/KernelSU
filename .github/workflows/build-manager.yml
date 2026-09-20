@@ -3,7 +3,7 @@ name: Build Manager
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "dev", "ci", "night" ]
+    branches: [ "main", "dev", "ci" ]
     paths:
       - '.github/workflows/build-manager.yml'
       - '.github/workflows/build-lkm.yml'
@@ -87,8 +87,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Bind manual Night LKMs to the locally-held Night release certificate.
             # Only the public certificate fingerprint and DER size are published.
-            SIZE_HEX=0x0429
-            HASH=60669d4521187d0608fecbd8a8ba8add1b00b5dcf90c5d8b1b9dc268df5cb18f
+            SIZE_HEX=0x052b
+            HASH=2de33664e55fa2427469d1c84c530c3b582538763d2361b909593a50b81ad509
           fi
           echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
           echo "expected_hash=$HASH" >> $GITHUB_OUTPUT

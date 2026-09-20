@@ -2,8 +2,8 @@
 
 Night KMI modules are built for the Night manager signing certificate only.
 
-- Certificate DER size: `0x0429`
-- Certificate SHA-256: `60669d4521187d0608fecbd8a8ba8add1b00b5dcf90c5d8b1b9dc268df5cb18f`
+- Certificate DER size: `0x052b`
+- Certificate SHA-256: `2de33664e55fa2427469d1c84c530c3b582538763d2361b909593a50b81ad509`
 - Supported ARM64 KMI: Android 12–17 (`5.10`, `5.15`, `6.1`, `6.6`, `6.12`, `6.18`)
 - Supported x86_64 KMI: the same build matrix, distributed separately for compatible targets
 
