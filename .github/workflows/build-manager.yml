@@ -3,7 +3,7 @@ name: Build Manager
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "dev", "ci" ]
+    branches: [ "main", "dev", "ci", "night" ]
     paths:
       - '.github/workflows/build-manager.yml'
       - '.github/workflows/build-lkm.yml'
@@ -117,7 +117,9 @@ jobs:
     uses: ./.github/workflows/ksud.yml
     with:
       target: ${{ matrix.target }}
-      pack_lkm: true
+      # Night Manager deliberately ships without bundled KMI/LKM modules.
+      # Users can supply the separately published certificate-bound Night KMI.
+      pack_lkm: false
       pack_ksuinit: true
   
   build-ksud-extra:

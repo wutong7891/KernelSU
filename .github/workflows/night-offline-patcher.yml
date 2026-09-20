@@ -1,0 +1,141 @@
+name: Build Night Offline Patchers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["night"]
+    paths:
+      - '.github/workflows/night-offline-patcher.yml'
+      - '.github/workflows/build-lkm.yml'
+      - '.github/workflows/ddk-lkm.yml'
+      - '.github/workflows/ksud.yml'
+      - '.github/workflows/ksud-extra.yml'
+      - 'manager/offline-patcher/**'
+      - 'tools/night-offline-patcher/**'
+      - 'userspace/**'
+      - 'kernel/**'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build-lkm:
+    uses: ./.github/workflows/build-lkm.yml
+    with:
+      expected_size2: '0x0429'
+      expected_hash2: '60669d4521187d0608fecbd8a8ba8add1b00b5dcf90c5d8b1b9dc268df5cb18f'
+    secrets: inherit
+
+  build-ksuinit:
+    uses: ./.github/workflows/ksuinit.yml
+
+  build-android-engines:
+    needs: build-ksuinit
+    strategy:
+      matrix:
+        target: [aarch64-linux-android, x86_64-linux-android]
+    uses: ./.github/workflows/ksud.yml
+    with:
+      target: ${{ matrix.target }}
+      pack_lkm: false
+      pack_ksuinit: true
+
+  build-windows-engine:
+    needs: build-ksuinit
+    uses: ./.github/workflows/ksud-extra.yml
+    with:
+      target: x86_64-pc-windows-gnu
+      os: ubuntu-latest
+      pack_lkm: false
+      pack_ksuinit: true
+
+  windows-patcher:
+    needs: [build-lkm, build-windows-engine]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download Windows patch engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-pc-windows-gnu
+          path: artifacts/engine
+      - name: Download exclusive ARM64 KMI set
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-android*-lkm
+          merge-multiple: true
+          path: artifacts/kmi
+      - name: Prepare embedded resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools/night-offline-patcher/assets/kmi | Out-Null
+          Copy-Item artifacts/engine/ksud.exe tools/night-offline-patcher/assets/ksud.exe -Force
+          Copy-Item artifacts/kmi/*_kernelsu.ko tools/night-offline-patcher/assets/kmi/ -Force
+      - name: Build Windows GUI
+        run: dotnet build tools/night-offline-patcher/NightOfflinePatcher.csproj -c Release
+      - name: Upload Windows patcher
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-Offline-Patcher-Windows
+          path: tools/night-offline-patcher/bin/Release/net48/NightOfflinePatcher.exe
+
+  android-patcher:
+    needs: [build-lkm, build-android-engines]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./manager
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download ARM64 patch engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-aarch64-linux-android
+          path: artifacts/ksud-arm64
+      - name: Download x86_64 patch engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-linux-android
+          path: artifacts/ksud-x86_64
+      - name: Download exclusive ARM64 KMI set
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-android*-lkm
+          merge-multiple: true
+          path: artifacts/kmi
+      - name: Prepare APK resources
+        working-directory: .
+        run: |
+          mkdir -p manager/offline-patcher/src/main/jniLibs/arm64-v8a
+          mkdir -p manager/offline-patcher/src/main/jniLibs/x86_64
+          mkdir -p manager/offline-patcher/src/main/assets/kmi
+          cp artifacts/ksud-arm64/ksud manager/offline-patcher/src/main/jniLibs/arm64-v8a/libksud.so
+          cp artifacts/ksud-x86_64/ksud manager/offline-patcher/src/main/jniLibs/x86_64/libksud.so
+          cp artifacts/kmi/*_kernelsu.ko manager/offline-patcher/src/main/assets/kmi/
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: android-actions/setup-android@v4
+      - name: Create disposable CI signing key
+        run: |
+          keytool -genkeypair -alias patcher -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass night-patcher -keypass night-patcher \
+            -dname "CN=Night Offline Patcher CI" -storetype JKS -keystore patcher.jks
+          {
+            echo KEYSTORE_PASSWORD=night-patcher
+            echo KEY_ALIAS=patcher
+            echo KEY_PASSWORD=night-patcher
+            echo KEYSTORE_FILE=patcher.jks
+          } >> gradle.properties
+      - name: Build offline patcher APK
+        run: ./gradlew :offline-patcher:assembleRelease
+      - name: Upload Android patcher
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-Offline-Patcher-Android
+          path: manager/offline-patcher/build/outputs/apk/release/*.apk

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>NightOfflinePatcher</AssemblyName>
+    <RootNamespace>NightOfflinePatcher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="assets\ksud.exe" LogicalName="NightOfflinePatcher.ksud.exe" />
+    <EmbeddedResource Include="assets\kmi\*_kernelsu.ko">
+      <LogicalName>NightOfflinePatcher.KMI.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>
