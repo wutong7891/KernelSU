@@ -3,7 +3,7 @@
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
-        android:label="Night 脱机镜像工坊"
+        android:label="Night 脱机镜像工坊 FIX"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"

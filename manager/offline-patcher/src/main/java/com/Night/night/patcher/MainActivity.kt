@@ -52,13 +52,13 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
         content.addView(TextView(this).apply {
-            text = "NIGHT / OFFLINE IMAGE LAB"
+            text = "NIGHT / INIT_BOOT FIX V1.2"
             textSize = 25f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.rgb(153, 211, 255))
         })
         content.addView(TextView(this).apply {
-            text = "本地修补 boot / init_boot · 不联网 · 不连接设备 · 不执行刷写"
+            text = "LKM RAMDISK 修补 boot / init_boot · 不联网 · 不执行刷写"
             setTextColor(Color.rgb(152, 166, 194))
             setPadding(0, dp(8), 0, dp(20))
         })
@@ -93,7 +93,7 @@ class MainActivity : Activity() {
         content.addView(card)
 
         logView = TextView(this).apply {
-            text = "就绪。修补前请备份原始镜像。"
+            text = "V1.2 INIT_BOOT FIX 已就绪。修补前请备份原始镜像。"
             setTextColor(Color.rgb(199, 222, 247))
             setTextIsSelectable(true)
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -188,7 +188,7 @@ class MainActivity : Activity() {
                 val digest = sha256(outputFile)
                 runOnUiThread {
                     outputLabel.text = "输出：${outputName(restore)}"
-                    logView.text = "$output\n完成：$outputUri\nSHA-256：$digest"
+                    logView.text = "模式：LKM RAMDISK（支持 init_boot）\n$output\n完成：$outputUri\nSHA-256：$digest"
                     Toast.makeText(this, "脱机处理完成", Toast.LENGTH_LONG).show()
                 }
             } catch (error: Throwable) {
