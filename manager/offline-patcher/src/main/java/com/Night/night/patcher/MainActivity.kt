@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var restoreButton: Button
     private lateinit var logView: TextView
     private var sourceUri: Uri? = null
+    private var outputTreeUri: Uri? = null
     private var sourceName = "boot.img"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,13 +53,13 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
         content.addView(TextView(this).apply {
-            text = "NIGHT / INIT_BOOT FIX V1.2"
+            text = "NIGHT / MANUAL OUTPUT V1.3"
             textSize = 25f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.rgb(153, 211, 255))
         })
         content.addView(TextView(this).apply {
-            text = "LKM RAMDISK 修补 boot / init_boot · 不联网 · 不执行刷写"
+            text = "LKM RAMDISK 修补 boot / init_boot · 手动选择输出目录"
             setTextColor(Color.rgb(152, 166, 194))
             setPadding(0, dp(8), 0, dp(20))
         })
@@ -76,10 +77,11 @@ class MainActivity : Activity() {
         sourceLabel = label("尚未选择原始镜像", Color.WHITE)
         card.addView(sourceLabel)
         card.addView(actionButton("选择 boot.img / init_boot.img", Color.rgb(35, 93, 126)) { chooseSource() })
-        outputLabel = label("输出：选择镜像后自动保存到原目录", Color.rgb(141, 238, 213)).apply {
+        outputLabel = label("输出目录：尚未选择", Color.rgb(141, 238, 213)).apply {
             setPadding(0, dp(10), 0, dp(12))
         }
         card.addView(outputLabel)
+        card.addView(actionButton("手动选择输出目录", Color.rgb(38, 111, 91)) { chooseOutputDirectory() })
         card.addView(label("Night 专属 KMI", Color.WHITE))
         kmiSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, kmis)
@@ -93,7 +95,7 @@ class MainActivity : Activity() {
         content.addView(card)
 
         logView = TextView(this).apply {
-            text = "V1.2 INIT_BOOT FIX 已就绪。修补前请备份原始镜像。"
+            text = "V1.3 已就绪。请分别选择原始镜像和输出目录。"
             setTextColor(Color.rgb(199, 222, 247))
             setTextIsSelectable(true)
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -134,23 +136,55 @@ class MainActivity : Activity() {
         }, REQUEST_SOURCE)
     }
 
+    private fun chooseOutputDirectory() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        }, REQUEST_OUTPUT_DIRECTORY)
+    }
+
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_SOURCE || resultCode != RESULT_OK || data?.data == null) return
-        sourceUri = data.data
-        runCatching {
-            contentResolver.takePersistableUriPermission(data.data!!, data.flags and
-                (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+        if (resultCode != RESULT_OK || data?.data == null) return
+        when (requestCode) {
+            REQUEST_SOURCE -> {
+                sourceUri = data.data
+                runCatching {
+                    contentResolver.takePersistableUriPermission(data.data!!, data.flags and
+                        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+                }
+                sourceName = queryDisplayName(data.data!!) ?: "boot.img"
+                sourceLabel.text = "原始镜像：$sourceName"
+                refreshOutputLabel()
+            }
+            REQUEST_OUTPUT_DIRECTORY -> {
+                outputTreeUri = data.data
+                runCatching {
+                    contentResolver.takePersistableUriPermission(data.data!!, data.flags and
+                        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+                }
+                refreshOutputLabel()
+            }
         }
-        sourceName = queryDisplayName(data.data!!) ?: "boot.img"
-        sourceLabel.text = "原始镜像：$sourceName"
-        outputLabel.text = "自动输出：${outputName(false)}（原目录）"
+    }
+
+    private fun refreshOutputLabel() {
+        val tree = outputTreeUri
+        outputLabel.text = if (tree == null) {
+            "输出目录：尚未选择"
+        } else {
+            val location = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrDefault(tree.toString())
+            "输出目录：$location\n文件名：${outputName(false)}"
+        }
     }
 
     private fun patch(restore: Boolean) {
         val inputUri = sourceUri ?: run {
             Toast.makeText(this, "请先选择原始镜像", Toast.LENGTH_SHORT).show(); return
+        }
+        val outputTree = outputTreeUri ?: run {
+            Toast.makeText(this, "请手动选择输出目录", Toast.LENGTH_SHORT).show(); return
         }
         patchButton.isEnabled = false
         restoreButton.isEnabled = false
@@ -183,11 +217,11 @@ class MainActivity : Activity() {
                 val output = process.inputStream.bufferedReader().use { it.readText() }
                 val exitCode = process.waitFor()
                 check(exitCode == 0 && outputFile.isFile) { "修补失败，退出代码 $exitCode\n$output" }
-                val outputUri = createSiblingOutput(inputUri, outputName(restore))
+                val outputUri = createManualOutput(outputTree, outputName(restore))
                 contentResolver.openOutputStream(outputUri, "w")!!.use { target -> outputFile.inputStream().use { it.copyTo(target) } }
                 val digest = sha256(outputFile)
                 runOnUiThread {
-                    outputLabel.text = "输出：${outputName(restore)}"
+                    outputLabel.text = "已输出：${outputName(restore)}\n位置：$outputUri"
                     logView.text = "模式：LKM RAMDISK（支持 init_boot）\n$output\n完成：$outputUri\nSHA-256：$digest"
                     Toast.makeText(this, "脱机处理完成", Toast.LENGTH_LONG).show()
                 }
@@ -208,19 +242,12 @@ class MainActivity : Activity() {
         uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null,
     )?.use { if (it.moveToFirst()) it.getString(0) else null }
 
-    private fun createSiblingOutput(source: Uri, name: String): Uri {
-        check(DocumentsContract.isDocumentUri(this, source)) { "请通过系统文件管理器选择镜像。" }
-        val authority = checkNotNull(source.authority)
-        val documentId = DocumentsContract.getDocumentId(source)
-        val slash = documentId.lastIndexOf('/')
-        val parentId = if (slash >= 0) documentId.substring(0, slash) else {
-            val colon = documentId.indexOf(':')
-            check(colon >= 0) { "无法识别原目录。" }
-            documentId.substring(0, colon + 1)
-        }
-        val parent = DocumentsContract.buildDocumentUri(authority, parentId)
+    private fun createManualOutput(tree: Uri, name: String): Uri {
+        check(DocumentsContract.isTreeUri(tree)) { "请选择有效的输出目录。" }
+        val treeId = DocumentsContract.getTreeDocumentId(tree)
+        val parent = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
         return checkNotNull(DocumentsContract.createDocument(contentResolver, parent, "application/octet-stream", name)) {
-            "无法在原目录创建输出文件。"
+            "无法在所选目录创建输出文件。"
         }
     }
 
@@ -233,5 +260,8 @@ class MainActivity : Activity() {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    companion object { private const val REQUEST_SOURCE = 1001 }
+    companion object {
+        private const val REQUEST_SOURCE = 1001
+        private const val REQUEST_OUTPUT_DIRECTORY = 1002
+    }
 }
