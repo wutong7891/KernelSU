@@ -25,8 +25,10 @@ jobs:
   build-lkm:
     uses: ./.github/workflows/build-lkm.yml
     with:
-      expected_size2: '0x02ca'
-      expected_hash2: '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
+      expected_size: '0x02ca'
+      expected_hash: '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
+      manager_package: 'com.Night.night'
+      build_x86: false
     secrets: inherit
 
   build-ksuinit:

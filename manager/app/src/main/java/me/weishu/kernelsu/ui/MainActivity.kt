@@ -72,6 +72,8 @@ import me.weishu.kernelsu.ui.component.bottombar.NavigationBadgeState
 import me.weishu.kernelsu.ui.component.bottombar.SideRail
 import me.weishu.kernelsu.ui.component.bottombar.rememberMainPagerState
 import me.weishu.kernelsu.ui.component.bottombar.useNavigationRail
+import me.weishu.kernelsu.ui.activation.NightActivation
+import me.weishu.kernelsu.ui.activation.NightActivationScreen
 import me.weishu.kernelsu.ui.navigation3.IntentDispatcher
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Navigator
@@ -176,6 +178,11 @@ class MainActivity : ComponentActivity() {
                 LocalUiMode provides uiMode,
             ) {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
+                    var nightActivated by remember { mutableStateOf(NightActivation.isActivated(this@MainActivity)) }
+                    if (!nightActivated) {
+                        NightActivationScreen(onActivated = { nightActivated = true })
+                        SideEffect { contentReady = true }
+                    } else {
                     IntentDispatcher(intentChannel = intentChannel)
                     val mainScreenEntry = @Composable {
                         MainScreen(
@@ -235,6 +242,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     SideEffect { contentReady = true }
+                    }
                 }
             }
         }

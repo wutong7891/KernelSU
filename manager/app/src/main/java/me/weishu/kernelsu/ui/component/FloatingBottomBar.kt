@@ -5,6 +5,7 @@ package me.weishu.kernelsu.ui.component
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
@@ -49,9 +51,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
@@ -63,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.launch
+import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.component.liquid.InnerShadow
 import me.weishu.kernelsu.ui.component.liquid.innerShadow
 import me.weishu.kernelsu.ui.component.liquid.lens
@@ -335,6 +340,15 @@ fun FloatingBottomBar(
         modifier = modifier.width(IntrinsicSize.Min),
         contentAlignment = Alignment.CenterStart
     ) {
+        Image(
+            painter = painterResource(R.drawable.night_liquid_glass_nav),
+            contentDescription = null,
+            modifier = Modifier
+                .matchParentSize()
+                .clip(pillShape)
+                .alpha(if (isInDark) 0.28f else 0.38f),
+            contentScale = ContentScale.FillBounds,
+        )
         Row(
             Modifier
                 .onGloballyPositioned { coords ->

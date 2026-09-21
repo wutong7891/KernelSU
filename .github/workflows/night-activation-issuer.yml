@@ -1,0 +1,58 @@
+name: Build Night Activation Issuers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["night"]
+    paths:
+      - '.github/workflows/night-activation-issuer.yml'
+      - 'manager/activation-issuer/**'
+      - 'tools/night-activation-issuer/**'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-issuer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Windows issuer
+        run: dotnet build tools/night-activation-issuer/NightActivationIssuer.csproj -c Release
+      - name: Upload Windows issuer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-Activation-Issuer-Windows
+          path: tools/night-activation-issuer/bin/Release/net48/Night-Activation-Issuer.exe
+
+  android-issuer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./manager
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: android-actions/setup-android@v4
+      - name: Create disposable issuer signing key
+        run: |
+          keytool -genkeypair -alias issuer -keyalg RSA -keysize 2048 -validity 3650 \
+            -storepass night-issuer -keypass night-issuer \
+            -dname "CN=Night Activation Issuer" -storetype JKS -keystore issuer.jks
+          {
+            echo KEYSTORE_PASSWORD=night-issuer
+            echo KEY_ALIAS=issuer
+            echo KEY_PASSWORD=night-issuer
+            echo KEYSTORE_FILE=issuer.jks
+          } >> gradle.properties
+      - name: Build Android issuer
+        run: ./gradlew :activation-issuer:assembleRelease
+      - name: Upload Android issuer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-Activation-Issuer-Android
+          path: manager/activation-issuer/build/outputs/apk/release/*.apk

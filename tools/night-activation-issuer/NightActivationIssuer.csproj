@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>Night-Activation-Issuer</AssemblyName>
+    <RootNamespace>NightActivationIssuer</RootNamespace>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>

@@ -31,8 +31,6 @@ namespace NightOfflinePatcher
         private readonly TextBox inputBox = new TextBox();
         private readonly Label outputHint = new Label();
         private readonly ComboBox kmiBox = new ComboBox();
-        private readonly CheckBox allowShellBox = new CheckBox();
-        private readonly CheckBox enableAdbBox = new CheckBox();
         private readonly TextBox logBox = new TextBox();
         private readonly Button patchButton = new Button();
         private readonly Button restoreButton = new Button();
@@ -76,13 +74,6 @@ namespace NightOfflinePatcher
             kmiBox.SelectedIndex = 4;
             kmiBox.SetBounds(128, 193, 270, 31);
             Controls.Add(kmiBox);
-
-            allowShellBox.Text = "允许 shell 获取 Root";
-            allowShellBox.SetBounds(426, 195, 165, 28);
-            enableAdbBox.Text = "启用调试 ADB";
-            enableAdbBox.SetBounds(605, 195, 145, 28);
-            Controls.Add(allowShellBox);
-            Controls.Add(enableAdbBox);
 
             StylePrimary(patchButton, "开始脱机修补", 128, 242, 195);
             patchButton.Click += async (_, __) => await RunPatch(false);
@@ -181,13 +172,16 @@ namespace NightOfflinePatcher
             try {
                 EnsureResources(restore ? null : (string)kmiBox.SelectedItem);
                 var engine = Path.Combine(workDir, "ksud.exe");
-                var args = new StringBuilder(restore ? "boot-restore" : "boot-patch");
+                var args = new StringBuilder(restore ? "boot-restore" : "boot-patch-v2");
                 args.Append(" --boot ").Append(Quote(inputBox.Text));
-                args.Append(" --out ").Append(Quote(Path.GetDirectoryName(outputPath)));
-                args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputPath)));
-                if (!restore) args.Append(" --module ").Append(Quote(Path.Combine(workDir, "kernelsu.ko")));
-                if (!restore && allowShellBox.Checked) args.Append(" --allow-shell");
-                if (!restore && enableAdbBox.Checked) args.Append(" --enable-adbd");
+                if (restore) {
+                    args.Append(" --out ").Append(Quote(Path.GetDirectoryName(outputPath)));
+                    args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputPath)));
+                } else {
+                    args.Append(" --module ").Append(Quote(Path.Combine(workDir, "kernelsu.ko")));
+                    args.Append(" --output ").Append(Quote(outputPath));
+                    args.Append(" --force");
+                }
 
                 AppendLog("\r\n> " + (restore ? "恢复" : "修补") + "开始\r\n");
                 var start = new ProcessStartInfo(engine, args.ToString()) {

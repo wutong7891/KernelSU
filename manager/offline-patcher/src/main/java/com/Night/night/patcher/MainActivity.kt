@@ -14,7 +14,6 @@ import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -34,8 +33,6 @@ class MainActivity : Activity() {
     private lateinit var sourceLabel: TextView
     private lateinit var outputLabel: TextView
     private lateinit var kmiSpinner: Spinner
-    private lateinit var allowShell: CheckBox
-    private lateinit var enableAdb: CheckBox
     private lateinit var patchButton: Button
     private lateinit var restoreButton: Button
     private lateinit var logView: TextView
@@ -89,10 +86,6 @@ class MainActivity : Activity() {
             setSelection(4)
         }
         card.addView(kmiSpinner)
-        allowShell = CheckBox(this).apply { text = "允许 shell 获取 Root"; setTextColor(Color.WHITE) }
-        enableAdb = CheckBox(this).apply { text = "启用调试 ADB"; setTextColor(Color.WHITE) }
-        card.addView(allowShell)
-        card.addView(enableAdb)
         patchButton = actionButton("开始脱机修补", Color.rgb(65, 105, 225)) { patch(false) }
         restoreButton = actionButton("移除 KernelSU / 恢复", Color.rgb(64, 75, 96)) { patch(true) }
         card.addView(patchButton)
@@ -173,11 +166,13 @@ class MainActivity : Activity() {
                 }
                 outputFile.delete()
                 val engine = File(applicationInfo.nativeLibraryDir, "libksud.so")
-                val args = mutableListOf(engine.absolutePath, if (restore) "boot-restore" else "boot-patch",
-                    "--boot", inputFile.absolutePath, "--out", cacheDir.absolutePath, "--out-name", outputFile.name)
-                if (!restore) args += listOf("--module", moduleFile.absolutePath)
-                if (!restore && allowShell.isChecked) args += "--allow-shell"
-                if (!restore && enableAdb.isChecked) args += "--enable-adbd"
+                val args = if (restore) {
+                    mutableListOf(engine.absolutePath, "boot-restore", "--boot", inputFile.absolutePath,
+                        "--out", cacheDir.absolutePath, "--out-name", outputFile.name)
+                } else {
+                    mutableListOf(engine.absolutePath, "boot-patch-v2", "--boot", inputFile.absolutePath,
+                        "--module", moduleFile.absolutePath, "--output", outputFile.absolutePath, "--force")
+                }
                 val process = ProcessBuilder(args).redirectErrorStream(true).start()
                 val output = process.inputStream.bufferedReader().use { it.readText() }
                 val exitCode = process.waitFor()
