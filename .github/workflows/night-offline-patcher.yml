@@ -25,8 +25,8 @@ jobs:
   build-lkm:
     uses: ./.github/workflows/build-lkm.yml
     with:
-      expected_size2: '0x052b'
-      expected_hash2: '2de33664e55fa2427469d1c84c530c3b582538763d2361b909593a50b81ad509'
+      expected_size2: '0x02ca'
+      expected_hash2: '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
     secrets: inherit
 
   build-ksuinit:
