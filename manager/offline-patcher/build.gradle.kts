@@ -18,8 +18,8 @@ android {
         applicationId = "com.Night.night.patcher"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildTypes {

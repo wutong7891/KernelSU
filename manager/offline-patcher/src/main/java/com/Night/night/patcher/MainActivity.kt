@@ -166,12 +166,18 @@ class MainActivity : Activity() {
                 }
                 outputFile.delete()
                 val engine = File(applicationInfo.nativeLibraryDir, "libksud.so")
+                val selectedKmi = kmis[kmiSpinner.selectedItemPosition]
                 val args = if (restore) {
                     mutableListOf(engine.absolutePath, "boot-restore", "--boot", inputFile.absolutePath,
                         "--out", cacheDir.absolutePath, "--out-name", outputFile.name)
                 } else {
-                    mutableListOf(engine.absolutePath, "boot-patch-v2", "--boot", inputFile.absolutePath,
-                        "--module", moduleFile.absolutePath, "--output", outputFile.absolutePath, "--force")
+                    // init_boot intentionally has no kernel. Use KernelSU's LKM ramdisk
+                    // patcher for both boot and init_boot instead of the kernel-injection
+                    // boot-patch-v2 command, which can only operate on boot images that
+                    // contain a kernel block.
+                    mutableListOf(engine.absolutePath, "boot-patch", "--boot", inputFile.absolutePath,
+                        "--module", moduleFile.absolutePath, "--kmi", selectedKmi,
+                        "--out", cacheDir.absolutePath, "--out-name", outputFile.name)
                 }
                 val process = ProcessBuilder(args).redirectErrorStream(true).start()
                 val output = process.inputStream.bufferedReader().use { it.readText() }

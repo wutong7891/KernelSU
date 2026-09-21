@@ -123,16 +123,20 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
       - uses: android-actions/setup-android@v4
-      - name: Create disposable CI signing key
+      - name: Write stable Night signing key
+        env:
+          NIGHT_KEYSTORE: ${{ secrets.NIGHT_KEYSTORE }}
+          NIGHT_KEYSTORE_PASSWORD: ${{ secrets.NIGHT_KEYSTORE_PASSWORD }}
+          NIGHT_KEY_ALIAS: ${{ secrets.NIGHT_KEY_ALIAS }}
+          NIGHT_KEY_PASSWORD: ${{ secrets.NIGHT_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -alias patcher -keyalg RSA -keysize 2048 -validity 2 \
-            -storepass night-patcher -keypass night-patcher \
-            -dname "CN=Night Offline Patcher CI" -storetype JKS -keystore patcher.jks
+          test -n "$NIGHT_KEYSTORE"
+          echo "$NIGHT_KEYSTORE" | base64 -d > night-key.jks
           {
-            echo KEYSTORE_PASSWORD=night-patcher
-            echo KEY_ALIAS=patcher
-            echo KEY_PASSWORD=night-patcher
-            echo KEYSTORE_FILE=patcher.jks
+            echo KEYSTORE_PASSWORD="$NIGHT_KEYSTORE_PASSWORD"
+            echo KEY_ALIAS="$NIGHT_KEY_ALIAS"
+            echo KEY_PASSWORD="$NIGHT_KEY_PASSWORD"
+            echo KEYSTORE_FILE=night-key.jks
           } >> gradle.properties
       - name: Build offline patcher APK
         run: ./gradlew :offline-patcher:assembleRelease
