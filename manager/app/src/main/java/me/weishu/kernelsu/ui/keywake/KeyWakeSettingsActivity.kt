@@ -77,7 +77,6 @@ class KeyWakeSettingsActivity : Activity() {
                 .setPrimaryClip(android.content.ClipData.newPlainText("Night wake link", link))
             Toast.makeText(this, "测试链接已复制", Toast.LENGTH_SHORT).show()
         })
-        root.addView(button("手动隐藏目标应用（需确认）") { confirmManualHide() })
         root.addView(text("状态日志", 17f, Color.WHITE))
         logView = text(prefs.getString("log", "暂无记录") ?: "暂无记录", 13f, Color.LTGRAY).apply { setTextIsSelectable(true) }
         root.addView(logView, wide())
@@ -102,17 +101,6 @@ class KeyWakeSettingsActivity : Activity() {
         val referrer = intent.getParcelableExtra<Uri>(Intent.EXTRA_REFERRER)?.toString().orEmpty()
         val source = listOf(referrer, callingPackage.orEmpty()).joinToString("|").lowercase(Locale.ROOT)
         return source.contains("baidu") || source.contains("baiduboxapp")
-    }
-
-    private fun confirmManualHide() {
-        val target = packages.getOrNull(targetSpinner.selectedItemPosition).orEmpty()
-        AlertDialog.Builder(this).setTitle("确认隐藏应用").setMessage("将执行 pm disable-user --user 0 $target。可在系统设置中重新启用。")
-            .setNegativeButton("取消", null).setPositiveButton("确认隐藏") { _, _ ->
-                Thread {
-                    val result = runCatching { ProcessBuilder("su", "-c", "pm disable-user --user 0 $target").redirectErrorStream(true).start().run { inputStream.bufferedReader().readText(); waitFor() } }.getOrDefault(-1)
-                    runOnUiThread { appendLog("手动隐藏 $target：退出代码 $result") }
-                }.start()
-            }.show()
     }
 
     private fun appendLog(message: String) {
