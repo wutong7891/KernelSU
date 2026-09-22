@@ -1,5 +1,9 @@
 package me.weishu.kernelsu.ui.screen.terminal
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,33 +37,38 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.ui.util.createRootShell
-
-private const val PWD_MARKER = "__NIGHT_PWD__"
+import java.io.BufferedWriter
+import java.io.OutputStreamWriter
 
 private data class RootEntry(val name: String, val directory: Boolean)
 private data class RootResult(val code: Int, val stdout: String, val stderr: String)
 
 @Composable
 fun TerminalPager(bottomPadding: Dp) {
+    val context = LocalContext.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var cwd by remember { mutableStateOf("/data/adb") }
     var entries by remember { mutableStateOf(emptyList<RootEntry>()) }
     var loading by remember { mutableStateOf(true) }
@@ -68,9 +77,28 @@ fun TerminalPager(bottomPadding: Dp) {
     var pendingScript by remember { mutableStateOf<String?>(null) }
     var terminalVisible by remember { mutableStateOf(false) }
     var terminalOutput by remember { mutableStateOf("") }
+    var terminalTitle by remember { mutableStateOf("Night Root Terminal") }
     var command by remember { mutableStateOf("") }
-    var running by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var sessionRunning by remember { mutableStateOf(false) }
+    val session = remember {
+        InteractiveRootSession(
+            onOutput = { chunk ->
+                mainHandler.post {
+                    terminalOutput = (terminalOutput + chunk).takeLast(MAX_TERMINAL_CHARS)
+                }
+            },
+            onExit = { code ->
+                mainHandler.post {
+                    terminalOutput = (terminalOutput + "\n[进程退出，退出码：$code]\n").takeLast(MAX_TERMINAL_CHARS)
+                    sessionRunning = false
+                }
+            },
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { session.close() }
+    }
 
     suspend fun reload() {
         loading = true
@@ -81,28 +109,23 @@ fun TerminalPager(bottomPadding: Dp) {
         loading = false
     }
 
-    fun run(commandText: String) {
-        if (running || commandText.isBlank()) return
+    fun openTerminal(title: String = "Night Root Terminal", initialCommand: String? = null) {
         terminalVisible = true
-        running = true
-        terminalOutput += "\nroot@night:$cwd # $commandText\n"
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runRoot("cd ${shellQuote(cwd)} && { $commandText; }; printf '\n$PWD_MARKER'; pwd")
-            }
-            val markerAt = result.stdout.lastIndexOf(PWD_MARKER)
-            val visible = if (markerAt >= 0) result.stdout.substring(0, markerAt).trimEnd() else result.stdout
-            if (markerAt >= 0) {
-                result.stdout.substring(markerAt + PWD_MARKER.length).trim().lineSequence().firstOrNull()
-                    ?.takeIf { it.startsWith('/') }?.let { cwd = it }
-            }
-            terminalOutput += buildString {
-                if (visible.isNotBlank()) append(visible).append('\n')
-                if (result.stderr.isNotBlank()) append(result.stderr).append('\n')
-                if (result.code != 0) append("[exit ${result.code}]\n")
-            }
-            running = false
+        terminalTitle = title
+        terminalOutput = ""
+        session.close()
+        sessionRunning = session.start(cwd)
+        if (sessionRunning && initialCommand != null) {
+            terminalOutput = "root@night:$cwd # $initialCommand\n"
+            session.send(initialCommand)
         }
+    }
+
+    fun run(commandText: String) {
+        if (commandText.isBlank()) return
+        if (!sessionRunning) openTerminal()
+        terminalOutput = (terminalOutput + "\nroot@night:$cwd # $commandText\n").takeLast(MAX_TERMINAL_CHARS)
+        session.send(commandText)
     }
 
     LaunchedEffect(cwd, refreshKey, terminalVisible) {
@@ -118,7 +141,7 @@ fun TerminalPager(bottomPadding: Dp) {
             confirmButton = {
                 Button(onClick = {
                     pendingScript = null
-                    run("sh ${shellQuote(script)}")
+                    openTerminal(script.substringAfterLast('/'), "sh ${shellQuote(script)}")
                 }) { Text("确定") }
             },
         )
@@ -129,13 +152,17 @@ fun TerminalPager(bottomPadding: Dp) {
             Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = bottomPadding + 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { terminalVisible = false; refreshKey++ }) {
+                IconButton(onClick = { session.close(); sessionRunning = false; terminalVisible = false; refreshKey++ }) {
                     Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
                 }
-                Text("Night Root Terminal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(terminalTitle, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                TextButton(onClick = {
+                    context.getSystemService(ClipboardManager::class.java)
+                        .setPrimaryClip(ClipData.newPlainText("Night terminal output", stripAnsi(terminalOutput)))
+                }) { Text("复制") }
             }
             Text(
-                text = terminalOutput.ifBlank { "root@night:$cwd #" },
+                text = ansiText(terminalOutput.ifBlank { "root@night:$cwd #" }),
                 modifier = Modifier.weight(1f).fillMaxWidth()
                     .background(Color.Black, RoundedCornerShape(10.dp))
                     .padding(10.dp).verticalScroll(rememberScrollState()),
@@ -155,9 +182,9 @@ fun TerminalPager(bottomPadding: Dp) {
                 Spacer(Modifier.width(10.dp))
                 Button(
                     onClick = { val value = command; command = ""; run(value) },
-                    enabled = command.isNotBlank() && !running,
+                    enabled = command.isNotBlank(),
                     modifier = Modifier.weight(1f),
-                ) { Text(if (running) "执行中…" else "执行") }
+                ) { Text("执行") }
             }
         }
         return
@@ -207,7 +234,7 @@ fun TerminalPager(bottomPadding: Dp) {
                 }
             }
         }
-        Button(onClick = { terminalVisible = true }, modifier = Modifier.fillMaxWidth()) { Text("打开交互终端") }
+        Button(onClick = { openTerminal() }, modifier = Modifier.fillMaxWidth()) { Text("打开交互终端") }
     }
 }
 
@@ -240,3 +267,94 @@ private fun runRoot(command: String): RootResult {
 }
 
 private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+
+private const val MAX_TERMINAL_CHARS = 250_000
+
+private class InteractiveRootSession(
+    private val onOutput: (String) -> Unit,
+    private val onExit: (Int) -> Unit,
+) {
+    @Volatile private var process: Process? = null
+    @Volatile private var writer: BufferedWriter? = null
+
+    fun start(cwd: String): Boolean = runCatching {
+        val child = ProcessBuilder("su").redirectErrorStream(true).start()
+        process = child
+        writer = BufferedWriter(OutputStreamWriter(child.outputStream))
+        send("cd ${shellQuote(cwd)}")
+        Thread {
+            runCatching {
+                child.inputStream.bufferedReader().use { reader ->
+                    val buffer = CharArray(4096)
+                    while (true) {
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        onOutput(String(buffer, 0, count))
+                    }
+                }
+            }
+            val code = runCatching { child.waitFor() }.getOrDefault(-1)
+            if (process === child) {
+                process = null
+                writer = null
+                onExit(code)
+            }
+        }.apply { name = "NightRootTerminal"; isDaemon = true }.start()
+        true
+    }.getOrElse { error ->
+        onOutput("无法启动 su 终端：${error.message}\n请在设置中启用传统 SU 命令支持。\n")
+        false
+    }
+
+    @Synchronized fun send(text: String) {
+        runCatching {
+            writer?.apply { write(text); newLine(); flush() }
+                ?: onOutput("终端会话未运行。\n")
+        }.onFailure { onOutput("写入终端失败：${it.message}\n") }
+    }
+
+    @Synchronized fun close() {
+        val child = process ?: return
+        runCatching { writer?.apply { write("exit"); newLine(); flush() } }
+        runCatching { child.destroy() }
+        process = null
+        writer = null
+    }
+}
+
+private fun stripAnsi(value: String): String = value.replace(Regex("\\u001B\\[[0-9;?]*[ -/]*[@-~]"), "")
+
+private fun ansiText(value: String): AnnotatedString {
+    val regex = Regex("\\u001B\\[([0-9;]*)m")
+    var cursor = 0
+    var color = Color(0xFFE8E8E8)
+    return buildAnnotatedString {
+        regex.findAll(value).forEach { match ->
+            if (match.range.first > cursor) {
+                pushStyle(SpanStyle(color = color))
+                append(value.substring(cursor, match.range.first))
+                pop()
+            }
+            match.groupValues[1].split(';').mapNotNull { it.toIntOrNull() }.ifEmpty { listOf(0) }.forEach { code ->
+                color = when (code) {
+                    0, 39 -> Color(0xFFE8E8E8)
+                    30 -> Color(0xFF888888)
+                    31, 91 -> Color(0xFFFF5F56)
+                    32, 92 -> Color(0xFF52D273)
+                    33, 93 -> Color(0xFFFFD75F)
+                    34, 94 -> Color(0xFF5FAFFF)
+                    35, 95 -> Color(0xFFFF5FFF)
+                    36, 96 -> Color(0xFF5FFFFF)
+                    37, 97 -> Color.White
+                    else -> color
+                }
+            }
+            cursor = match.range.last + 1
+        }
+        if (cursor < value.length) {
+            pushStyle(SpanStyle(color = color))
+            append(value.substring(cursor))
+            pop()
+        }
+    }
+}
