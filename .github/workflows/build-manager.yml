@@ -191,6 +191,18 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Embed Night activation PEM and PK8
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          NIGHT_ACTIVATION_PRIVATE_KEY_PEM: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PEM }}
+          NIGHT_ACTIVATION_PRIVATE_KEY_PK8: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PK8 }}
+        run: |
+          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM"
+          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8"
+          mkdir -p activation-issuer/src/main/assets
+          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pem
+          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pk8
+
       - name: Build with Gradle
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then

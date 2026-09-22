@@ -3,9 +3,7 @@ package com.Night.night.issuer;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.Intent;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.Gravity;
@@ -46,12 +44,7 @@ public final class MainActivity extends Activity {
         androidId.setTextColor(Color.WHITE);
         androidId.setHintTextColor(Color.GRAY);
         root.addView(androidId, wide());
-        Button selectKey = new Button(this);
-        selectKey.setText("选择 Night 激活私钥（PEM / PK8）");
-        selectKey.setOnClickListener(v -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-            .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 100));
-        root.addView(selectKey, wide());
-        keyStatus = text("尚未选择私钥", 13, Color.rgb(160, 174, 200));
+        keyStatus = text("正在载入内置 Night 私钥…", 13, Color.rgb(160, 174, 200));
         root.addView(keyStatus, wide());
         Button issue = new Button(this);
         issue.setText("签发激活码");
@@ -71,13 +64,14 @@ public final class MainActivity extends Activity {
         });
         root.addView(copy, wide());
         setContentView(root);
+        loadBundledPrivateKey();
     }
 
     private void issue() {
         try {
             String id = androidId.getText().toString().trim().toLowerCase(Locale.ROOT);
             if (id.isEmpty()) throw new IllegalArgumentException("Android ID 不能为空");
-            if (privateKeyDer == null) throw new IllegalStateException("请先选择激活私钥");
+            if (privateKeyDer == null) throw new IllegalStateException("内置激活私钥不可用");
             PrivateKey key = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(privateKeyDer));
             Signature signer = Signature.getInstance("SHA256withRSA");
             signer.initSign(key);
@@ -88,31 +82,49 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != 100 || resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        Uri uri = data.getData();
+    private void loadBundledPrivateKey() {
         try {
-            byte[] raw;
-            try (java.io.InputStream input = getContentResolver().openInputStream(uri);
-                 java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
-                byte[] buffer = new byte[8192];
-                for (int read; (read = input.read(buffer)) >= 0;) output.write(buffer, 0, read);
-                raw = output.toByteArray();
+            Throwable firstError = null;
+            for (String asset : new String[] {
+                "night_activation_private_key.pk8",
+                "night_activation_private_key.pem"
+            }) {
+                try {
+                    byte[] raw = readAsset(asset);
+                    privateKeyDer = normalizePrivateKey(raw);
+                    keyStatus.setText("内置 Night 私钥已载入（PEM / PK8）");
+                    return;
+                } catch (Throwable error) {
+                    if (firstError == null) firstError = error;
+                }
             }
-            String text = new String(raw, StandardCharsets.US_ASCII);
-            if (text.contains("BEGIN PRIVATE KEY")) {
-                text = text.replace("-----BEGIN PRIVATE KEY-----", "")
-                    .replace("-----END PRIVATE KEY-----", "").replaceAll("\\s", "");
-                raw = Base64.decode(text, Base64.DEFAULT);
-            }
-            KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(raw));
-            privateKeyDer = raw;
-            keyStatus.setText("私钥已载入（仅保存在本次运行内存中）");
+            throw new IllegalStateException(firstError == null ? "密钥资源不存在" : firstError.getMessage());
         } catch (Throwable error) {
             privateKeyDer = null;
-            keyStatus.setText("私钥读取失败：" + error.getMessage());
+            keyStatus.setText("内置私钥载入失败：" + error.getMessage());
         }
+    }
+
+    private byte[] readAsset(String name) throws Exception {
+        try (java.io.InputStream input = getAssets().open(name);
+             java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            for (int read; (read = input.read(buffer)) >= 0;) {
+                output.write(buffer, 0, read);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private byte[] normalizePrivateKey(byte[] raw) throws Exception {
+        String text = new String(raw, StandardCharsets.US_ASCII);
+        if (text.contains("BEGIN PRIVATE KEY")) {
+            text = text.replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "").replaceAll("\\s", "");
+            raw = Base64.decode(text, Base64.DEFAULT);
+        }
+        KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(raw));
+        return raw;
     }
 
     private TextView text(String value, int sp, int color) {
