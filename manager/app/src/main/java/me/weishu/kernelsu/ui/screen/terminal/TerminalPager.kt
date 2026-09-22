@@ -69,7 +69,8 @@ private data class RootResult(val code: Int, val stdout: String, val stderr: Str
 fun TerminalPager(bottomPadding: Dp) {
     val context = LocalContext.current
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    var cwd by remember { mutableStateOf("/data/adb") }
+    val terminalScroll = rememberScrollState()
+    var cwd by remember { mutableStateOf("/sdcard") }
     var entries by remember { mutableStateOf(emptyList<RootEntry>()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
@@ -132,6 +133,10 @@ fun TerminalPager(bottomPadding: Dp) {
         if (!terminalVisible) reload()
     }
 
+    LaunchedEffect(terminalOutput) {
+        if (terminalVisible) terminalScroll.scrollTo(terminalScroll.maxValue)
+    }
+
     pendingScript?.let { script ->
         AlertDialog(
             onDismissRequest = { pendingScript = null },
@@ -165,7 +170,7 @@ fun TerminalPager(bottomPadding: Dp) {
                 text = ansiText(terminalOutput.ifBlank { "root@night:$cwd #" }),
                 modifier = Modifier.weight(1f).fillMaxWidth()
                     .background(Color.Black, RoundedCornerShape(10.dp))
-                    .padding(10.dp).verticalScroll(rememberScrollState()),
+                    .padding(10.dp).verticalScroll(terminalScroll),
                 color = Color(0xFFE8E8E8),
                 fontFamily = FontFamily.Monospace,
             )
