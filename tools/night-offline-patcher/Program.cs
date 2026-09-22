@@ -172,15 +172,17 @@ namespace NightOfflinePatcher
             try {
                 EnsureResources(restore ? null : (string)kmiBox.SelectedItem);
                 var engine = Path.Combine(workDir, "ksud.exe");
-                var args = new StringBuilder(restore ? "boot-restore" : "boot-patch-v2");
+                var selectedKmi = restore ? null : (string)kmiBox.SelectedItem;
+                var args = new StringBuilder(restore ? "boot-restore" : "boot-patch");
                 args.Append(" --boot ").Append(Quote(inputBox.Text));
                 if (restore) {
                     args.Append(" --out ").Append(Quote(Path.GetDirectoryName(outputPath)));
                     args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputPath)));
                 } else {
                     args.Append(" --module ").Append(Quote(Path.Combine(workDir, "kernelsu.ko")));
-                    args.Append(" --output ").Append(Quote(outputPath));
-                    args.Append(" --force");
+                    args.Append(" --kmi ").Append(Quote(selectedKmi));
+                    args.Append(" --out ").Append(Quote(Path.GetDirectoryName(outputPath)));
+                    args.Append(" --out-name ").Append(Quote(Path.GetFileName(outputPath)));
                 }
 
                 AppendLog("\r\n> " + (restore ? "恢复" : "修补") + "开始\r\n");
