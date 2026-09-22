@@ -11,6 +11,13 @@
 
     <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".KernelSUApplication"
         android:allowBackup="true"
@@ -60,6 +67,18 @@
                 <data
                     android:host="webui"
                     android:scheme="ksu" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ui.keywake.KeyWakeSettingsActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.KernelSU">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="night" android:host="wake" />
             </intent-filter>
         </activity>
 
