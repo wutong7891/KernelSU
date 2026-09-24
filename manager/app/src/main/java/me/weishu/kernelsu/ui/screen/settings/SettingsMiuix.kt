@@ -50,6 +50,7 @@ import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.keywake.KeyWakeSettingsActivity
+import me.weishu.kernelsu.ui.NightToolsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
@@ -188,6 +189,14 @@ fun SettingPagerMiuix(
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "密钥唤醒应用", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, KeyWakeSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "Night 部署与分区工具",
+                            summary = "刷写 boot/init_boot、配置 TEE/PathMask、部署 Sokey",
+                            startAction = {
+                                Icon(Icons.Rounded.FlashOn, modifier = Modifier.padding(end = 6.dp), contentDescription = "Night 部署与分区工具", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, NightToolsActivity::class.java)) }
                         )
                     }
 

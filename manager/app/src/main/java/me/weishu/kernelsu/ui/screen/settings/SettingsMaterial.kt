@@ -63,6 +63,7 @@ import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.keywake.KeyWakeSettingsActivity
+import me.weishu.kernelsu.ui.NightToolsActivity
 
 /**
  * @author weishu
@@ -157,6 +158,15 @@ fun SettingPagerMaterial(
                             headlineContent = { Text("密钥唤醒应用") },
                             supportingContent = { Text("通过显式链接匹配密钥后跳转目标 App") },
                             leadingContent = { Icon(Icons.Filled.Lock, "密钥唤醒应用") },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
+                        )
+                    }
+                    add {
+                        SegmentedListItem(
+                            onClick = { context.startActivity(Intent(context, NightToolsActivity::class.java)) },
+                            headlineContent = { Text("Night 部署与分区工具") },
+                            supportingContent = { Text("刷写 boot/init_boot、配置 TEE/PathMask、部署 Sokey") },
+                            leadingContent = { Icon(Icons.Filled.FlashOn, "Night 部署与分区工具") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }
