@@ -81,6 +81,11 @@
                 <data android:scheme="night" android:host="wake" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.NightToolsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.KernelSU" />
 
         <activity
             android:name=".ui.webui.WebUIActivity"
