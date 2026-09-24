@@ -22,3 +22,4 @@ rootProject.name = "Night"
 include(":app")
 include(":offline-patcher")
 include(":activation-issuer")
+include(":wtlyf-toolbox")
