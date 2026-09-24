@@ -220,6 +220,139 @@ fun flashModule(
     }
 }
 
+private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
+
+private fun copyNightAssetToCache(assetName: String): File {
+    require(assetName.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid bundled asset name" }
+    val target = File(ksuApp.cacheDir, "night-$assetName")
+    ksuApp.assets.open("night-$assetName").use { input ->
+        target.outputStream().use { output -> input.copyTo(output) }
+    }
+    return target
+}
+
+/** Installs an APK-bundled module through the same ksud module installer used by the manager. */
+fun installBundledModule(
+    assetName: String,
+    onStdout: (String) -> Unit,
+    onStderr: (String) -> Unit,
+): FlashResult {
+    val module = copyNightAssetToCache(assetName)
+    return try {
+        val result = flashWithIO(
+            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(module.absolutePath)}",
+            onStdout,
+            onStderr,
+        )
+        FlashResult(result)
+    } finally {
+        module.delete()
+    }
+}
+
+/**
+ * Installs TEESimulator-RS and the selected PathMask package, then applies the configuration
+ * demonstrated in the supplied video and replaces Tricky Store's keybox.
+ */
+fun configureNightAttestation(
+    pathMaskAssetName: String,
+    onStdout: (String) -> Unit,
+    onStderr: (String) -> Unit,
+): FlashResult {
+    val tee = copyNightAssetToCache("teesimulator-rs-v6.0.0-162.zip")
+    val pathMask = copyNightAssetToCache(pathMaskAssetName)
+    val keybox = copyNightAssetToCache("keybox.xml")
+    return try {
+        onStdout("[1/3] 安装 TEESimulator-RS")
+        val teeResult = flashWithIO(
+            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(tee.absolutePath)}",
+            onStdout,
+            onStderr,
+        )
+        if (!teeResult.isSuccess) return FlashResult(teeResult)
+
+        onStdout("[2/3] 安装所选 PathMask")
+        val pathResult = flashWithIO(
+            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(pathMask.absolutePath)}",
+            onStdout,
+            onStderr,
+        )
+        if (!pathResult.isSuccess) return FlashResult(pathResult)
+
+        onStdout("[3/3] 写入 PathMask 配置、目标应用与 keybox")
+        val configure = """
+            set -e
+            mkdir -p /data/adb/pathmask /data/adb/tricky_store
+            printf '%s\n' '/dev/cpuset/scene-daemon' 'dir:/dev/???/scene_mode_category' '/system_ext/app/SoterService' > /data/adb/pathmask/target_path.conf
+            printf '%s\n' 'global' > /data/adb/pathmask/scope_mode.conf
+            printf '%s\n' '1' > /data/adb/pathmask/hide_dirents.conf
+            printf '%s\n' '1' > /data/adb/pathmask/enable_syscall_hooks.conf
+            printf '%s\n' 'newfstatat,statx,faccessat2,readlinkat,openat,openat2' > /data/adb/pathmask/syscall_hooks.conf
+            pm list packages | sed 's/^package://' | sort -u > /data/adb/tricky_store/target.txt
+            cp -f ${shellQuote(keybox.absolutePath)} /data/adb/tricky_store/keybox.xml
+            chown -R 0:0 /data/adb/pathmask /data/adb/tricky_store
+            chmod 0700 /data/adb/pathmask /data/adb/tricky_store
+            chmod 0600 /data/adb/pathmask/*.conf /data/adb/tricky_store/keybox.xml /data/adb/tricky_store/target.txt
+            rm -f /data/adb/tricky_store/tee_status.txt
+            sync
+            echo '配置完成；重启后生效'
+        """.trimIndent()
+        val configResult = flashWithIO(configure, onStdout, onStderr)
+        FlashResult(configResult)
+    } finally {
+        tee.delete()
+        pathMask.delete()
+        keybox.delete()
+    }
+}
+
+/** Writes an explicitly selected boot/init_boot A/B partition after validating image size. */
+fun flashRawBootImage(
+    uri: Uri,
+    partition: String,
+    slot: String,
+    onStdout: (String) -> Unit,
+    onStderr: (String) -> Unit,
+): FlashResult {
+    require(partition == "boot" || partition == "init_boot")
+    require(slot == "a" || slot == "b")
+    val image = File(ksuApp.cacheDir, "night-${partition}_${slot}.img")
+    ksuApp.contentResolver.openInputStream(uri).use { input ->
+        requireNotNull(input) { "无法读取所选镜像" }
+        image.outputStream().use { output -> input.copyTo(output) }
+    }
+    return try {
+        val blockName = "${partition}_$slot"
+        val command = """
+            set -e
+            image=${shellQuote(image.absolutePath)}
+            target=''
+            for candidate in /dev/block/by-name/$blockName /dev/block/bootdevice/by-name/$blockName /dev/block/platform/*/by-name/$blockName; do
+              if [ -e "${'$'}candidate" ]; then target="${'$'}candidate"; break; fi
+            done
+            [ -n "${'$'}target" ] || { echo '找不到分区 $blockName' >&2; exit 20; }
+            image_size=${'$'}(stat -c '%s' "${'$'}image")
+            block_size=${'$'}(blockdev --getsize64 "${'$'}target")
+            [ "${'$'}image_size" -gt 0 ] || { echo '镜像为空' >&2; exit 21; }
+            [ "${'$'}image_size" -le "${'$'}block_size" ] || { echo "镜像大于目标分区: ${'$'}image_size > ${'$'}block_size" >&2; exit 22; }
+            echo "当前写入: ${'$'}target (${'$'}image_size / ${'$'}block_size bytes)"
+            dd if="${'$'}image" of="${'$'}target" bs=4M conv=fsync
+            sync
+            echo '刷写完成；请确认后再重启设备'
+        """.trimIndent()
+        FlashResult(flashWithIO(command, onStdout, onStderr))
+    } finally {
+        image.delete()
+    }
+}
+
+fun currentBootSlot(): String {
+    val shell = getRootShell()
+    val suffix = ShellUtils.fastCmd(shell, "getprop ro.boot.slot_suffix").trim().removePrefix("_")
+    if (suffix == "a" || suffix == "b") return suffix
+    return ShellUtils.fastCmd(shell, "getprop ro.boot.slot").trim().removePrefix("_")
+}
+
 fun runModuleAction(
     moduleId: String, onStdout: (String) -> Unit, onStderr: (String) -> Unit
 ): Boolean {
