@@ -245,8 +245,9 @@ public final class MainActivity extends Activity {
         Button alwaysStrong = primaryButton("方案1");
         alwaysStrong.setOnClickListener(v -> confirmInstall(
             "部署方案1",
-            "将通过 KernelSU 安装 AlwaysStrong v1.0.3。完成后需要重启设备。",
-            new ModuleItem[] { ALWAYS_STRONG }
+            "将通过 KernelSU 安装 AlwaysStrong v1.0.3。安装成功后会自动按预设开启指纹、Keybox、状态指示和屏蔽 ROM 伪装，检查间隔设为 5 分钟，并关闭自定义 Keybox。",
+            new ModuleItem[] { ALWAYS_STRONG },
+            this::applyAlwaysStrongProfile
         ));
         root.addView(alwaysStrong, wide());
 
@@ -594,6 +595,15 @@ public final class MainActivity extends Activity {
         } finally {
             script.delete();
             keybox.delete();
+        }
+    }
+
+    private boolean applyAlwaysStrongProfile() throws Exception {
+        File script = copyAsset("always-strong-profile.sh");
+        try {
+            return runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+        } finally {
+            script.delete();
         }
     }
 
@@ -949,3 +959,4 @@ public final class MainActivity extends Activity {
         boolean run() throws Exception;
     }
 }
+

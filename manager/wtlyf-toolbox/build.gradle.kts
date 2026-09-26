@@ -18,8 +18,8 @@ android {
         applicationId = "com.wutong.yingcang"
         minSdk = 31
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.4.0"
+        versionCode = 9
+        versionName = "1.4.1"
     }
 
     buildTypes {
@@ -36,3 +36,4 @@ android {
 }
 
 base { archivesName.set("wtlyf") }
+
