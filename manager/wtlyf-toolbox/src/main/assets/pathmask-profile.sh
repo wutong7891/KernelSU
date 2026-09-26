@@ -27,15 +27,20 @@ for NAME in target_path.conf scope_mode.conf hide_dirents.conf deny_uids.conf de
     fi
 done
 
-# 唯一的定制项：将默认开机等待时间从 60 秒改为 5 秒。
+# 定制作用范围为全局，并将默认开机等待时间从 60 秒改为 5 秒。
 rm -f "$PERSIST_DIR/target_wait_seconds.conf" "$PERSIST_DIR/package_wait_seconds.conf"
+printf '%s\n' 'global' > "$PERSIST_DIR/scope_mode.conf"
+printf '%s\n' 'global' > "$MODULE_DIR/scope_mode.conf"
 printf '%s\n' '5' > "$PERSIST_DIR/wait_seconds.conf"
 printf '%s\n' '5' > "$MODULE_DIR/wait_seconds.conf"
-chown 0:0 "$PERSIST_DIR/wait_seconds.conf" "$MODULE_DIR/wait_seconds.conf" 2>/dev/null || true
+chown 0:0 "$PERSIST_DIR/scope_mode.conf" "$MODULE_DIR/scope_mode.conf" \
+    "$PERSIST_DIR/wait_seconds.conf" "$MODULE_DIR/wait_seconds.conf" 2>/dev/null || true
+chmod 0600 "$PERSIST_DIR/scope_mode.conf"
+chmod 0644 "$MODULE_DIR/scope_mode.conf"
 chmod 0600 "$PERSIST_DIR/wait_seconds.conf"
 chmod 0644 "$MODULE_DIR/wait_seconds.conf"
 
 command -v restorecon >/dev/null 2>&1 && restorecon -RF "$PERSIST_DIR" "$MODULE_DIR" 2>/dev/null || true
 sync
-echo "PathMask 已恢复模块默认配置，仅将开机等待时间设为 5 秒"
+echo "PathMask 已恢复其余默认配置，作用范围设为全局，开机等待时间设为 5 秒"
 

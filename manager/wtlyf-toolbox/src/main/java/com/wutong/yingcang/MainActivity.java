@@ -509,7 +509,7 @@ public final class MainActivity extends Activity {
         ModuleItem pathMask = PATH_MASKS[selected - 1];
         confirmInstall(
             "骁龙部署确认",
-            "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。两个模块全部成功后，会自动按预设配置 PathMask。PathMask 选错版本可能导致设备异常，请确认选择正确。",
+            "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。两个模块全部成功后，将 PathMask 设为全局并把开机等待时间改为 5 秒。PathMask 选错版本可能导致设备异常，请确认选择正确。",
             new ModuleItem[] { pathMask, SOTER_KEY },
             this::applyPathMaskProfile
         );
@@ -638,9 +638,36 @@ public final class MainActivity extends Activity {
     private boolean applyPathMaskProfile() throws Exception {
         File script = copyAsset("pathmask-profile.sh");
         try {
-            return runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+            boolean scriptSucceeded = runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+            if (scriptSucceeded) return true;
+
+            appendLog("PathMask 配置脚本返回非零退出码，正在核对实际安装结果…\n");
+            boolean verified = verifyPathMaskDeployment();
+            if (verified) {
+                appendLog("已确认 PathMask、SoterFix、全局模式与 5 秒等待配置均已落盘，按部署成功处理。\n");
+            }
+            return verified;
         } finally {
             script.delete();
+        }
+    }
+
+    private boolean verifyPathMaskDeployment() {
+        if (!isModuleInstalled("pathmask") || !isModuleInstalled("SoterFix")) return false;
+        String command = "[ \"$(cat /data/adb/pathmask/scope_mode.conf 2>/dev/null)\" = global ]"
+            + " && [ \"$(cat /data/adb/pathmask/wait_seconds.conf 2>/dev/null)\" = 5 ]"
+            + " && { [ ! -d /data/adb/modules_update/pathmask ]"
+            + " || { [ \"$(cat /data/adb/modules_update/pathmask/scope_mode.conf 2>/dev/null)\" = global ]"
+            + " && [ \"$(cat /data/adb/modules_update/pathmask/wait_seconds.conf 2>/dev/null)\" = 5 ]; }; }"
+            + " && { [ ! -d /data/adb/modules/pathmask ]"
+            + " || { [ \"$(cat /data/adb/modules/pathmask/scope_mode.conf 2>/dev/null)\" = global ]"
+            + " && [ \"$(cat /data/adb/modules/pathmask/wait_seconds.conf 2>/dev/null)\" = 5 ]; }; }";
+        try {
+            Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+            return process.waitFor() == 0;
+        } catch (Throwable error) {
+            appendLog("核对骁龙部署结果失败：" + error.getMessage() + "\n");
+            return false;
         }
     }
 
@@ -658,8 +685,12 @@ public final class MainActivity extends Activity {
     private boolean isModuleInstalled(String moduleId) {
         try {
             String quotedId = shellQuote(moduleId);
+            String expected = shellQuote("id=" + moduleId);
             String command = "[ -d /data/adb/modules_update/" + quotedId
-                + " ] || [ -d /data/adb/modules/" + quotedId + " ]";
+                + " ] || [ -d /data/adb/modules/" + quotedId + " ]"
+                + " || { for PROP in /data/adb/modules_update/*/module.prop /data/adb/modules/*/module.prop; do"
+                + " [ -f \"$PROP\" ] && grep -Fqx " + expected + " \"$PROP\" && exit 0;"
+                + " done; exit 1; }";
             Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
             return process.waitFor() == 0;
         } catch (Throwable ignored) {
