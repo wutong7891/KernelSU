@@ -2,12 +2,15 @@ package com.wutong.yingcang;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.res.ColorStateList;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -17,6 +20,8 @@ import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -70,6 +75,7 @@ public final class MainActivity extends Activity {
     private Spinner partitionSpinner;
     private Spinner slotSpinner;
     private TextView imageStatus;
+    private Button operationBack;
     private Uri bootImageUri;
 
     @Override public void onCreate(Bundle state) {
@@ -130,7 +136,7 @@ public final class MainActivity extends Activity {
         root.addView(card, wide());
         addSpace(root, 14);
         root.addView(label("激活仅在本机离线验证，不上传 Android ID。", 13, MUTED));
-        setContentView(scroll(root));
+        setAnimatedContent(scroll(root));
     }
 
     private void showToolbox() {
@@ -164,7 +170,7 @@ public final class MainActivity extends Activity {
             this, android.R.layout.simple_spinner_dropdown_item, pathMaskLabels
         );
         pathMaskSpinner.setAdapter(adapter);
-        pathMaskSpinner.setBackgroundColor(CARD);
+        pathMaskSpinner.setBackground(glassDrawable(Color.argb(205, 16, 30, 55), 16, Color.argb(140, 150, 215, 255)));
         root.addView(pathMaskSpinner, wide());
 
         Button xiaolong = primaryButton("晓龙");
@@ -194,9 +200,21 @@ public final class MainActivity extends Activity {
         chooseImage.setOnClickListener(v -> chooseBootImage());
         root.addView(chooseImage, wide());
         Button flashImage = primaryButton("确认并刷写所选分区");
-        flashImage.setBackgroundColor(Color.rgb(160, 58, 76));
+        flashImage.setBackground(rippleButton(
+            new int[] { Color.rgb(185, 54, 87), Color.rgb(107, 35, 91) },
+            Color.argb(140, 255, 220, 225)
+        ));
         flashImage.setOnClickListener(v -> confirmFlash());
         root.addView(flashImage, wide());
+
+        addSpace(root, 24);
+        LinearLayout danger = card();
+        danger.addView(label("危险区域", 18, Color.rgb(255, 185, 195)));
+        danger.addView(label("彻底清空 /data/adb/ 下的所有文件，包括 KernelSU 模块、授权与配置。操作不可恢复，重启后可能需要重新配置 root。", 13, Color.rgb(255, 205, 211)));
+        Button clearAdb = dangerButton("清理 /data/adb/ 全部内容");
+        clearAdb.setOnClickListener(v -> confirmClearDataAdb());
+        danger.addView(clearAdb, wide());
+        root.addView(danger, wide());
 
         addSpace(root, 16);
         root.addView(label("安装调用 KernelSU 的 ksud module install；请先在 Night 面具中授予本应用 root 权限。", 13, MUTED));
@@ -208,9 +226,9 @@ public final class MainActivity extends Activity {
         log.setMovementMethod(new ScrollingMovementMethod());
         log.setMinHeight(dp(220));
         log.setPadding(dp(14), dp(14), dp(14), dp(14));
-        log.setBackgroundColor(Color.BLACK);
+        log.setBackground(glassDrawable(Color.argb(205, 3, 8, 18), 18, Color.argb(135, 115, 190, 255)));
         root.addView(log, wide());
-        setContentView(scroll(root));
+        setAnimatedContent(scroll(root));
     }
 
     private Spinner spinner(String[] items) {
@@ -249,7 +267,7 @@ public final class MainActivity extends Activity {
 
     private void flashImage(String partition, String slot) {
         if (!installing.compareAndSet(false, true)) return;
-        log.setText("");
+        showOperationPage("正在刷写 " + partition + "_" + slot, "请勿关闭应用或重启设备。完成后可返回工具箱。");
         new Thread(() -> {
             File image = new File(getCacheDir(), "wtlyf-" + partition + "_" + slot + ".img");
             boolean success = false;
@@ -284,7 +302,10 @@ public final class MainActivity extends Activity {
                 image.delete();
                 installing.set(false);
                 boolean result = success;
-                runOnUiThread(() -> Toast.makeText(this, result ? "刷写完成，请谨慎重启" : "刷写失败，请查看日志", Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> completeOperation(
+                    result ? "刷写完成，请谨慎重启" : "刷写失败，请查看日志",
+                    result
+                ));
             }
         }, "wtlyf-partition-flasher").start();
     }
@@ -347,7 +368,7 @@ public final class MainActivity extends Activity {
 
     private void install(ModuleItem[] items) {
         if (!installing.compareAndSet(false, true)) return;
-        log.setText("");
+        showOperationPage("模块部署", "正在调用 KernelSU 安装模块，完成后可返回工具箱。");
         new Thread(() -> {
             boolean success = true;
             try {
@@ -378,9 +399,127 @@ public final class MainActivity extends Activity {
             } finally {
                 installing.set(false);
                 boolean result = success;
-                runOnUiThread(() -> Toast.makeText(this, result ? "部署完成，请重启设备" : "部署失败，请查看日志", Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> completeOperation(
+                    result ? "部署完成，请重启设备" : "部署失败，请查看日志",
+                    result
+                ));
             }
         }, "wtlyf-module-installer").start();
+    }
+
+    private void showOperationPage(String heading, String subtitle) {
+        runOnUiThread(() -> {
+            LinearLayout root = rootLayout();
+            root.addView(title(heading, 28));
+            root.addView(label(subtitle, 14, MUTED));
+            addSpace(root, 18);
+
+            LinearLayout panel = card();
+            log = label("准备执行…\n", 13, Color.rgb(201, 232, 218));
+            log.setTypeface(Typeface.MONOSPACE);
+            log.setTextIsSelectable(true);
+            log.setMovementMethod(new ScrollingMovementMethod());
+            log.setMinHeight(dp(360));
+            log.setPadding(dp(14), dp(14), dp(14), dp(14));
+            log.setBackground(glassDrawable(Color.argb(205, 3, 8, 18), 18, Color.argb(150, 128, 202, 255)));
+            panel.addView(log, wide());
+
+            operationBack = button("任务执行中…");
+            operationBack.setEnabled(false);
+            operationBack.setAlpha(0.55f);
+            operationBack.setOnClickListener(v -> showToolbox());
+            panel.addView(operationBack, wide());
+            root.addView(panel, wide());
+            setAnimatedContent(scroll(root));
+        });
+    }
+
+    private void completeOperation(String message, boolean success) {
+        appendLog("\n" + message + "\n");
+        if (operationBack != null) {
+            operationBack.setText("← 返回工具箱");
+            operationBack.setEnabled(true);
+            operationBack.setAlpha(1f);
+            operationBack.animate().scaleX(1.04f).scaleY(1.04f).setDuration(180)
+                .withEndAction(() -> operationBack.animate().scaleX(1f).scaleY(1f).setDuration(160).start())
+                .start();
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+    }
+
+    private void confirmClearDataAdb() {
+        if (installing.get()) {
+            Toast.makeText(this, "已有任务正在执行", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("危险：清空 /data/adb/")
+            .setMessage("这会删除全部 KernelSU 模块、授权、配置和其他 root 数据，且无法恢复。设备重启后 root 环境可能需要重新配置。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("我了解风险，继续", (dialog, which) -> showClearConfirmation())
+            .show();
+    }
+
+    private void showClearConfirmation() {
+        EditText confirmation = new EditText(this);
+        confirmation.setHint("输入：清空全部数据");
+        confirmation.setSingleLine(true);
+        confirmation.setTextColor(TEXT);
+        confirmation.setHintTextColor(MUTED);
+        int padding = dp(20);
+        FrameLayout wrapper = new FrameLayout(this);
+        wrapper.setPadding(padding, 0, padding, 0);
+        wrapper.addView(confirmation, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("最终确认")
+            .setMessage("请输入“清空全部数据”后才能执行。执行后请勿立刻重启，先查看日志。")
+            .setView(wrapper)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("永久删除", null)
+            .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (!"清空全部数据".equals(confirmation.getText().toString().trim())) {
+                confirmation.setError("确认文字不正确");
+                return;
+            }
+            dialog.dismiss();
+            clearDataAdb();
+        }));
+        dialog.show();
+    }
+
+    private void clearDataAdb() {
+        if (!installing.compareAndSet(false, true)) return;
+        showOperationPage("清理 /data/adb/", "正在执行不可恢复的数据清理，请勿重启设备。");
+        new Thread(() -> {
+            boolean success = false;
+            try {
+                String command = "set -e; [ -d /data/adb ] || { echo '/data/adb 不存在' >&2; exit 30; }; "
+                    + "echo '即将删除：'; ls -la /data/adb; "
+                    + "for item in /data/adb/* /data/adb/.[!.]* /data/adb/..?*; do "
+                    + "[ -e \"$item\" ] || continue; echo \"删除 $item\"; rm -rf -- \"$item\"; done; "
+                    + "sync; echo '/data/adb/ 已清空'";
+                Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) appendLog(line + "\n");
+                }
+                int code = process.waitFor();
+                appendLog("退出码：" + code + "\n");
+                success = code == 0;
+            } catch (Throwable error) {
+                appendLog("清理错误：" + error.getMessage() + "\n");
+            } finally {
+                installing.set(false);
+                boolean result = success;
+                runOnUiThread(() -> completeOperation(
+                    result ? "清理完成，请按需重新配置 root 环境" : "清理失败，请查看日志",
+                    result
+                ));
+            }
+        }, "wtlyf-data-adb-cleaner").start();
     }
 
     private File copyAsset(String name) throws Exception {
@@ -434,23 +573,42 @@ public final class MainActivity extends Activity {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(20), dp(32), dp(20), dp(32));
-        layout.setBackgroundColor(BG);
+        layout.setBackgroundColor(Color.TRANSPARENT);
         return layout;
     }
 
-    private ScrollView scroll(View child) {
+    private View scroll(View child) {
+        FrameLayout scene = new FrameLayout(this);
+        ImageView background = new ImageView(this);
+        background.setImageResource(R.drawable.wtlyf_background);
+        background.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        scene.addView(background, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        View shade = new View(this);
+        shade.setBackgroundColor(Color.argb(108, 2, 10, 24));
+        scene.addView(shade, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
+        scroll.setClipToPadding(false);
         scroll.addView(child, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return scroll;
+        scene.addView(scroll, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        return scene;
     }
 
     private LinearLayout card() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(18), dp(16), dp(18), dp(16));
-        layout.setBackgroundColor(CARD);
+        layout.setElevation(dp(8));
+        layout.setBackground(glassDrawable(Color.argb(195, 13, 25, 48), 24, Color.argb(145, 160, 220, 255)));
         return layout;
     }
 
@@ -474,7 +632,22 @@ public final class MainActivity extends Activity {
         button.setText(text);
         button.setTextColor(Color.WHITE);
         button.setAllCaps(false);
-        button.setBackgroundColor(Color.rgb(41, 91, 153));
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setPadding(dp(18), dp(12), dp(18), dp(12));
+        button.setElevation(dp(4));
+        button.setBackground(rippleButton(
+            new int[] { Color.rgb(47, 112, 194), Color.rgb(70, 80, 186) },
+            Color.argb(110, 210, 240, 255)
+        ));
+        button.setOnTouchListener((view, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                view.animate().scaleX(0.975f).scaleY(0.975f).setDuration(90).start();
+            } else if (event.getAction() == android.view.MotionEvent.ACTION_UP
+                || event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                view.animate().scaleX(1f).scaleY(1f).setDuration(130).start();
+            }
+            return false;
+        });
         return button;
     }
 
@@ -482,8 +655,46 @@ public final class MainActivity extends Activity {
         Button button = button(text);
         button.setTextSize(18);
         button.setMinHeight(dp(58));
-        button.setBackgroundColor(Color.rgb(73, 92, 205));
+        button.setBackground(rippleButton(
+            new int[] { Color.rgb(45, 165, 242), Color.rgb(101, 83, 224) },
+            Color.argb(130, 230, 245, 255)
+        ));
         return button;
+    }
+
+    private Button dangerButton(String text) {
+        Button button = button(text);
+        button.setTextSize(16);
+        button.setMinHeight(dp(54));
+        button.setBackground(rippleButton(
+            new int[] { Color.rgb(190, 49, 79), Color.rgb(111, 25, 69) },
+            Color.argb(140, 255, 220, 225)
+        ));
+        return button;
+    }
+
+    private GradientDrawable glassDrawable(int color, int radiusDp, int strokeColor) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
+    }
+
+    private RippleDrawable rippleButton(int[] colors, int rippleColor) {
+        GradientDrawable content = new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR, colors
+        );
+        content.setCornerRadius(dp(20));
+        content.setStroke(dp(1), Color.argb(155, 190, 230, 255));
+        return new RippleDrawable(ColorStateList.valueOf(rippleColor), content, null);
+    }
+
+    private void setAnimatedContent(View content) {
+        content.setAlpha(0f);
+        content.setTranslationY(dp(24));
+        setContentView(content);
+        content.animate().alpha(1f).translationY(0f).setDuration(320).start();
     }
 
     private LinearLayout.LayoutParams wide() {
@@ -512,3 +723,4 @@ public final class MainActivity extends Activity {
         }
     }
 }
+
