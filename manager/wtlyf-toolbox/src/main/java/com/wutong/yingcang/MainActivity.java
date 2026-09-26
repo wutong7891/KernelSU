@@ -588,22 +588,30 @@ public final class MainActivity extends Activity {
     private boolean applySchemeTwoConfig() throws Exception {
         File script = copyAsset("scheme2-post-install.sh");
         File keybox = copyAsset("keybox.xml");
+        File selinuxRefresh = copyAsset("refresh-selinux-hide.sh");
         try {
             return runRootCommand(
                 "sh " + shellQuote(script.getAbsolutePath()) + " " + shellQuote(keybox.getAbsolutePath())
+                    + " && sh " + shellQuote(selinuxRefresh.getAbsolutePath())
             );
         } finally {
             script.delete();
             keybox.delete();
+            selinuxRefresh.delete();
         }
     }
 
     private boolean applyAlwaysStrongProfile() throws Exception {
         File script = copyAsset("always-strong-profile.sh");
+        File selinuxRefresh = copyAsset("refresh-selinux-hide.sh");
         try {
-            return runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+            return runRootCommand(
+                "sh " + shellQuote(script.getAbsolutePath())
+                    + " && sh " + shellQuote(selinuxRefresh.getAbsolutePath())
+            );
         } finally {
             script.delete();
+            selinuxRefresh.delete();
         }
     }
 
