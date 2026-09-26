@@ -60,29 +60,28 @@ public final class MainActivity extends Activity {
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxPm4IldYf9tF/Y0UWLi+2EbCMqSexmTpOHitEFtkCzLydcBguhgXg1qjapu1SqkmF2HEkD7xKl9zDRqu0b9ExK2YwSwmuPJIOjli+5il0Vc9/2CYKcLU3htMd8juCT7e6mVz31mJ6llf42yM+iCCPQ+JvQer5uCACyLGy8A1ArF9IKt8IZFlsb9r09/WZcdbLv1p0ASFRBLzVwv3JgT13oSQp0x1I63pZ/eeJzcjCzmmrDPsgsIXBXsKJxLyJFAzTWL7Xj0fZS8TkI1awyIUTMgNi+XO3Tn3y9cWxu1JG5niwAQVp1bjM9olG9tYDEvNAO5WXRGsRHI3keJWGs/xfQIDAQAB";
 
     private static final ModuleItem ALWAYS_STRONG =
-        new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip");
+        new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store");
     private static final ModuleItem SOTER_KEY =
-        new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip");
+        new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip", "SoterFix");
     private static final ModuleItem JAILBREAK_TOLERANCE =
-        new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip");
+        new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip", "JailNotBreak");
     private static final ModuleItem TEE_SIMULATOR =
-        new ModuleItem("TEESimulator-RS", "v6.0.1-324", "tee-simulator-v6.0.1-324.zip");
+        new ModuleItem("TEESimulator-RS", "v6.0.1-324", "tee-simulator-v6.0.1-324.zip", "tricky_store");
     private static final ModuleItem TRICKY_ADDON =
-        new ModuleItem("Tricky Addon", "v4.3", "tricky-addon-v4.3.zip");
+        new ModuleItem("Tricky Addon", "v4.3", "tricky-addon-v4.3.zip", "TA_utl");
     private static final ModuleItem TRICKY_AUTO_ADD =
-        new ModuleItem("TrickyStore 自动添加应用", "v1.1", "tricky-auto-add-v1.1.zip");
+        new ModuleItem("TrickyStore 自动添加应用", "v1.1", "tricky-auto-add-v1.1.zip", "trickystore_auto_add_app");
     private static final ModuleItem[] SCHEME_TWO = {
         TEE_SIMULATOR, TRICKY_ADDON, TRICKY_AUTO_ADD
     };
     private static final ModuleItem[] PATH_MASKS = {
-        new ModuleItem("Android 12 / 5.10 PathMask", "v2.8.0", "pathmask-android12-5.10.zip"),
-        new ModuleItem("Android 13 / 5.10 PathMask", "v2.8.0", "pathmask-android13-5.10.zip"),
-        new ModuleItem("Android 13 / 5.15 PathMask", "v2.8.0", "pathmask-android13-5.15.zip"),
-        new ModuleItem("Android 14 / 5.15 PathMask", "v2.8.0", "pathmask-android14-5.15.zip"),
-        new ModuleItem("Android 14 / 6.1 PathMask", "v2.8.0", "pathmask-android14-6.1.zip"),
-        new ModuleItem("Android 15 / 6.6 PathMask", "v2.8.0", "pathmask-android15-6.6.zip"),
-        new ModuleItem("Android 16 / 6.12 PathMask", "v2.8.0", "pathmask-android16-6.12.zip"),
-        new ModuleItem("Android 17 / 6.18 PathMask", "v2.8.0", "pathmask-android17-6.18.zip")
+        new ModuleItem("Android 12 / 5.10 PathMask", "v2.2.7", "pathmask-android12-5.10.zip", "pathmask"),
+        new ModuleItem("Android 13 / 5.10 PathMask", "v2.2.7", "pathmask-android13-5.10.zip", "pathmask"),
+        new ModuleItem("Android 13 / 5.15 PathMask", "v2.2.7", "pathmask-android13-5.15.zip", "pathmask"),
+        new ModuleItem("Android 14 / 5.15 PathMask", "v2.2.7", "pathmask-android14-5.15.zip", "pathmask"),
+        new ModuleItem("Android 14 / 6.1 PathMask", "v2.2.7", "pathmask-android14-6.1.zip", "pathmask"),
+        new ModuleItem("Android 15 / 6.6 PathMask", "v2.2.7", "pathmask-android15-6.6.zip", "pathmask"),
+        new ModuleItem("Android 16 / 6.12 PathMask", "v2.2.7", "pathmask-android16-6.12.zip", "pathmask")
     };
 
     private final AtomicBoolean installing = new AtomicBoolean(false);
@@ -271,8 +270,7 @@ public final class MainActivity extends Activity {
             "Android 14 / Kernel 5.15",
             "Android 14 / Kernel 6.1",
             "Android 15 / Kernel 6.6",
-            "Android 16 / Kernel 6.12",
-            "Android 17 / Kernel 6.18"
+            "Android 16 / Kernel 6.12"
         };
         pathMaskSpinner = spinner(pathMaskLabels);
         root.addView(pathMaskSpinner, wide());
@@ -561,9 +559,13 @@ public final class MainActivity extends Activity {
                     appendLog("退出码：" + code + "\n");
                     zip.delete();
                     if (code != 0) {
-                        success = false;
-                        appendLog("部署失败，已停止后续模块。\n");
-                        break;
+                        if (isModuleInstalled(item.id)) {
+                            appendLog("安装器返回非零退出码，但已检测到模块 " + item.id + " 成功落盘，按部署成功继续。\n");
+                        } else {
+                            success = false;
+                            appendLog("部署失败，且未检测到模块落盘，已停止后续模块。\n");
+                            break;
+                        }
                     }
                 }
                 if (success && postInstallAction != null) {
@@ -633,6 +635,18 @@ public final class MainActivity extends Activity {
         int code = process.waitFor();
         appendLog("后置配置退出码：" + code + "\n");
         return code == 0;
+    }
+
+    private boolean isModuleInstalled(String moduleId) {
+        try {
+            String quotedId = shellQuote(moduleId);
+            String command = "[ -d /data/adb/modules_update/" + quotedId
+                + " ] || [ -d /data/adb/modules/" + quotedId + " ]";
+            Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+            return process.waitFor() == 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private void showOperationPage(String heading, String subtitle) {
@@ -956,10 +970,12 @@ public final class MainActivity extends Activity {
         final String name;
         final String version;
         final String asset;
-        ModuleItem(String name, String version, String asset) {
+        final String id;
+        ModuleItem(String name, String version, String asset, String id) {
             this.name = name;
             this.version = version;
             this.asset = asset;
+            this.id = id;
         }
     }
 
@@ -967,4 +983,3 @@ public final class MainActivity extends Activity {
         boolean run() throws Exception;
     }
 }
-
