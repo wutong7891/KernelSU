@@ -65,6 +65,15 @@ public final class MainActivity extends Activity {
         new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip");
     private static final ModuleItem JAILBREAK_TOLERANCE =
         new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip");
+    private static final ModuleItem TEE_SIMULATOR =
+        new ModuleItem("TEESimulator-RS", "v6.0.1-324", "tee-simulator-v6.0.1-324.zip");
+    private static final ModuleItem TRICKY_ADDON =
+        new ModuleItem("Tricky Addon", "v4.3", "tricky-addon-v4.3.zip");
+    private static final ModuleItem TRICKY_AUTO_ADD =
+        new ModuleItem("TrickyStore 自动添加应用", "v1.1", "tricky-auto-add-v1.1.zip");
+    private static final ModuleItem[] SCHEME_TWO = {
+        TEE_SIMULATOR, TRICKY_ADDON, TRICKY_AUTO_ADD
+    };
     private static final ModuleItem[] PATH_MASKS = {
         new ModuleItem("Android 12 / 5.10 PathMask", "v2.8.0", "pathmask-android12-5.10.zip"),
         new ModuleItem("Android 13 / 5.10 PathMask", "v2.8.0", "pathmask-android13-5.10.zip"),
@@ -233,13 +242,22 @@ public final class MainActivity extends Activity {
         root.addView(label("已通过 Android ID 验证：" + androidId(), 12, Color.rgb(135, 205, 255)));
         addSpace(root, 24);
 
-        Button alwaysStrong = primaryButton("部署 AlwaysStrong");
+        Button alwaysStrong = primaryButton("方案1");
         alwaysStrong.setOnClickListener(v -> confirmInstall(
-            "部署 AlwaysStrong",
+            "部署方案1",
             "将通过 KernelSU 安装 AlwaysStrong v1.0.3。完成后需要重启设备。",
             new ModuleItem[] { ALWAYS_STRONG }
         ));
         root.addView(alwaysStrong, wide());
+
+        Button schemeTwo = primaryButton("方案2");
+        schemeTwo.setOnClickListener(v -> confirmInstall(
+            "部署方案2",
+            "将依次安装 TEESimulator-RS、Tricky Addon 和 TrickyStore 自动添加应用。三个模块全部成功后，才会替换 /data/adb/tricky_store/keybox.xml。",
+            SCHEME_TWO,
+            this::applySchemeTwoConfig
+        ));
+        root.addView(schemeTwo, wide());
 
         addSpace(root, 14);
         root.addView(label("骁龙 · 必须先选择 PathMask", 17, TEXT));
@@ -258,7 +276,7 @@ public final class MainActivity extends Activity {
         pathMaskSpinner = spinner(pathMaskLabels);
         root.addView(pathMaskSpinner, wide());
 
-        Button xiaolong = primaryButton("骁龙");
+        Button xiaolong = primaryButton("骁龙点我");
         xiaolong.setOnClickListener(v -> installXiaolong());
         root.addView(xiaolong, wide());
 
@@ -492,12 +510,17 @@ public final class MainActivity extends Activity {
         ModuleItem pathMask = PATH_MASKS[selected - 1];
         confirmInstall(
             "骁龙部署确认",
-            "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。PathMask 选错版本可能导致设备异常，请确认选择正确。",
-            new ModuleItem[] { pathMask, SOTER_KEY }
+            "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。两个模块全部成功后，会自动按预设配置 PathMask。PathMask 选错版本可能导致设备异常，请确认选择正确。",
+            new ModuleItem[] { pathMask, SOTER_KEY },
+            this::applyPathMaskProfile
         );
     }
 
     private void confirmInstall(String title, String message, ModuleItem[] items) {
+        confirmInstall(title, message, items, null);
+    }
+
+    private void confirmInstall(String title, String message, ModuleItem[] items, PostInstallAction postInstallAction) {
         if (installing.get()) {
             Toast.makeText(this, "已有部署任务正在执行", Toast.LENGTH_SHORT).show();
             return;
@@ -506,12 +529,16 @@ public final class MainActivity extends Activity {
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("取消", null)
-            .setPositiveButton("开始部署", (ignoredDialog, which) -> install(items))
+            .setPositiveButton("开始部署", (ignoredDialog, which) -> install(items, postInstallAction))
             .create();
         showGlassDialog(dialog, false);
     }
 
     private void install(ModuleItem[] items) {
+        install(items, null);
+    }
+
+    private void install(ModuleItem[] items, PostInstallAction postInstallAction) {
         if (!installing.compareAndSet(false, true)) return;
         showOperationPage("模块部署", "正在调用 KernelSU 安装模块，完成后可返回工具箱。");
         new Thread(() -> {
@@ -538,6 +565,11 @@ public final class MainActivity extends Activity {
                         break;
                     }
                 }
+                if (success && postInstallAction != null) {
+                    appendLog("\n== 正在执行安装后配置 ==\n");
+                    success = postInstallAction.run();
+                    if (!success) appendLog("安装后配置失败。\n");
+                }
             } catch (Throwable error) {
                 success = false;
                 appendLog("错误：" + error.getMessage() + "\n");
@@ -550,6 +582,39 @@ public final class MainActivity extends Activity {
                 ));
             }
         }, "wtlyf-module-installer").start();
+    }
+
+    private boolean applySchemeTwoConfig() throws Exception {
+        File script = copyAsset("scheme2-post-install.sh");
+        File keybox = copyAsset("keybox.xml");
+        try {
+            return runRootCommand(
+                "sh " + shellQuote(script.getAbsolutePath()) + " " + shellQuote(keybox.getAbsolutePath())
+            );
+        } finally {
+            script.delete();
+            keybox.delete();
+        }
+    }
+
+    private boolean applyPathMaskProfile() throws Exception {
+        File script = copyAsset("pathmask-profile.sh");
+        try {
+            return runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+        } finally {
+            script.delete();
+        }
+    }
+
+    private boolean runRootCommand(String command) throws Exception {
+        Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) appendLog(line + "\n");
+        }
+        int code = process.waitFor();
+        appendLog("后置配置退出码：" + code + "\n");
+        return code == 0;
     }
 
     private void showOperationPage(String heading, String subtitle) {
@@ -879,5 +944,8 @@ public final class MainActivity extends Activity {
             this.asset = asset;
         }
     }
-}
 
+    private interface PostInstallAction {
+        boolean run() throws Exception;
+    }
+}
