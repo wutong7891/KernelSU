@@ -258,7 +258,6 @@ public final class MainActivity extends Activity {
         spinner.setPopupBackgroundDrawable(glassDrawable(
             Color.argb(238, 8, 20, 43), 22, Color.argb(175, 158, 218, 255)
         ));
-        spinner.setPopupElevation(dp(12));
         spinner.setDropDownVerticalOffset(dp(6));
         return spinner;
     }
@@ -286,7 +285,7 @@ public final class MainActivity extends Activity {
             .setTitle("高风险操作：刷写 " + partition + "_" + slot)
             .setMessage("即将把 " + displayName(bootImageUri) + " 写入 " + partition + "_" + slot + "。镜像或槽位选择错误可能导致设备无法启动，确认继续？")
             .setNegativeButton("取消", null)
-            .setPositiveButton("确认刷写", (dialog, which) -> flashImage(partition, slot))
+            .setPositiveButton("确认刷写", (ignoredDialog, which) -> flashImage(partition, slot))
             .create();
         showGlassDialog(dialog, true);
     }
@@ -388,7 +387,7 @@ public final class MainActivity extends Activity {
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("取消", null)
-            .setPositiveButton("开始部署", (dialog, which) -> install(items))
+            .setPositiveButton("开始部署", (ignoredDialog, which) -> install(items))
             .create();
         showGlassDialog(dialog, false);
     }
@@ -483,7 +482,7 @@ public final class MainActivity extends Activity {
             .setTitle("危险：清空 /data/adb/")
             .setMessage("这会删除全部 KernelSU 模块、授权、配置和其他 root 数据，且无法恢复。设备重启后 root 环境可能需要重新配置。")
             .setNegativeButton("取消", null)
-            .setPositiveButton("我了解风险，继续", (dialog, which) -> showClearConfirmation())
+            .setPositiveButton("我了解风险，继续", (ignoredDialog, which) -> showClearConfirmation())
             .create();
         showGlassDialog(dialog, true);
     }
