@@ -217,7 +217,18 @@ public final class MainActivity extends Activity {
 
     private void showToolbox() {
         LinearLayout root = rootLayout();
-        root.addView(title("wtlyf", 32));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView toolboxTitle = title("wtlyf", 32);
+        header.addView(toolboxTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button reboot = button("重启");
+        reboot.setTextSize(14);
+        reboot.setMinHeight(dp(44));
+        reboot.setPadding(dp(18), dp(8), dp(18), dp(8));
+        reboot.setOnClickListener(v -> confirmReboot());
+        header.addView(reboot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(header, wide());
         root.addView(label("KernelSU 环境部署工具箱", 16, MUTED));
         root.addView(label("已通过 Android ID 验证：" + androidId(), 12, Color.rgb(135, 205, 255)));
         addSpace(root, 24);
@@ -305,6 +316,35 @@ public final class MainActivity extends Activity {
         setAnimatedContent(scroll(root));
     }
 
+    private void confirmReboot() {
+        if (installing.get()) {
+            Toast.makeText(this, "任务执行中，暂时不能重启", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("重启设备")
+            .setMessage("确定现在重启设备吗？请先确认部署或刷写任务已经完成。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("立即重启", (ignoredDialog, which) -> rebootDevice())
+            .create();
+        showGlassDialog(dialog, true);
+    }
+
+    private void rebootDevice() {
+        Toast.makeText(this, "正在请求 Root 重启…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                Process process = new ProcessBuilder("su", "-c", "reboot").redirectErrorStream(true).start();
+                int code = process.waitFor();
+                if (code != 0) {
+                    runOnUiThread(() -> Toast.makeText(this, "重启失败，请检查 Root 权限", Toast.LENGTH_LONG).show());
+                }
+            } catch (Throwable error) {
+                runOnUiThread(() -> Toast.makeText(this, "重启失败：" + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "wtlyf-reboot").start();
+    }
+
     private Spinner spinner(String[] items) {
         Spinner spinner = new Spinner(this, Spinner.MODE_DROPDOWN);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
@@ -326,12 +366,14 @@ public final class MainActivity extends Activity {
                 view.setPadding(dp(18), dp(12), dp(18), dp(12));
                 view.setBackground(dropdown
                     ? glassDrawable(Color.argb(218, 17, 32, 61), 14, Color.argb(105, 155, 215, 255))
-                    : glassDrawable(Color.argb(188, 15, 31, 60), 18, Color.argb(150, 166, 220, 255)));
+                    : null);
                 return view;
             }
         };
         spinner.setAdapter(adapter);
-        spinner.setBackground(null);
+        spinner.setBackground(glassDrawable(
+            Color.argb(188, 15, 31, 60), 18, Color.argb(150, 166, 220, 255)
+        ));
         spinner.setPopupBackgroundDrawable(glassDrawable(
             Color.argb(238, 8, 20, 43), 22, Color.argb(175, 158, 218, 255)
         ));
