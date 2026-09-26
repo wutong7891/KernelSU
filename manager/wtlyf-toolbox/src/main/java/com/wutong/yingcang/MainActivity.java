@@ -559,40 +559,9 @@ public final class MainActivity extends Activity {
             .setTitle("危险：清空 /data/adb/")
             .setMessage("这会删除全部 KernelSU 模块、授权、配置和其他 root 数据，且无法恢复。设备重启后 root 环境可能需要重新配置。")
             .setNegativeButton("取消", null)
-            .setPositiveButton("我了解风险，继续", (ignoredDialog, which) -> showClearConfirmation())
+            .setPositiveButton("确认清理", (ignoredDialog, which) -> clearDataAdb())
             .create();
         showGlassDialog(dialog, true);
-    }
-
-    private void showClearConfirmation() {
-        EditText confirmation = new EditText(this);
-        confirmation.setHint("输入：清空全部数据");
-        confirmation.setSingleLine(true);
-        confirmation.setTextColor(TEXT);
-        confirmation.setHintTextColor(MUTED);
-        int padding = dp(20);
-        FrameLayout wrapper = new FrameLayout(this);
-        wrapper.setPadding(padding, 0, padding, 0);
-        wrapper.addView(confirmation, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-        AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("最终确认")
-            .setMessage("请输入“清空全部数据”后才能执行。执行后请勿立刻重启，先查看日志。")
-            .setView(wrapper)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("永久删除", null)
-            .create();
-        dialog.show();
-        styleGlassDialog(dialog, true);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (!"清空全部数据".equals(confirmation.getText().toString().trim())) {
-                confirmation.setError("确认文字不正确");
-                return;
-            }
-            dialog.dismiss();
-            clearDataAdb();
-        });
     }
 
     private void showGlassDialog(AlertDialog dialog, boolean danger) {
