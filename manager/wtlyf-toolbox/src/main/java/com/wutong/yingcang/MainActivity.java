@@ -603,9 +603,35 @@ public final class MainActivity extends Activity {
     private boolean applyAlwaysStrongProfile() throws Exception {
         File script = copyAsset("always-strong-profile.sh");
         try {
-            return runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+            boolean scriptSucceeded = runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
+            if (scriptSucceeded) return true;
+
+            appendLog("配置脚本返回非零退出码，正在核对 AlwaysStrong 实际配置…\n");
+            boolean verified = verifyAlwaysStrongProfile();
+            if (verified) {
+                appendLog("已确认模块和配置均已正确落盘，按部署成功处理。\n");
+            }
+            return verified;
         } finally {
             script.delete();
+        }
+    }
+
+    private boolean verifyAlwaysStrongProfile() {
+        String config = "/data/adb/tricky_store";
+        String command = "([ -d /data/adb/modules_update/tricky_store ] || [ -d /data/adb/modules/tricky_store ])"
+            + " && [ \"$(cat " + config + "/hourly_interval_sec 2>/dev/null)\" = 300 ]"
+            + " && [ ! -e " + config + "/no_auto_fp ]"
+            + " && [ ! -e " + config + "/no_auto_keybox ]"
+            + " && [ ! -e " + config + "/no_auto_indicator ]"
+            + " && [ ! -e " + config + "/no_rom_spoof_block ]"
+            + " && [ ! -e " + config + "/custom_keybox ]";
+        try {
+            Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+            return process.waitFor() == 0;
+        } catch (Throwable error) {
+            appendLog("核对 AlwaysStrong 配置失败：" + error.getMessage() + "\n");
+            return false;
         }
     }
 

@@ -17,24 +17,25 @@ fi
 mkdir -p "$PERSIST_DIR"
 chmod 0700 "$PERSIST_DIR" 2>/dev/null || true
 
-cat > "$PERSIST_DIR/target_path.conf" <<'EOF'
-dir:/dev/cpuset/scene-daemon
-dir:/dev/???/scene_mode_category
-dir:/system_ext/app/SoterService
-EOF
-printf '%s\n' 'global' > "$PERSIST_DIR/scope_mode.conf"
-printf '%s\n' '1' > "$PERSIST_DIR/hide_dirents.conf"
-printf '%s\n' '5' > "$PERSIST_DIR/wait_seconds.conf"
-: > "$PERSIST_DIR/deny_uids.conf"
-: > "$PERSIST_DIR/deny_packages.conf"
-
-for NAME in target_path.conf scope_mode.conf hide_dirents.conf wait_seconds.conf deny_uids.conf deny_packages.conf; do
-    cp -f "$PERSIST_DIR/$NAME" "$MODULE_DIR/$NAME"
-    chown 0:0 "$PERSIST_DIR/$NAME" "$MODULE_DIR/$NAME" 2>/dev/null || true
-    chmod 0600 "$PERSIST_DIR/$NAME"
-    chmod 0644 "$MODULE_DIR/$NAME"
+# 移除 wtlyf 旧版写入的整套预设，恢复当前模块包自带的默认配置。
+for NAME in target_path.conf scope_mode.conf hide_dirents.conf deny_uids.conf deny_packages.conf; do
+    rm -f "$PERSIST_DIR/$NAME"
+    if [ -f "$MODULE_DIR/$NAME" ]; then
+        cp -f "$MODULE_DIR/$NAME" "$PERSIST_DIR/$NAME"
+        chown 0:0 "$PERSIST_DIR/$NAME" 2>/dev/null || true
+        chmod 0600 "$PERSIST_DIR/$NAME"
+    fi
 done
+
+# 唯一的定制项：将默认开机等待时间从 60 秒改为 5 秒。
+rm -f "$PERSIST_DIR/target_wait_seconds.conf" "$PERSIST_DIR/package_wait_seconds.conf"
+printf '%s\n' '5' > "$PERSIST_DIR/wait_seconds.conf"
+printf '%s\n' '5' > "$MODULE_DIR/wait_seconds.conf"
+chown 0:0 "$PERSIST_DIR/wait_seconds.conf" "$MODULE_DIR/wait_seconds.conf" 2>/dev/null || true
+chmod 0600 "$PERSIST_DIR/wait_seconds.conf"
+chmod 0644 "$MODULE_DIR/wait_seconds.conf"
 
 command -v restorecon >/dev/null 2>&1 && restorecon -RF "$PERSIST_DIR" "$MODULE_DIR" 2>/dev/null || true
 sync
-echo "PathMask 已按 wtlyf 预设完成配置：三条路径父级全部启用、全局、隐藏上级目录列表项、空黑名单、等待 5 秒"
+echo "PathMask 已恢复模块默认配置，仅将开机等待时间设为 5 秒"
+
