@@ -5,10 +5,13 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.provider.OpenableColumns;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
 import android.view.Gravity;
@@ -18,6 +21,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -42,23 +46,48 @@ public final class MainActivity extends Activity {
     private static final String PREFS = "wtlyf_activation";
     private static final String KEY_CODE = "activation_code";
     private static final String PREFIX = "N1.";
+    private static final int REQUEST_BOOT_IMAGE = 5001;
     private static final String PUBLIC_KEY_BASE64 =
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxPm4IldYf9tF/Y0UWLi+2EbCMqSexmTpOHitEFtkCzLydcBguhgXg1qjapu1SqkmF2HEkD7xKl9zDRqu0b9ExK2YwSwmuPJIOjli+5il0Vc9/2CYKcLU3htMd8juCT7e6mVz31mJ6llf42yM+iCCPQ+JvQer5uCACyLGy8A1ArF9IKt8IZFlsb9r09/WZcdbLv1p0ASFRBLzVwv3JgT13oSQp0x1I63pZ/eeJzcjCzmmrDPsgsIXBXsKJxLyJFAzTWL7Xj0fZS8TkI1awyIUTMgNi+XO3Tn3y9cWxu1JG5niwAQVp1bjM9olG9tYDEvNAO5WXRGsRHI3keJWGs/xfQIDAQAB";
 
-    private static final ModuleItem[] MODULES = {
-        new ModuleItem("TEESimulator-RS", "v6.0.0-162", "tee-simulator.zip"),
-        new ModuleItem("Tricky Addon", "v5.0-beta.1", "tricky-addon.zip"),
-        new ModuleItem("TrickyStore自动添加应用", "v1.1", "tricky-auto-add.zip")
+    private static final ModuleItem ALWAYS_STRONG =
+        new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip");
+    private static final ModuleItem SOTER_KEY =
+        new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip");
+    private static final ModuleItem JAILBREAK_TOLERANCE =
+        new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip");
+    private static final ModuleItem[] PATH_MASKS = {
+        new ModuleItem("Android 12 / 5.10 PathMask", "v2.3.3", "pathmask-android12-5.10.zip"),
+        new ModuleItem("Android 13 / 5.10 PathMask", "v2.3.3", "pathmask-android13-5.10.zip"),
+        new ModuleItem("Android 13 / 5.15 PathMask", "v2.3.3", "pathmask-android13-5.15.zip"),
+        new ModuleItem("Android 14 / 6.1 PathMask", "v2.3.3", "pathmask-android14-6.1.zip"),
+        new ModuleItem("Android 15 / 6.6 PathMask", "v2.3.3", "pathmask-android15-6.6.zip")
     };
 
     private final AtomicBoolean installing = new AtomicBoolean(false);
     private TextView log;
+    private Spinner pathMaskSpinner;
+    private Spinner partitionSpinner;
+    private Spinner slotSpinner;
+    private TextView imageStatus;
+    private Uri bootImageUri;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         if (isActivated()) showToolbox(); else showActivation();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_BOOT_IMAGE || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        bootImageUri = data.getData();
+        try {
+            getContentResolver().takePersistableUriPermission(bootImageUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Throwable ignored) {
+        }
+        if (imageStatus != null) imageStatus.setText("已选择：" + displayName(bootImageUri));
     }
 
     private void showActivation() {
@@ -108,14 +137,67 @@ public final class MainActivity extends Activity {
         LinearLayout root = rootLayout();
         root.addView(title("wtlyf", 32));
         root.addView(label("KernelSU 环境部署工具箱", 16, MUTED));
+        root.addView(label("已通过 Android ID 验证：" + androidId(), 12, Color.rgb(135, 205, 255)));
         addSpace(root, 24);
 
-        Button all = button("部署");
-        all.setTextSize(18);
-        all.setMinHeight(dp(58));
-        all.setBackgroundColor(Color.rgb(73, 92, 205));
-        all.setOnClickListener(v -> confirmInstall(MODULES));
-        root.addView(all, wide());
+        Button alwaysStrong = primaryButton("部署 AlwaysStrong");
+        alwaysStrong.setOnClickListener(v -> confirmInstall(
+            "部署 AlwaysStrong",
+            "将通过 KernelSU 安装 AlwaysStrong v1.0.3。完成后需要重启设备。",
+            new ModuleItem[] { ALWAYS_STRONG }
+        ));
+        root.addView(alwaysStrong, wide());
+
+        addSpace(root, 14);
+        root.addView(label("晓龙 · 必须先选择 PathMask", 17, TEXT));
+        root.addView(label("请选择与你设备 Android 版本及内核版本完全一致的选项。点击后会先安装 PathMask，再安装 Soter Key Fixer。", 13, MUTED));
+        pathMaskSpinner = new Spinner(this);
+        String[] pathMaskLabels = {
+            "请选择 PathMask 版本",
+            "Android 12 / Kernel 5.10",
+            "Android 13 / Kernel 5.10",
+            "Android 13 / Kernel 5.15",
+            "Android 14 / Kernel 6.1",
+            "Android 15 / Kernel 6.6"
+        };
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
+            this, android.R.layout.simple_spinner_dropdown_item, pathMaskLabels
+        );
+        pathMaskSpinner.setAdapter(adapter);
+        pathMaskSpinner.setBackgroundColor(CARD);
+        root.addView(pathMaskSpinner, wide());
+
+        Button xiaolong = primaryButton("晓龙");
+        xiaolong.setOnClickListener(v -> installXiaolong());
+        root.addView(xiaolong, wide());
+
+        addSpace(root, 14);
+        Button jailbreak = primaryButton("越狱宽容");
+        jailbreak.setOnClickListener(v -> confirmInstall(
+            "部署越狱宽容",
+            "将通过 KernelSU 安装隐藏越狱模式模块。完成后需要重启设备。",
+            new ModuleItem[] { JAILBREAK_TOLERANCE }
+        ));
+        root.addView(jailbreak, wide());
+
+        addSpace(root, 24);
+        root.addView(label("BOOT / INIT_BOOT 刷写", 18, TEXT));
+        root.addView(label("当前活动槽位：" + currentSlot().toUpperCase(Locale.ROOT), 13, Color.rgb(135, 205, 255)));
+        root.addView(label("请明确选择目标分区与 A/B 槽位；刷错镜像或槽位可能导致设备无法启动。", 13, MUTED));
+        partitionSpinner = spinner(new String[] { "boot", "init_boot" });
+        root.addView(partitionSpinner, wide());
+        slotSpinner = spinner(new String[] { "A 槽位", "B 槽位" });
+        root.addView(slotSpinner, wide());
+        imageStatus = label("尚未选择 .img 镜像", 13, MUTED);
+        root.addView(imageStatus, wide());
+        Button chooseImage = button("选择 boot / init_boot 镜像");
+        chooseImage.setOnClickListener(v -> chooseBootImage());
+        root.addView(chooseImage, wide());
+        Button flashImage = primaryButton("确认并刷写所选分区");
+        flashImage.setBackgroundColor(Color.rgb(160, 58, 76));
+        flashImage.setOnClickListener(v -> confirmFlash());
+        root.addView(flashImage, wide());
+
         addSpace(root, 16);
         root.addView(label("安装调用 KernelSU 的 ksud module install；请先在 Night 面具中授予本应用 root 权限。", 13, MUTED));
         addSpace(root, 12);
@@ -131,14 +213,133 @@ public final class MainActivity extends Activity {
         setContentView(scroll(root));
     }
 
-    private void confirmInstall(ModuleItem[] items) {
+    private Spinner spinner(String[] items) {
+        Spinner spinner = new Spinner(this);
+        spinner.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items));
+        spinner.setBackgroundColor(CARD);
+        return spinner;
+    }
+
+    private void chooseBootImage() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/octet-stream");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, REQUEST_BOOT_IMAGE);
+    }
+
+    private void confirmFlash() {
+        if (installing.get()) {
+            Toast.makeText(this, "已有任务正在执行", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (bootImageUri == null) {
+            Toast.makeText(this, "请先选择镜像", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String partition = String.valueOf(partitionSpinner.getSelectedItem());
+        String slot = slotSpinner.getSelectedItemPosition() == 0 ? "a" : "b";
+        new AlertDialog.Builder(this)
+            .setTitle("高风险操作：刷写 " + partition + "_" + slot)
+            .setMessage("即将把 " + displayName(bootImageUri) + " 写入 " + partition + "_" + slot + "。镜像或槽位选择错误可能导致设备无法启动，确认继续？")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认刷写", (dialog, which) -> flashImage(partition, slot))
+            .show();
+    }
+
+    private void flashImage(String partition, String slot) {
+        if (!installing.compareAndSet(false, true)) return;
+        log.setText("");
+        new Thread(() -> {
+            File image = new File(getCacheDir(), "wtlyf-" + partition + "_" + slot + ".img");
+            boolean success = false;
+            try (InputStream input = getContentResolver().openInputStream(bootImageUri);
+                 FileOutputStream output = new FileOutputStream(image)) {
+                if (input == null) throw new IllegalStateException("无法读取所选镜像");
+                byte[] buffer = new byte[1024 * 1024];
+                for (int count; (count = input.read(buffer)) >= 0;) output.write(buffer, 0, count);
+                output.getFD().sync();
+
+                String blockName = partition + "_" + slot;
+                String command = "set -e; image=" + shellQuote(image.getAbsolutePath()) + "; target=''; "
+                    + "for candidate in /dev/block/by-name/" + blockName + " /dev/block/bootdevice/by-name/" + blockName + " /dev/block/platform/*/by-name/" + blockName + "; do "
+                    + "[ -e \"$candidate\" ] && { target=\"$candidate\"; break; }; done; "
+                    + "[ -n \"$target\" ] || { echo '找不到分区 " + blockName + "' >&2; exit 20; }; "
+                    + "image_size=$(stat -c '%s' \"$image\"); block_size=$(blockdev --getsize64 \"$target\"); "
+                    + "[ \"$image_size\" -gt 0 ] || { echo '镜像为空' >&2; exit 21; }; "
+                    + "[ \"$image_size\" -le \"$block_size\" ] || { echo \"镜像大于目标分区: $image_size > $block_size\" >&2; exit 22; }; "
+                    + "echo \"写入 $target ($image_size / $block_size bytes)\"; "
+                    + "dd if=\"$image\" of=\"$target\" bs=4M conv=fsync; sync; echo '刷写完成，请确认后再重启设备'";
+                Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) appendLog(line + "\n");
+                }
+                int code = process.waitFor();
+                appendLog("退出码：" + code + "\n");
+                success = code == 0;
+            } catch (Throwable error) {
+                appendLog("刷写错误：" + error.getMessage() + "\n");
+            } finally {
+                image.delete();
+                installing.set(false);
+                boolean result = success;
+                runOnUiThread(() -> Toast.makeText(this, result ? "刷写完成，请谨慎重启" : "刷写失败，请查看日志", Toast.LENGTH_LONG).show());
+            }
+        }, "wtlyf-partition-flasher").start();
+    }
+
+    private String currentSlot() {
+        String suffix = readCommand("getprop", "ro.boot.slot_suffix").trim().replace("_", "");
+        if ("a".equals(suffix) || "b".equals(suffix)) return suffix;
+        String slot = readCommand("getprop", "ro.boot.slot").trim().replace("_", "");
+        return slot.isEmpty() ? "未知" : slot;
+    }
+
+    private String readCommand(String... command) {
+        try {
+            Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line = reader.readLine();
+                process.waitFor();
+                return line == null ? "" : line;
+            }
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private String displayName(Uri uri) {
+        try (android.database.Cursor cursor = getContentResolver().query(uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) return cursor.getString(0);
+        } catch (Throwable ignored) {
+        }
+        String last = uri.getLastPathSegment();
+        return last == null ? "image.img" : last;
+    }
+
+    private void installXiaolong() {
+        int selected = pathMaskSpinner.getSelectedItemPosition();
+        if (selected <= 0) {
+            Toast.makeText(this, "必须先选择一个 PathMask 版本", Toast.LENGTH_LONG).show();
+            return;
+        }
+        ModuleItem pathMask = PATH_MASKS[selected - 1];
+        confirmInstall(
+            "晓龙部署确认",
+            "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。PathMask 选错版本可能导致设备异常，请确认选择正确。",
+            new ModuleItem[] { pathMask, SOTER_KEY }
+        );
+    }
+
+    private void confirmInstall(String title, String message, ModuleItem[] items) {
         if (installing.get()) {
             Toast.makeText(this, "已有部署任务正在执行", Toast.LENGTH_SHORT).show();
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("确认部署")
-            .setMessage("将通过 KernelSU 执行内置环境部署。完成后通常需要重启设备。")
+            .setTitle(title)
+            .setMessage(message)
             .setNegativeButton("取消", null)
             .setPositiveButton("开始部署", (dialog, which) -> install(items))
             .show();
@@ -153,6 +354,7 @@ public final class MainActivity extends Activity {
                 for (int index = 0; index < items.length; index++) {
                     ModuleItem item = items[index];
                     appendLog("\n== 部署步骤 " + (index + 1) + "/" + items.length + " ==\n");
+                    appendLog(item.name + " " + item.version + "\n");
                     File zip = copyAsset(item.asset);
                     Process process = new ProcessBuilder(
                         "su", "-c", "/data/adb/ksud module install " + shellQuote(zip.getAbsolutePath())
@@ -273,6 +475,14 @@ public final class MainActivity extends Activity {
         button.setTextColor(Color.WHITE);
         button.setAllCaps(false);
         button.setBackgroundColor(Color.rgb(41, 91, 153));
+        return button;
+    }
+
+    private Button primaryButton(String text) {
+        Button button = button(text);
+        button.setTextSize(18);
+        button.setMinHeight(dp(58));
+        button.setBackgroundColor(Color.rgb(73, 92, 205));
         return button;
     }
 
