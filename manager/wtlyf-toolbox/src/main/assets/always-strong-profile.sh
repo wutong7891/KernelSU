@@ -2,10 +2,11 @@
 set -eu
 
 CONFIG_DIR="/data/adb/tricky_store"
-MODULE_DIR="/data/adb/modules/tricky_store"
+ACTIVE_MODULE_DIR="/data/adb/modules/tricky_store"
+UPDATE_MODULE_DIR="/data/adb/modules_update/tricky_store"
 
-[ -d "$MODULE_DIR" ] || {
-    echo "AlwaysStrong 模块尚未安装: $MODULE_DIR" >&2
+[ -d "$UPDATE_MODULE_DIR" ] || [ -d "$ACTIVE_MODULE_DIR" ] || {
+    echo "AlwaysStrong 模块尚未安装" >&2
     exit 51
 }
 
