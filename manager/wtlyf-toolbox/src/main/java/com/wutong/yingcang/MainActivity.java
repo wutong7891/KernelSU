@@ -43,6 +43,7 @@ import java.security.KeyFactory;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MainActivity extends Activity {
@@ -65,14 +66,18 @@ public final class MainActivity extends Activity {
     private static final ModuleItem JAILBREAK_TOLERANCE =
         new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip");
     private static final ModuleItem[] PATH_MASKS = {
-        new ModuleItem("Android 12 / 5.10 PathMask", "v2.3.3", "pathmask-android12-5.10.zip"),
-        new ModuleItem("Android 13 / 5.10 PathMask", "v2.3.3", "pathmask-android13-5.10.zip"),
-        new ModuleItem("Android 13 / 5.15 PathMask", "v2.3.3", "pathmask-android13-5.15.zip"),
-        new ModuleItem("Android 14 / 6.1 PathMask", "v2.3.3", "pathmask-android14-6.1.zip"),
-        new ModuleItem("Android 15 / 6.6 PathMask", "v2.3.3", "pathmask-android15-6.6.zip")
+        new ModuleItem("Android 12 / 5.10 PathMask", "v2.8.0", "pathmask-android12-5.10.zip"),
+        new ModuleItem("Android 13 / 5.10 PathMask", "v2.8.0", "pathmask-android13-5.10.zip"),
+        new ModuleItem("Android 13 / 5.15 PathMask", "v2.8.0", "pathmask-android13-5.15.zip"),
+        new ModuleItem("Android 14 / 5.15 PathMask", "v2.8.0", "pathmask-android14-5.15.zip"),
+        new ModuleItem("Android 14 / 6.1 PathMask", "v2.8.0", "pathmask-android14-6.1.zip"),
+        new ModuleItem("Android 15 / 6.6 PathMask", "v2.8.0", "pathmask-android15-6.6.zip"),
+        new ModuleItem("Android 16 / 6.12 PathMask", "v2.8.0", "pathmask-android16-6.12.zip"),
+        new ModuleItem("Android 17 / 6.18 PathMask", "v2.8.0", "pathmask-android17-6.18.zip")
     };
 
     private final AtomicBoolean installing = new AtomicBoolean(false);
+    private final AtomicBoolean rootChecking = new AtomicBoolean(false);
     private TextView log;
     private Spinner pathMaskSpinner;
     private Spinner partitionSpinner;
@@ -85,7 +90,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        if (isActivated()) showToolbox(); else showActivation();
+        if (isActivated()) verifyRootAndOpen(); else showActivation();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -130,7 +135,7 @@ public final class MainActivity extends Activity {
             String value = code.getText().toString().trim();
             if (verify(id, value)) {
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_CODE, value).apply();
-                showToolbox();
+                verifyRootAndOpen();
             } else {
                 code.setError("激活码与本机 Android ID 不匹配");
             }
@@ -139,6 +144,74 @@ public final class MainActivity extends Activity {
         root.addView(card, wide());
         addSpace(root, 14);
         root.addView(label("激活仅在本机离线验证，不上传 Android ID。", 13, MUTED));
+        setAnimatedContent(scroll(root));
+    }
+
+    private void verifyRootAndOpen() {
+        if (!rootChecking.compareAndSet(false, true)) return;
+        showRootGate("正在向 KernelSU 请求 Root 权限…", true);
+        new Thread(() -> {
+            boolean granted = false;
+            String detail = "未授予 Root 权限，工具箱无法使用。";
+            Process process = null;
+            try {
+                process = new ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start();
+                boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    detail = "Root 授权等待超时，请在 KernelSU 中允许 wtlyf 后重试。";
+                } else {
+                    StringBuilder output = new StringBuilder();
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) output.append(line).append('\n');
+                    }
+                    granted = process.exitValue() == 0 && output.toString().contains("uid=0");
+                    if (!granted) detail = "KernelSU 未授予 wtlyf Root 权限，请授权后重新检测。";
+                }
+            } catch (Throwable error) {
+                detail = "无法取得 Root 权限：" + error.getMessage();
+            } finally {
+                rootChecking.set(false);
+                boolean result = granted;
+                String message = detail;
+                runOnUiThread(() -> {
+                    if (result) showToolbox(); else showRootGate(message, false);
+                });
+            }
+        }, "wtlyf-root-verifier").start();
+    }
+
+    private void showRootGate(String status, boolean checking) {
+        LinearLayout root = rootLayout();
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.addView(title("wtlyf", 34));
+        root.addView(label("Root 权限验证", 18, MUTED));
+        addSpace(root, 28);
+
+        LinearLayout panel = card();
+        TextView icon = label(checking ? "ROOT …" : "ROOT ×", 30,
+            checking ? Color.rgb(151, 206, 255) : Color.rgb(255, 164, 186));
+        icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        icon.setGravity(Gravity.CENTER);
+        panel.addView(icon, wide());
+        TextView heading = label(checking ? "正在验证 Root 权限" : "未给予 Root 权限，无法使用", 21, TEXT);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setGravity(Gravity.CENTER);
+        panel.addView(heading, wide());
+        TextView description = label(status + "\n\n请在 Night / KernelSU 管理器中为 wtlyf 开启永久 Root 授权，然后返回重新检测。", 14, MUTED);
+        description.setGravity(Gravity.CENTER);
+        description.setLineSpacing(0f, 1.18f);
+        panel.addView(description, wide());
+
+        Button retry = primaryButton(checking ? "正在等待授权…" : "申请 / 重新检测 Root 权限");
+        retry.setEnabled(!checking);
+        retry.setAlpha(checking ? 0.58f : 1f);
+        retry.setOnClickListener(v -> verifyRootAndOpen());
+        panel.addView(retry, wide());
+        root.addView(panel, wide());
+        addSpace(root, 16);
+        root.addView(label("未通过 Root 验证时不会加载部署、刷写或清理功能。", 13, MUTED));
         setAnimatedContent(scroll(root));
     }
 
@@ -158,20 +231,23 @@ public final class MainActivity extends Activity {
         root.addView(alwaysStrong, wide());
 
         addSpace(root, 14);
-        root.addView(label("晓龙 · 必须先选择 PathMask", 17, TEXT));
+        root.addView(label("骁龙 · 必须先选择 PathMask", 17, TEXT));
         root.addView(label("请选择与你设备 Android 版本及内核版本完全一致的选项。点击后会先安装 PathMask，再安装 Soter Key Fixer。", 13, MUTED));
         String[] pathMaskLabels = {
             "请选择 PathMask 版本",
             "Android 12 / Kernel 5.10",
             "Android 13 / Kernel 5.10",
             "Android 13 / Kernel 5.15",
+            "Android 14 / Kernel 5.15",
             "Android 14 / Kernel 6.1",
-            "Android 15 / Kernel 6.6"
+            "Android 15 / Kernel 6.6",
+            "Android 16 / Kernel 6.12",
+            "Android 17 / Kernel 6.18"
         };
         pathMaskSpinner = spinner(pathMaskLabels);
         root.addView(pathMaskSpinner, wide());
 
-        Button xiaolong = primaryButton("晓龙");
+        Button xiaolong = primaryButton("骁龙");
         xiaolong.setOnClickListener(v -> installXiaolong());
         root.addView(xiaolong, wide());
 
@@ -255,6 +331,7 @@ public final class MainActivity extends Activity {
             }
         };
         spinner.setAdapter(adapter);
+        spinner.setBackground(null);
         spinner.setPopupBackgroundDrawable(glassDrawable(
             Color.argb(238, 8, 20, 43), 22, Color.argb(175, 158, 218, 255)
         ));
@@ -372,7 +449,7 @@ public final class MainActivity extends Activity {
         }
         ModuleItem pathMask = PATH_MASKS[selected - 1];
         confirmInstall(
-            "晓龙部署确认",
+            "骁龙部署确认",
             "将先安装 " + pathMask.name + "，成功后再安装 Soter Key Fixer。PathMask 选错版本可能导致设备异常，请确认选择正确。",
             new ModuleItem[] { pathMask, SOTER_KEY }
         );
