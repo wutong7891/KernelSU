@@ -20,6 +20,9 @@ import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Button;
@@ -157,7 +160,6 @@ public final class MainActivity extends Activity {
         addSpace(root, 14);
         root.addView(label("晓龙 · 必须先选择 PathMask", 17, TEXT));
         root.addView(label("请选择与你设备 Android 版本及内核版本完全一致的选项。点击后会先安装 PathMask，再安装 Soter Key Fixer。", 13, MUTED));
-        pathMaskSpinner = new Spinner(this);
         String[] pathMaskLabels = {
             "请选择 PathMask 版本",
             "Android 12 / Kernel 5.10",
@@ -166,11 +168,7 @@ public final class MainActivity extends Activity {
             "Android 14 / Kernel 6.1",
             "Android 15 / Kernel 6.6"
         };
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-            this, android.R.layout.simple_spinner_dropdown_item, pathMaskLabels
-        );
-        pathMaskSpinner.setAdapter(adapter);
-        pathMaskSpinner.setBackground(glassDrawable(Color.argb(205, 16, 30, 55), 16, Color.argb(140, 150, 215, 255)));
+        pathMaskSpinner = spinner(pathMaskLabels);
         root.addView(pathMaskSpinner, wide());
 
         Button xiaolong = primaryButton("晓龙");
@@ -232,9 +230,36 @@ public final class MainActivity extends Activity {
     }
 
     private Spinner spinner(String[] items) {
-        Spinner spinner = new Spinner(this);
-        spinner.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items));
-        spinner.setBackgroundColor(CARD);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DROPDOWN);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            @Override public View getView(int position, View convertView, ViewGroup parent) {
+                return spinnerRow(position, convertView, false);
+            }
+
+            @Override public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                return spinnerRow(position, convertView, true);
+            }
+
+            private TextView spinnerRow(int position, View convertView, boolean dropdown) {
+                TextView view = convertView instanceof TextView ? (TextView) convertView : new TextView(MainActivity.this);
+                view.setText(getItem(position));
+                view.setTextColor(TEXT);
+                view.setTextSize(dropdown ? 17 : 16);
+                view.setGravity(Gravity.CENTER_VERTICAL);
+                view.setMinHeight(dp(dropdown ? 58 : 54));
+                view.setPadding(dp(18), dp(12), dp(18), dp(12));
+                view.setBackground(dropdown
+                    ? glassDrawable(Color.argb(218, 17, 32, 61), 14, Color.argb(105, 155, 215, 255))
+                    : glassDrawable(Color.argb(188, 15, 31, 60), 18, Color.argb(150, 166, 220, 255)));
+                return view;
+            }
+        };
+        spinner.setAdapter(adapter);
+        spinner.setPopupBackgroundDrawable(glassDrawable(
+            Color.argb(238, 8, 20, 43), 22, Color.argb(175, 158, 218, 255)
+        ));
+        spinner.setPopupElevation(dp(12));
+        spinner.setDropDownVerticalOffset(dp(6));
         return spinner;
     }
 
@@ -257,12 +282,13 @@ public final class MainActivity extends Activity {
         }
         String partition = String.valueOf(partitionSpinner.getSelectedItem());
         String slot = slotSpinner.getSelectedItemPosition() == 0 ? "a" : "b";
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("高风险操作：刷写 " + partition + "_" + slot)
             .setMessage("即将把 " + displayName(bootImageUri) + " 写入 " + partition + "_" + slot + "。镜像或槽位选择错误可能导致设备无法启动，确认继续？")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认刷写", (dialog, which) -> flashImage(partition, slot))
-            .show();
+            .create();
+        showGlassDialog(dialog, true);
     }
 
     private void flashImage(String partition, String slot) {
@@ -358,12 +384,13 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "已有部署任务正在执行", Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("取消", null)
             .setPositiveButton("开始部署", (dialog, which) -> install(items))
-            .show();
+            .create();
+        showGlassDialog(dialog, false);
     }
 
     private void install(ModuleItem[] items) {
@@ -452,12 +479,13 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "已有任务正在执行", Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("危险：清空 /data/adb/")
             .setMessage("这会删除全部 KernelSU 模块、授权、配置和其他 root 数据，且无法恢复。设备重启后 root 环境可能需要重新配置。")
             .setNegativeButton("取消", null)
             .setPositiveButton("我了解风险，继续", (dialog, which) -> showClearConfirmation())
-            .show();
+            .create();
+        showGlassDialog(dialog, true);
     }
 
     private void showClearConfirmation() {
@@ -479,15 +507,57 @@ public final class MainActivity extends Activity {
             .setNegativeButton("取消", null)
             .setPositiveButton("永久删除", null)
             .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.show();
+        styleGlassDialog(dialog, true);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (!"清空全部数据".equals(confirmation.getText().toString().trim())) {
                 confirmation.setError("确认文字不正确");
                 return;
             }
             dialog.dismiss();
             clearDataAdb();
-        }));
+        });
+    }
+
+    private void showGlassDialog(AlertDialog dialog, boolean danger) {
         dialog.show();
+        styleGlassDialog(dialog, danger);
+    }
+
+    private void styleGlassDialog(AlertDialog dialog, boolean danger) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.setBackgroundDrawable(glassDrawable(
+            danger ? Color.argb(238, 48, 15, 39) : Color.argb(235, 11, 27, 55),
+            26,
+            danger ? Color.argb(190, 255, 138, 173) : Color.argb(185, 153, 216, 255)
+        ));
+        WindowManager.LayoutParams attributes = window.getAttributes();
+        attributes.dimAmount = 0.68f;
+        window.setAttributes(attributes);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+
+        int accent = danger ? Color.rgb(255, 155, 180) : Color.rgb(151, 206, 255);
+        TextView title = dialog.findViewById(getResources().getIdentifier("alertTitle", "id", "android"));
+        TextView message = dialog.findViewById(android.R.id.message);
+        if (title != null) {
+            title.setTextColor(accent);
+            title.setTextSize(21);
+        }
+        if (message != null) {
+            message.setTextColor(TEXT);
+            message.setTextSize(16);
+            message.setLineSpacing(0f, 1.16f);
+        }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.rgb(184, 211, 255));
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(accent);
+
+        View panel = window.getDecorView();
+        panel.setAlpha(0f);
+        panel.setScaleX(0.92f);
+        panel.setScaleY(0.92f);
+        panel.setTranslationY(dp(18));
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(240).start();
     }
 
     private void clearDataAdb() {
