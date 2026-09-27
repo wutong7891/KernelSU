@@ -32,8 +32,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          input_url="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.assets[] | select(.name=="input.img") | .url')"
-          gh api -H 'Accept: application/octet-stream' "$input_url" > input.img
+          mkdir parts
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.assets[] | select(.name|startswith("chunk-")) | [.name,.url] | @tsv' | sort | while IFS=$'\t' read -r name url; do
+            gh api -H 'Accept: application/octet-stream' "$url" > "parts/$name"
+          done
+          test -n "$(find parts -type f -name 'chunk-*.bin' -print -quit)"
+          cat parts/chunk-*.bin > input.img
           engine_id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.name=="Night Web Patch Engine") | .id' | head -n1)"
           test -n "$engine_id"
           engine_url="$(gh api "repos/$GITHUB_REPOSITORY/releases/$engine_id" --jq '.assets[] | select(.name=="night-web-engine.zip") | .url')"
@@ -58,11 +62,11 @@ jobs:
         if: success()
         shell: bash
         run: |
-          gh api --hostname uploads.github.com --method POST -H 'Content-Type: application/octet-stream' --input output/Night_patched.img "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=Night_patched.img" >/dev/null
-          gh api --hostname uploads.github.com --method POST -H 'Content-Type: text/plain' --input output/SHA256.txt "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256.txt" >/dev/null
+          curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' --data-binary @output/Night_patched.img "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=Night_patched.img" >/dev/null
+          curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: text/plain' --data-binary @output/SHA256.txt "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256.txt" >/dev/null
       - name: Upload failure marker
         if: failure()
         shell: bash
         run: |
           printf 'Night web patch failed. Review workflow run %s.\n' "$GITHUB_RUN_ID" > failure.txt
-          gh api --hostname uploads.github.com --method POST -H 'Content-Type: text/plain' --input failure.txt "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=failure.txt" >/dev/null || true
+          curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: text/plain' --data-binary @failure.txt "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=failure.txt" >/dev/null || true
