@@ -60,7 +60,11 @@ public final class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(135, 185, 255);
     private static final String PREFS = "wtlyf_activation";
     private static final String KEY_CODE = "activation_code";
-    private static final String LICENSE_BASE_URL = "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site";
+    private static final String[] LICENSE_BASE_URLS = {
+        "https://wtlyf-night-license.pages.dev",
+        "https://wtlyf-license-center.wtlyf-night.workers.dev",
+        "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site"
+    };
     private static final int REQUEST_BOOT_IMAGE = 5001;
 
     private static final ModuleItem ALWAYS_STRONG =
@@ -181,21 +185,31 @@ public final class MainActivity extends Activity {
     }
 
     private JSONObject postJson(String path, JSONObject body) throws Exception {
-        try {
-            return postJsonHttp(path, body);
-        } catch (NonJsonResponse error) {
-            return postJsonWebView(path, body);
+        Exception lastError = null;
+        for (String baseUrl : LICENSE_BASE_URLS) {
+            try {
+                return postJsonHttp(baseUrl, path, body);
+            } catch (NonJsonResponse error) {
+                try {
+                    return postJsonWebView(baseUrl, path, body);
+                } catch (Exception fallbackError) {
+                    lastError = fallbackError;
+                }
+            } catch (Exception error) {
+                lastError = error;
+            }
         }
+        throw new Exception("所有卡密服务地址均连接失败" + (lastError == null ? "" : "：" + lastError.getMessage()));
     }
 
-    private JSONObject postJsonHttp(String path, JSONObject body) throws Exception {
-        URL current = new URL(LICENSE_BASE_URL + path);
+    private JSONObject postJsonHttp(String baseUrl, String path, JSONObject body) throws Exception {
+        URL current = new URL(baseUrl + path);
         for (int redirect = 0; redirect < 4; redirect++) {
             HttpURLConnection connection = (HttpURLConnection) current.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setRequestMethod("POST");
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.1");
+            connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.2");
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8"); connection.setDoOutput(true);
             try (OutputStream output = connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
             int status = connection.getResponseCode();
@@ -217,7 +231,7 @@ public final class MainActivity extends Activity {
         throw new NonJsonResponse("服务器重定向次数过多");
     }
 
-    private JSONObject postJsonWebView(String path, JSONObject body) throws Exception {
+    private JSONObject postJsonWebView(String baseUrl, String path, JSONObject body) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
         AtomicReference<String> failure = new AtomicReference<>();
@@ -239,7 +253,7 @@ public final class MainActivity extends Activity {
                 + "fetch(" + JSONObject.quote(path) + ",{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'},body:" + payload + "})"
                 + ".then(async r=>WtlyfBridge.complete(JSON.stringify({status:r.status,type:r.headers.get('content-type')||'',body:await r.text()})))"
                 + ".catch(e=>WtlyfBridge.fail(String(e)))</script>";
-            webView.loadDataWithBaseURL(LICENSE_BASE_URL + "/", html, "text/html", "UTF-8", null);
+            webView.loadDataWithBaseURL(baseUrl + "/", html, "text/html", "UTF-8", null);
         });
         if (!latch.await(25, TimeUnit.SECONDS)) throw new Exception("浏览器网络验证超时");
         if (failure.get() != null) throw new Exception("浏览器网络验证失败：" + failure.get());
