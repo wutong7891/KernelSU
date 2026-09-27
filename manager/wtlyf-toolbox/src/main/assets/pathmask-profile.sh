@@ -42,5 +42,16 @@ chmod 0644 "$MODULE_DIR/wait_seconds.conf"
 
 command -v restorecon >/dev/null 2>&1 && restorecon -RF "$PERSIST_DIR" "$MODULE_DIR" 2>/dev/null || true
 sync
-echo "PathMask 已恢复其余默认配置，作用范围设为全局，开机等待时间设为 5 秒"
+
+# 与 PathMask WebUI 右下角“保存并热重载”执行相同的重载流程。
+rm -f "$PERSIST_DIR/load_fail_count" "$PERSIST_DIR/load_fail_reason" 2>/dev/null || true
+if grep -q '^pathmask ' /proc/modules 2>/dev/null; then
+    rmmod pathmask
+fi
+PATHMASK_RESET_FAIL_GUARD=1 \
+PATHMASK_IGNORE_FAIL_GUARD=1 \
+PATHMASK_WAIT_SECONDS=5 \
+    sh "$MODULE_DIR/service.sh"
+
+echo "PathMask 已设为全局、等待时间设为 5 秒，并完成保存及热重载"
 
