@@ -1,0 +1,65 @@
+name: Build wtlyf License Suite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["night"]
+    paths:
+      - '.github/workflows/build-wtlyf-license-suite.yml'
+      - 'manager/wtlyf-toolbox/**'
+      - 'manager/wtlyf-license-generator/**'
+      - 'manager/wtlyf-license-unbinder/**'
+      - 'manager/settings.gradle.kts'
+      - 'tools/wtlyf-license-generator/**'
+      - 'tools/wtlyf-license-unbinder/**'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: ./manager } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: android-actions/setup-android@v4
+      - name: Write stable Night signing key
+        env:
+          NIGHT_KEYSTORE: ${{ secrets.NIGHT_KEYSTORE }}
+          NIGHT_KEYSTORE_PASSWORD: ${{ secrets.NIGHT_KEYSTORE_PASSWORD }}
+          NIGHT_KEY_ALIAS: ${{ secrets.NIGHT_KEY_ALIAS }}
+          NIGHT_KEY_PASSWORD: ${{ secrets.NIGHT_KEY_PASSWORD }}
+        run: |
+          test -n "$NIGHT_KEYSTORE"
+          echo "$NIGHT_KEYSTORE" | base64 -d > night-key.jks
+          printf 'KEYSTORE_PASSWORD=%s\nKEY_ALIAS=%s\nKEY_PASSWORD=%s\nKEYSTORE_FILE=night-key.jks\n' "$NIGHT_KEYSTORE_PASSWORD" "$NIGHT_KEY_ALIAS" "$NIGHT_KEY_PASSWORD" >> gradle.properties
+      - name: Build signed APKs
+        run: ./gradlew :wtlyf-toolbox:assembleRelease :wtlyf-license-generator:assembleRelease :wtlyf-license-unbinder:assembleRelease
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wtlyf-license-apks
+          path: |
+            manager/wtlyf-toolbox/build/outputs/apk/release/*.apk
+            manager/wtlyf-license-generator/build/outputs/apk/release/*.apk
+            manager/wtlyf-license-unbinder/build/outputs/apk/release/*.apk
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '8.0.x' }
+      - name: Build Windows tools
+        shell: pwsh
+        run: |
+          dotnet publish tools/wtlyf-license-generator/wtlyf-license-generator.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+          dotnet publish tools/wtlyf-license-unbinder/wtlyf-license-unbinder.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wtlyf-license-exes
+          path: |
+            tools/wtlyf-license-generator/bin/Release/net8.0-windows/win-x64/publish/*.exe
+            tools/wtlyf-license-unbinder/bin/Release/net8.0-windows/win-x64/publish/*.exe
+

@@ -23,3 +23,6 @@ include(":app")
 include(":offline-patcher")
 include(":activation-issuer")
 include(":wtlyf-toolbox")
+include(":wtlyf-license-generator")
+include(":wtlyf-license-unbinder")
+

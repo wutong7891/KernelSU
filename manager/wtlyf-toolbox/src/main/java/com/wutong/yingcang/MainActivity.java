@@ -3,10 +3,10 @@ package com.wutong.yingcang;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.res.ColorStateList;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -16,7 +16,6 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.text.method.ScrollingMovementMethod;
-import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,13 +37,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
-import java.security.Signature;
-import java.security.spec.X509EncodedKeySpec;
+import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
     private static final int BG = Color.rgb(7, 11, 20);
@@ -54,10 +55,8 @@ public final class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(135, 185, 255);
     private static final String PREFS = "wtlyf_activation";
     private static final String KEY_CODE = "activation_code";
-    private static final String PREFIX = "N1.";
+    private static final String LICENSE_BASE_URL = "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site";
     private static final int REQUEST_BOOT_IMAGE = 5001;
-    private static final String PUBLIC_KEY_BASE64 =
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxPm4IldYf9tF/Y0UWLi+2EbCMqSexmTpOHitEFtkCzLydcBguhgXg1qjapu1SqkmF2HEkD7xKl9zDRqu0b9ExK2YwSwmuPJIOjli+5il0Vc9/2CYKcLU3htMd8juCT7e6mVz31mJ6llf42yM+iCCPQ+JvQer5uCACyLGy8A1ArF9IKt8IZFlsb9r09/WZcdbLv1p0ASFRBLzVwv3JgT13oSQp0x1I63pZ/eeJzcjCzmmrDPsgsIXBXsKJxLyJFAzTWL7Xj0fZS8TkI1awyIUTMgNi+XO3Tn3y9cWxu1JG5niwAQVp1bjM9olG9tYDEvNAO5WXRGsRHI3keJWGs/xfQIDAQAB";
 
     private static final ModuleItem ALWAYS_STRONG =
         new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store");
@@ -98,7 +97,8 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        if (isActivated()) verifyRootAndOpen(); else showActivation();
+        String savedCode = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_CODE, null);
+        if (savedCode == null || savedCode.isBlank()) showActivation(); else verifyLicenseAndOpen(savedCode, true);
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -116,43 +116,85 @@ public final class MainActivity extends Activity {
         LinearLayout root = rootLayout();
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.addView(title("wtlyf", 34));
-        root.addView(label("设备激活", 20, TEXT));
+        root.addView(label("卡密验证", 20, TEXT));
         addSpace(root, 22);
 
         LinearLayout card = card();
-        String id = androidId();
-        card.addView(label("Android ID", 13, MUTED));
-        TextView idView = label(id, 15, TEXT);
-        idView.setTypeface(Typeface.MONOSPACE);
-        card.addView(idView, wide());
-        Button copy = button("复制设备 ID");
-        copy.setOnClickListener(v -> {
-            getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Android ID", id));
-            Toast.makeText(this, "Android ID 已复制", Toast.LENGTH_SHORT).show();
-        });
-        card.addView(copy, wide());
-
         EditText code = new EditText(this);
-        code.setHint("输入 N1 激活码");
+        code.setHint("输入 WTLYF 卡密");
         code.setHintTextColor(MUTED);
         code.setTextColor(TEXT);
         code.setMinLines(3);
         card.addView(code, wide());
         Button activate = button("激活并进入");
         activate.setOnClickListener(v -> {
-            String value = code.getText().toString().trim();
-            if (verify(id, value)) {
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_CODE, value).apply();
-                verifyRootAndOpen();
-            } else {
-                code.setError("激活码与本机 Android ID 不匹配");
-            }
+            String value = code.getText().toString().trim().toUpperCase(Locale.ROOT);
+            if (!value.matches("WTLYF(?:-[A-Z2-9]{5}){4}")) { code.setError("卡密格式不正确"); return; }
+            activate.setEnabled(false);
+            activate.setText("正在验证…");
+            verifyLicenseAndOpen(value, false);
         });
         card.addView(activate, wide());
         root.addView(card, wide());
         addSpace(root, 14);
-        root.addView(label("激活仅在本机离线验证，不上传 Android ID。", 13, MUTED));
+        root.addView(label("一台设备绑定一张卡密。仅上传不可逆设备指纹，不上传明文 Android ID。", 13, MUTED));
         setAnimatedContent(scroll(root));
+    }
+
+    private void verifyLicenseAndOpen(String code, boolean stored) {
+        if (stored) showLicenseGate("正在验证已绑定卡密…");
+        new Thread(() -> {
+            try {
+                JSONObject request = new JSONObject().put("code", code).put("deviceHash", deviceFingerprint());
+                JSONObject response = postJson(stored ? "/api/v1/check" : "/api/v1/activate", request);
+                if (response.optBoolean("ok")) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_CODE, code).apply();
+                    runOnUiThread(this::verifyRootAndOpen);
+                    return;
+                }
+                String error = response.optString("error");
+                String message = response.optString("message", "卡密验证失败");
+                if ("code_in_use".equals(error)) message = "卡密已被登录";
+                if (stored && ("code_in_use".equals(error) || "invalid_code".equals(error))) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_CODE).apply();
+                }
+                String finalMessage = message;
+                runOnUiThread(() -> { showActivation(); Toast.makeText(this, finalMessage, Toast.LENGTH_LONG).show(); });
+            } catch (Throwable error) {
+                String message = "无法连接卡密服务器，请检查网络后重试：" + error.getMessage();
+                runOnUiThread(() -> { showActivation(); Toast.makeText(this, message, Toast.LENGTH_LONG).show(); });
+            }
+        }, "wtlyf-license-verifier").start();
+    }
+
+    private void showLicenseGate(String message) {
+        LinearLayout root = rootLayout(); root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.addView(title("wtlyf", 34)); root.addView(label("卡密验证", 18, MUTED)); addSpace(root, 28);
+        LinearLayout panel = card(); TextView heading = label(message, 21, TEXT); heading.setGravity(Gravity.CENTER); panel.addView(heading, wide());
+        panel.addView(label("正在通过加密连接核对当前设备绑定状态", 14, MUTED), wide()); root.addView(panel, wide());
+        setAnimatedContent(scroll(root));
+    }
+
+    private JSONObject postJson(String path, JSONObject body) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(LICENSE_BASE_URL + path).openConnection();
+        connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setRequestMethod("POST");
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8"); connection.setDoOutput(true);
+        try (OutputStream output = connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+        InputStream stream = connection.getResponseCode() >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        StringBuilder text = new StringBuilder();
+        if (stream != null) try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) { for (String line; (line = reader.readLine()) != null;) text.append(line); }
+        connection.disconnect();
+        return new JSONObject(text.length() == 0 ? "{}" : text.toString());
+    }
+
+    private String deviceFingerprint() throws Exception {
+        String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+        PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+        byte[] cert = info.signingInfo.getApkContentsSigners()[0].toByteArray();
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update("wtlyf-device-v1|".getBytes(StandardCharsets.UTF_8));
+        digest.update((androidId == null ? "" : androidId).getBytes(StandardCharsets.UTF_8)); digest.update(cert);
+        StringBuilder hex = new StringBuilder(); for (byte value : digest.digest()) hex.append(String.format(Locale.ROOT, "%02x", value)); return hex.toString();
     }
 
     private void verifyRootAndOpen() {
@@ -238,7 +280,7 @@ public final class MainActivity extends Activity {
         header.addView(reboot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(header, wide());
         root.addView(label("KernelSU 环境部署工具箱", 16, MUTED));
-        root.addView(label("已通过 Android ID 验证：" + androidId(), 12, Color.rgb(135, 205, 255)));
+        root.addView(label("卡密已绑定当前设备", 12, Color.rgb(135, 205, 255)));
         addSpace(root, 24);
 
         Button alwaysStrong = primaryButton("方案1");
@@ -559,7 +601,7 @@ public final class MainActivity extends Activity {
                     appendLog("退出码：" + code + "\n");
                     zip.delete();
                     if (code != 0) {
-                        if (isModuleInstalled(item.id)) {
+                        if (waitForModuleInstalled(item.id)) {
                             appendLog("安装器返回非零退出码，但已检测到模块 " + item.id + " 成功落盘，按部署成功继续。\n");
                         } else {
                             success = false;
@@ -645,8 +687,14 @@ public final class MainActivity extends Activity {
             boolean verified = verifyPathMaskDeployment();
             if (verified) {
                 appendLog("已确认 PathMask、SoterFix、全局模式与 5 秒等待配置均已落盘，按部署成功处理。\n");
+                return true;
             }
-            return verified;
+            boolean modulesInstalled = waitForModuleInstalled("pathmask") && waitForModuleInstalled("SoterFix");
+            if (modulesInstalled) {
+                appendLog("两个模块均已安装成功；后置配置未能完全核对，仅作为警告，不再误报部署失败。\n");
+                return true;
+            }
+            return false;
         } finally {
             script.delete();
         }
@@ -696,6 +744,14 @@ public final class MainActivity extends Activity {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private boolean waitForModuleInstalled(String moduleId) {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            if (isModuleInstalled(moduleId)) return true;
+            try { Thread.sleep(300L); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+        }
+        return false;
     }
 
     private void showOperationPage(String heading, String subtitle) {
@@ -840,32 +896,6 @@ public final class MainActivity extends Activity {
             View parent = (View) log.getParent();
             if (parent != null) parent.post(() -> parent.scrollTo(0, log.getBottom()));
         });
-    }
-
-    private boolean isActivated() {
-        String code = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_CODE, null);
-        return code != null && verify(androidId(), code);
-    }
-
-    private String androidId() {
-        String id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        return id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private boolean verify(String androidId, String code) {
-        try {
-            String normalized = code.trim().replace("\n", "").replace("\r", "");
-            if (!normalized.startsWith(PREFIX)) return false;
-            byte[] signature = Base64.decode(normalized.substring(PREFIX.length()), Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
-            byte[] keyBytes = Base64.decode(PUBLIC_KEY_BASE64, Base64.DEFAULT);
-            java.security.PublicKey key = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(keyBytes));
-            Signature verifier = Signature.getInstance("SHA256withRSA");
-            verifier.initVerify(key);
-            verifier.update(("Night|1|" + androidId.trim().toLowerCase(Locale.ROOT)).getBytes(StandardCharsets.UTF_8));
-            return verifier.verify(signature);
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     private static String shellQuote(String value) {
