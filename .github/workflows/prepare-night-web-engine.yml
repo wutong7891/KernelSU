@@ -1,0 +1,63 @@
+name: Prepare Night Web Patch Engine
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  build-lkm:
+    uses: ./.github/workflows/build-lkm.yml
+    with:
+      expected_size: '0x02ca'
+      expected_hash: '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
+      manager_package: 'com.Night.night'
+      build_x86: false
+    secrets: inherit
+
+  build-ksuinit:
+    uses: ./.github/workflows/ksuinit.yml
+
+  build-engine:
+    needs: build-ksuinit
+    uses: ./.github/workflows/ksud-extra.yml
+    with:
+      target: x86_64-unknown-linux-musl
+      os: ubuntu-latest
+      pack_lkm: false
+      pack_ksuinit: true
+
+  package:
+    needs: [build-lkm, build-engine]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-unknown-linux-musl
+          path: engine
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-android*-lkm
+          merge-multiple: true
+          path: kmi
+      - name: Package native engine and exclusive KMI set
+        run: |
+          chmod +x engine/ksud
+          mkdir bundle
+          cp engine/ksud bundle/ksud
+          cp kmi/*_kernelsu.ko bundle/
+          (cd bundle && zip -9 ../night-web-engine.zip *)
+      - name: Replace private draft engine release
+        shell: bash
+        run: |
+          set -euo pipefail
+          old_id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.name=="Night Web Patch Engine") | .id' | head -n1 || true)"
+          if [ -n "$old_id" ]; then gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$old_id"; fi
+          tag="night-web-engine-${GITHUB_SHA::12}-${GITHUB_RUN_ID}"
+          gh release create "$tag" night-web-engine.zip --draft --title "Night Web Patch Engine" --notes "Private native engine used by the authenticated WTLYF web patch service."
+
