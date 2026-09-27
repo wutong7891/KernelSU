@@ -31,6 +31,9 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -44,7 +47,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
@@ -176,15 +181,79 @@ public final class MainActivity extends Activity {
     }
 
     private JSONObject postJson(String path, JSONObject body) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(LICENSE_BASE_URL + path).openConnection();
-        connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setRequestMethod("POST");
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8"); connection.setDoOutput(true);
-        try (OutputStream output = connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
-        InputStream stream = connection.getResponseCode() >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        StringBuilder text = new StringBuilder();
-        if (stream != null) try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) { for (String line; (line = reader.readLine()) != null;) text.append(line); }
-        connection.disconnect();
-        return new JSONObject(text.length() == 0 ? "{}" : text.toString());
+        try {
+            return postJsonHttp(path, body);
+        } catch (NonJsonResponse error) {
+            return postJsonWebView(path, body);
+        }
+    }
+
+    private JSONObject postJsonHttp(String path, JSONObject body) throws Exception {
+        URL current = new URL(LICENSE_BASE_URL + path);
+        for (int redirect = 0; redirect < 4; redirect++) {
+            HttpURLConnection connection = (HttpURLConnection) current.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setRequestMethod("POST");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.1");
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8"); connection.setDoOutput(true);
+            try (OutputStream output = connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+            int status = connection.getResponseCode();
+            if (status == 301 || status == 302 || status == 307 || status == 308) {
+                String location = connection.getHeaderField("Location"); connection.disconnect();
+                if (location == null || location.isBlank()) throw new NonJsonResponse("服务器重定向缺少目标地址");
+                current = new URL(current, location); continue;
+            }
+            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            StringBuilder text = new StringBuilder();
+            if (stream != null) try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) { for (String line; (line = reader.readLine()) != null;) text.append(line); }
+            String contentType = connection.getHeaderField("Content-Type"); connection.disconnect();
+            String response = text.toString().trim();
+            if ((contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("json")) || response.startsWith("<")) {
+                throw new NonJsonResponse("系统网络组件返回了网页内容");
+            }
+            return new JSONObject(response.length() == 0 ? "{}" : response);
+        }
+        throw new NonJsonResponse("服务器重定向次数过多");
+    }
+
+    private JSONObject postJsonWebView(String path, JSONObject body) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>();
+        AtomicReference<String> failure = new AtomicReference<>();
+        runOnUiThread(() -> {
+            WebView webView = new WebView(this);
+            webView.getSettings().setJavaScriptEnabled(true);
+            webView.getSettings().setDomStorageEnabled(false);
+            webView.setWebViewClient(new WebViewClient());
+            webView.addJavascriptInterface(new Object() {
+                @JavascriptInterface public void complete(String value) {
+                    result.set(value); latch.countDown(); runOnUiThread(webView::destroy);
+                }
+                @JavascriptInterface public void fail(String value) {
+                    failure.set(value); latch.countDown(); runOnUiThread(webView::destroy);
+                }
+            }, "WtlyfBridge");
+            String payload = JSONObject.quote(body.toString());
+            String html = "<!doctype html><meta charset=utf-8><script>"
+                + "fetch(" + JSONObject.quote(path) + ",{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'},body:" + payload + "})"
+                + ".then(async r=>WtlyfBridge.complete(JSON.stringify({status:r.status,type:r.headers.get('content-type')||'',body:await r.text()})))"
+                + ".catch(e=>WtlyfBridge.fail(String(e)))</script>";
+            webView.loadDataWithBaseURL(LICENSE_BASE_URL + "/", html, "text/html", "UTF-8", null);
+        });
+        if (!latch.await(25, TimeUnit.SECONDS)) throw new Exception("浏览器网络验证超时");
+        if (failure.get() != null) throw new Exception("浏览器网络验证失败：" + failure.get());
+        JSONObject envelope = new JSONObject(result.get() == null ? "{}" : result.get());
+        String response = envelope.optString("body", "").trim();
+        String type = envelope.optString("type", "");
+        if (!type.toLowerCase(Locale.ROOT).contains("json") || response.startsWith("<")) {
+            throw new Exception("当前网络仍将卡密接口替换为网页，请关闭代理、VPN 或切换网络后重试");
+        }
+        return new JSONObject(response.length() == 0 ? "{}" : response);
+    }
+
+    private static final class NonJsonResponse extends Exception {
+        NonJsonResponse(String message) { super(message); }
     }
 
     private String deviceFingerprint() throws Exception {

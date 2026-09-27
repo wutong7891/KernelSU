@@ -1,17 +1,6 @@
 name: Build wtlyf License Suite
 
-on:
-  workflow_dispatch:
-  push:
-    branches: ["night"]
-    paths:
-      - '.github/workflows/build-wtlyf-license-suite.yml'
-      - 'manager/wtlyf-toolbox/**'
-      - 'manager/wtlyf-license-generator/**'
-      - 'manager/wtlyf-license-unbinder/**'
-      - 'manager/settings.gradle.kts'
-      - 'tools/wtlyf-license-generator/**'
-      - 'tools/wtlyf-license-unbinder/**'
+on: workflow_dispatch
 
 permissions:
   contents: read
