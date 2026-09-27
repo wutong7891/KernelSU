@@ -1,0 +1,68 @@
+name: Night Web Image Patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Private draft release containing input.img
+        required: true
+        type: string
+      kmi:
+        description: Exact Night KMI identifier
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: night-web-patch-${{ inputs.release_id }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      KMI: ${{ inputs.kmi }}
+    steps:
+      - name: Download private input and native engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_url="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.assets[] | select(.name=="input.img") | .url')"
+          gh api -H 'Accept: application/octet-stream' "$input_url" > input.img
+          engine_id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.name=="Night Web Patch Engine") | .id' | head -n1)"
+          test -n "$engine_id"
+          engine_url="$(gh api "repos/$GITHUB_REPOSITORY/releases/$engine_id" --jq '.assets[] | select(.name=="night-web-engine.zip") | .url')"
+          gh api -H 'Accept: application/octet-stream' "$engine_url" > engine.zip
+          unzip -q engine.zip -d engine
+          chmod +x engine/ksud
+      - name: Validate selection and patch image
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$KMI" in
+            android12-5.10|android13-5.10|android13-5.15|android14-5.15|android14-6.1|android15-6.6|android16-6.12|android17-6.18) ;;
+            *) echo "Unsupported KMI" >&2; exit 2 ;;
+          esac
+          module="engine/${KMI}_kernelsu.ko"
+          test -s "$module"
+          mkdir output
+          engine/ksud boot-patch --boot input.img --module "$module" --kmi "$KMI" --out output --out-name Night_patched.img 2>&1 | tee patch.log
+          test -s output/Night_patched.img
+          sha256sum input.img output/Night_patched.img > output/SHA256.txt
+      - name: Upload result to private draft task
+        if: success()
+        shell: bash
+        run: |
+          gh api --hostname uploads.github.com --method POST -H 'Content-Type: application/octet-stream' --input output/Night_patched.img "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=Night_patched.img" >/dev/null
+          gh api --hostname uploads.github.com --method POST -H 'Content-Type: text/plain' --input output/SHA256.txt "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256.txt" >/dev/null
+      - name: Upload failure marker
+        if: failure()
+        shell: bash
+        run: |
+          printf 'Night web patch failed. Review workflow run %s.\n' "$GITHUB_RUN_ID" > failure.txt
+          gh api --hostname uploads.github.com --method POST -H 'Content-Type: text/plain' --input failure.txt "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=failure.txt" >/dev/null || true
