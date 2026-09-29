@@ -2,6 +2,7 @@ package com.wutong.yingcang;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.content.res.ColorStateList;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.text.method.ScrollingMovementMethod;
@@ -60,6 +62,8 @@ public final class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(135, 185, 255);
     private static final String PREFS = "wtlyf_activation";
     private static final String KEY_CODE = "activation_code";
+    private static final String KEY_LAST_PUSH = "last_push_id";
+    private static final String PUSH_BASE_URL = "https://wtlyf-night-license.pages.dev";
     private static final String[] LICENSE_BASE_URLS = {
         "https://wtlyf-night-license.pages.dev",
         "https://wtlyf-license-center.wtlyf-night.workers.dev",
@@ -456,6 +460,83 @@ public final class MainActivity extends Activity {
         log.setBackground(glassDrawable(Color.argb(205, 3, 8, 18), 18, Color.argb(135, 115, 190, 255)));
         root.addView(log, wide());
         setAnimatedContent(scroll(root));
+        checkRemotePush();
+    }
+
+    private void checkRemotePush() {
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(PUSH_BASE_URL + "/api/v1/push/latest").openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(12000);
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.3");
+                if (connection.getResponseCode() != 200) return;
+                StringBuilder text = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    for (String line; (line = reader.readLine()) != null;) text.append(line);
+                }
+                JSONObject response = new JSONObject(text.toString());
+                JSONObject push = response.optJSONObject("push");
+                if (push == null) return;
+                String id = push.optString("id");
+                if (id.isBlank() || id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_PUSH, ""))) return;
+                runOnUiThread(() -> showRemotePush(push));
+            } catch (Throwable ignored) {
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "wtlyf-push-checker").start();
+    }
+
+    private void showRemotePush(JSONObject push) {
+        String id = push.optString("id");
+        String title = push.optString("title", "WTLYF 通知");
+        String message = push.optString("message", "");
+        String fileName = push.optString("fileName", "");
+        String downloadUrl = push.optString("downloadUrl", "");
+        String body = message;
+        if (!fileName.isBlank()) body += (body.isBlank() ? "" : "\n\n") + "附件：" + fileName;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(body.isBlank() ? "收到一条新的文件推送" : body)
+            .setNegativeButton("稍后", null);
+        if (!fileName.isBlank() && !downloadUrl.isBlank()) {
+            builder.setPositiveButton("下载文件", (ignored, which) -> {
+                markPushSeen(id);
+                downloadRemoteFile(downloadUrl, fileName, push.optString("contentType", "application/octet-stream"));
+            });
+        } else {
+            builder.setPositiveButton("知道了", (ignored, which) -> markPushSeen(id));
+        }
+        showGlassDialog(builder.create(), false);
+    }
+
+    private void markPushSeen(String id) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_PUSH, id).apply();
+    }
+
+    private void downloadRemoteFile(String path, String requestedName, String contentType) {
+        try {
+            String fileName = requestedName.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+            if (fileName.isBlank()) fileName = "wtlyf-push.bin";
+            Uri uri = Uri.parse(path.startsWith("http") ? path : PUSH_BASE_URL + path);
+            DownloadManager.Request request = new DownloadManager.Request(uri)
+                .setTitle(fileName)
+                .setDescription("WTLYF 推送文件")
+                .setMimeType(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            manager.enqueue(request);
+            Toast.makeText(this, "已加入系统下载任务", Toast.LENGTH_LONG).show();
+        } catch (Throwable error) {
+            Toast.makeText(this, "无法启动下载：" + error.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void confirmReboot() {
@@ -1145,4 +1226,3 @@ public final class MainActivity extends Activity {
         boolean run() throws Exception;
     }
 }
-
