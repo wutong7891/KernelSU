@@ -64,36 +64,38 @@ public final class MainActivity extends Activity {
     private static final String KEY_CODE = "activation_code";
     private static final String KEY_LAST_PUSH = "last_push_id";
     private static final String PUSH_BASE_URL = "https://wtlyf-night-license.pages.dev";
+    private static final String MODULE_BASE_URL = PUSH_BASE_URL + "/api/v1/toolbox/modules/";
     private static final String[] LICENSE_BASE_URLS = {
         "https://wtlyf-night-license.pages.dev",
         "https://wtlyf-license-center.wtlyf-night.workers.dev",
         "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site"
     };
     private static final int REQUEST_BOOT_IMAGE = 5001;
+    private static final int CURRENT_VERSION_CODE = 22;
 
     private static final ModuleItem ALWAYS_STRONG =
-        new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store");
+        new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store", "6F669A7F4DD438DF3EDE42C001CF24B24E78B42E85ED21F78FC842D25737A774");
     private static final ModuleItem SOTER_KEY =
-        new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip", "SoterFix");
+        new ModuleItem("Soter Key Fixer", "v1.2", "soterkey.zip", "SoterFix", "D2737CB9683489CED3D59E823D18D09B4117C6D17A6C68D1C30C5D047A00D3C3");
     private static final ModuleItem JAILBREAK_TOLERANCE =
-        new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip", "JailNotBreak");
+        new ModuleItem("隐藏越狱模式", "v1.1", "jailbreak-tolerance.zip", "JailNotBreak", "C70256086D8CC029CBDFC370D3FE2598D2EEF857B7ECBEAA5A2F6E09F3E930D9");
     private static final ModuleItem TEE_SIMULATOR =
-        new ModuleItem("TEESimulator-RS", "v6.0.1-324", "tee-simulator-v6.0.1-324.zip", "tricky_store");
+        new ModuleItem("TEESimulator-RS", "v6.0.1-324", "tee-simulator-v6.0.1-324.zip", "tricky_store", "1420DA7883C3754B039E7825A194B621231FF3239DB9C97E326743D41D024F39");
     private static final ModuleItem TRICKY_ADDON =
-        new ModuleItem("Tricky Addon", "v4.3", "tricky-addon-v4.3.zip", "TA_utl");
+        new ModuleItem("Tricky Addon", "v4.3", "tricky-addon-v4.3.zip", "TA_utl", "6930657DF71410C348FE81C1FEB77792C4C0783902A2E5E863117CA2C66C839A");
     private static final ModuleItem TRICKY_AUTO_ADD =
-        new ModuleItem("TrickyStore 自动添加应用", "v1.1", "tricky-auto-add-v1.1.zip", "trickystore_auto_add_app");
+        new ModuleItem("TrickyStore 自动添加应用", "v1.1", "tricky-auto-add-v1.1.zip", "trickystore_auto_add_app", "79CA804E2790C5D04720CD1374AD10D9B8194AF326F643A8C0D38C612874C620");
     private static final ModuleItem[] SCHEME_TWO = {
         TEE_SIMULATOR, TRICKY_ADDON, TRICKY_AUTO_ADD
     };
     private static final ModuleItem[] PATH_MASKS = {
-        new ModuleItem("Android 12 / 5.10 PathMask", "v2.2.7", "pathmask-android12-5.10.zip", "pathmask"),
-        new ModuleItem("Android 13 / 5.10 PathMask", "v2.2.7", "pathmask-android13-5.10.zip", "pathmask"),
-        new ModuleItem("Android 13 / 5.15 PathMask", "v2.2.7", "pathmask-android13-5.15.zip", "pathmask"),
-        new ModuleItem("Android 14 / 5.15 PathMask", "v2.2.7", "pathmask-android14-5.15.zip", "pathmask"),
-        new ModuleItem("Android 14 / 6.1 PathMask", "v2.2.7", "pathmask-android14-6.1.zip", "pathmask"),
-        new ModuleItem("Android 15 / 6.6 PathMask", "v2.2.7", "pathmask-android15-6.6.zip", "pathmask"),
-        new ModuleItem("Android 16 / 6.12 PathMask", "v2.2.7", "pathmask-android16-6.12.zip", "pathmask")
+        new ModuleItem("Android 12 / 5.10 PathMask", "v2.2.7", "pathmask-android12-5.10.zip", "pathmask", "0CC4DB7855B9A5A02BE1DE544C5682CD74E202B3426AFF353D399C62ED0C5C13"),
+        new ModuleItem("Android 13 / 5.10 PathMask", "v2.2.7", "pathmask-android13-5.10.zip", "pathmask", "DD4CE018280FBF41F27005F67162CEEC499B30F5526E00EC7FE15BE731659DB9"),
+        new ModuleItem("Android 13 / 5.15 PathMask", "v2.2.7", "pathmask-android13-5.15.zip", "pathmask", "3185F11BDC3D2982BA1A25C1811BBC853AC1C4D5DCE8774E763E260F4CD28759"),
+        new ModuleItem("Android 14 / 5.15 PathMask", "v2.2.7", "pathmask-android14-5.15.zip", "pathmask", "0EDAD8FF137D73C704F7F75628A0643744976C6D45D26F6D12D93122C8880E51"),
+        new ModuleItem("Android 14 / 6.1 PathMask", "v2.2.7", "pathmask-android14-6.1.zip", "pathmask", "56235B11F8677AED555B372915CBB8487AAA12E68E6E4BD623BD1427917ADAC3"),
+        new ModuleItem("Android 15 / 6.6 PathMask", "v2.2.7", "pathmask-android15-6.6.zip", "pathmask", "8608EDC9D3EF58C758820F0EC08F20AF5C3F7C220B182CD9433214C357433844"),
+        new ModuleItem("Android 16 / 6.12 PathMask", "v2.2.7", "pathmask-android16-6.12.zip", "pathmask", "4E7000E8477652957FF6B1772222F1B55CD43AE32E941B289952445C8741FEFE")
     };
 
     private final AtomicBoolean installing = new AtomicBoolean(false);
@@ -373,7 +375,7 @@ public final class MainActivity extends Activity {
         Button alwaysStrong = primaryButton("方案1");
         alwaysStrong.setOnClickListener(v -> confirmInstall(
             "部署方案1",
-            "将通过 KernelSU 安装 AlwaysStrong v1.0.3。安装成功后会自动按预设开启指纹、Keybox、状态指示和屏蔽 ROM 伪装，检查间隔设为 5 分钟，并关闭自定义 Keybox。",
+            "将从服务器下载并通过 KernelSU 安装 AlwaysStrong v1.0.3。安装成功后会导入 keybox.xml，并自动按预设开启指纹、Keybox、状态指示和屏蔽 ROM 伪装，检查间隔设为 5 分钟，关闭自定义 Keybox。",
             new ModuleItem[] { ALWAYS_STRONG },
             this::applyAlwaysStrongProfile
         ));
@@ -382,7 +384,7 @@ public final class MainActivity extends Activity {
         Button schemeTwo = primaryButton("方案2");
         schemeTwo.setOnClickListener(v -> confirmInstall(
             "部署方案2",
-            "将依次安装 TEESimulator-RS、Tricky Addon 和 TrickyStore 自动添加应用。三个模块全部成功后，才会替换 /data/adb/tricky_store/keybox.xml。",
+            "将从服务器依次下载并安装 TEESimulator-RS v6.0.1-324、Tricky Addon 和 TrickyStore 自动添加应用。三个模块全部成功后，才会替换 /data/adb/tricky_store/keybox.xml。",
             SCHEME_TWO,
             this::applySchemeTwoConfig
         ));
@@ -448,7 +450,7 @@ public final class MainActivity extends Activity {
         root.addView(danger, wide());
 
         addSpace(root, 16);
-        root.addView(label("安装调用 KernelSU 的 ksud module install；请先在 Night 面具中授予本应用 root 权限。", 13, MUTED));
+        root.addView(label("模块由服务器按需下载并校验 SHA-256，再调用 KernelSU 的 ksud module install；请保持网络连接并授予本应用 root 权限。", 13, MUTED));
         addSpace(root, 12);
 
         log = label("等待部署…", 13, Color.rgb(201, 232, 218));
@@ -481,6 +483,8 @@ public final class MainActivity extends Activity {
                 JSONObject response = new JSONObject(text.toString());
                 JSONObject push = response.optJSONObject("push");
                 if (push == null) return;
+                int minimumVersion = push.optInt("minVersionCode", 0);
+                if (minimumVersion > 0 && minimumVersion <= CURRENT_VERSION_CODE) return;
                 String id = push.optString("id");
                 if (id.isBlank() || id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_PUSH, ""))) return;
                 runOnUiThread(() -> showRemotePush(push));
@@ -497,21 +501,32 @@ public final class MainActivity extends Activity {
         String message = push.optString("message", "");
         String fileName = push.optString("fileName", "");
         String downloadUrl = push.optString("downloadUrl", "");
+        boolean forceUpdate = push.optBoolean("forceUpdate", false)
+            && push.optInt("minVersionCode", 0) > CURRENT_VERSION_CODE;
         String body = message;
         if (!fileName.isBlank()) body += (body.isBlank() ? "" : "\n\n") + "附件：" + fileName;
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
             .setTitle(title)
-            .setMessage(body.isBlank() ? "收到一条新的文件推送" : body)
-            .setNegativeButton("稍后", null);
+            .setMessage(body.isBlank() ? "收到一条新的文件推送" : body);
+        if (!forceUpdate) builder.setNegativeButton("稍后", null);
         if (!fileName.isBlank() && !downloadUrl.isBlank()) {
             builder.setPositiveButton("下载文件", (ignored, which) -> {
-                markPushSeen(id);
+                if (!forceUpdate) markPushSeen(id);
                 downloadRemoteFile(downloadUrl, fileName, push.optString("contentType", "application/octet-stream"));
             });
         } else {
             builder.setPositiveButton("知道了", (ignored, which) -> markPushSeen(id));
         }
-        showGlassDialog(builder.create(), false);
+        AlertDialog dialog = builder.create();
+        dialog.setCancelable(!forceUpdate);
+        dialog.setCanceledOnTouchOutside(!forceUpdate);
+        showGlassDialog(dialog, false);
+        if (forceUpdate && !fileName.isBlank() && !downloadUrl.isBlank()) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("立即下载更新");
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view ->
+                downloadRemoteFile(downloadUrl, fileName, push.optString("contentType", "application/vnd.android.package-archive"))
+            );
+        }
     }
 
     private void markPushSeen(String id) {
@@ -753,7 +768,8 @@ public final class MainActivity extends Activity {
                     ModuleItem item = items[index];
                     appendLog("\n== 部署步骤 " + (index + 1) + "/" + items.length + " ==\n");
                     appendLog(item.name + " " + item.version + "\n");
-                    File zip = copyAsset(item.asset);
+                    appendLog("正在从服务器下载模块…\n");
+                    File zip = downloadModule(item);
                     Process process = new ProcessBuilder(
                         "su", "-c", "/data/adb/ksud module install " + shellQuote(zip.getAbsolutePath())
                     ).redirectErrorStream(true).start();
@@ -810,10 +826,11 @@ public final class MainActivity extends Activity {
         File script = copyAsset("always-strong-profile.sh");
         try {
             boolean scriptSucceeded = runRootCommand("sh " + shellQuote(script.getAbsolutePath()));
-            if (scriptSucceeded) return true;
+            boolean keyboxSucceeded = applySchemeTwoConfig();
+            if (scriptSucceeded && keyboxSucceeded) return true;
 
             appendLog("配置脚本返回非零退出码，正在核对 AlwaysStrong 实际配置…\n");
-            boolean verified = verifyAlwaysStrongProfile();
+            boolean verified = verifyAlwaysStrongProfile() && keyboxSucceeded;
             if (verified) {
                 appendLog("已确认模块和配置均已正确落盘，按部署成功处理。\n");
             }
@@ -1054,6 +1071,44 @@ public final class MainActivity extends Activity {
         return file;
     }
 
+    private File downloadModule(ModuleItem item) throws Exception {
+        File partial = new File(getCacheDir(), item.fileName + ".part");
+        File target = new File(getCacheDir(), item.fileName);
+        partial.delete();
+        target.delete();
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(MODULE_BASE_URL + item.fileName).openConnection();
+            connection.setConnectTimeout(20000);
+            connection.setReadTimeout(120000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("Accept", "application/zip,application/octet-stream");
+            connection.setRequestProperty("User-Agent", "wtlyf-toolbox/1.6.5 Android");
+            int status = connection.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) throw new Exception("模块下载失败（HTTP " + status + "）");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long total = 0;
+            try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(partial)) {
+                byte[] buffer = new byte[64 * 1024];
+                for (int count; (count = input.read(buffer)) != -1;) {
+                    output.write(buffer, 0, count);
+                    digest.update(buffer, 0, count);
+                    total += count;
+                }
+                output.getFD().sync();
+            }
+            StringBuilder actual = new StringBuilder(64);
+            for (byte value : digest.digest()) actual.append(String.format(Locale.ROOT, "%02X", value));
+            if (!item.sha256.equals(actual.toString())) throw new Exception("模块校验失败，请重试");
+            if (total < 1 || !partial.renameTo(target)) throw new Exception("无法保存下载的模块");
+            appendLog("下载完成：" + total + " 字节，SHA-256 校验通过\n");
+            return target;
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (!target.exists()) partial.delete();
+        }
+    }
+
     private void appendLog(String text) {
         runOnUiThread(() -> {
             log.append(text);
@@ -1212,13 +1267,15 @@ public final class MainActivity extends Activity {
     private static final class ModuleItem {
         final String name;
         final String version;
-        final String asset;
+        final String fileName;
         final String id;
-        ModuleItem(String name, String version, String asset, String id) {
+        final String sha256;
+        ModuleItem(String name, String version, String fileName, String id, String sha256) {
             this.name = name;
             this.version = version;
-            this.asset = asset;
+            this.fileName = fileName;
             this.id = id;
+            this.sha256 = sha256;
         }
     }
 
