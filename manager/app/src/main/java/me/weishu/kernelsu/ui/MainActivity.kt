@@ -178,8 +178,19 @@ class MainActivity : ComponentActivity() {
                 LocalUiMode provides uiMode,
             ) {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
-                    var nightActivated by remember { mutableStateOf(NightActivation.isActivated(this@MainActivity)) }
-                    if (!nightActivated) {
+                    var nightActivated by remember { mutableStateOf<Boolean?>(null) }
+                    LaunchedEffect(Unit) {
+                        nightActivated = NightActivation.isActivated(this@MainActivity)
+                    }
+                    if (nightActivated == null) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator()
+                        }
+                        SideEffect { contentReady = true }
+                    } else if (nightActivated != true) {
                         NightActivationScreen(onActivated = { nightActivated = true })
                         SideEffect { contentReady = true }
                     } else {

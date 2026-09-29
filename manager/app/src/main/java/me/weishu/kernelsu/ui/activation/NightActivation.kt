@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,61 +34,92 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import java.security.KeyFactory
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
-import java.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 object NightActivation {
     private const val PREFS = "night_activation"
-    private const val KEY_CODE = "activation_code"
-    private const val CODE_PREFIX = "N1."
-    private const val PUBLIC_KEY_BASE64 =
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxPm4IldYf9tF/Y0UWLi+2EbCMqSexmTpOHitEFtkCzLydcBguhgXg1qjapu1SqkmF2HEkD7xKl9zDRqu0b9ExK2YwSwmuPJIOjli+5il0Vc9/2CYKcLU3htMd8juCT7e6mVz31mJ6llf42yM+iCCPQ+JvQer5uCACyLGy8A1ArF9IKt8IZFlsb9r09/WZcdbLv1p0ASFRBLzVwv3JgT13oSQp0x1I63pZ/eeJzcjCzmmrDPsgsIXBXsKJxLyJFAzTWL7Xj0fZS8TkI1awyIUTMgNi+XO3Tn3y9cWxu1JG5niwAQVp1bjM9olG9tYDEvNAO5WXRGsRHI3keJWGs/xfQIDAQAB"
+    private const val KEY_CODE = "night_license_code"
+    private const val ENDPOINT = "https://wtlyf-night-license.pages.dev/api/v1/night"
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
+
+    data class Result(val ok: Boolean, val message: String)
 
     fun androidId(context: Context): String = Settings.Secure.getString(
         context.contentResolver,
         Settings.Secure.ANDROID_ID,
     ).orEmpty().trim().lowercase(Locale.ROOT)
 
-    private fun payload(androidId: String) = "Night|1|${androidId.trim().lowercase(Locale.ROOT)}"
-
-    fun verify(androidId: String, code: String): Boolean = runCatching {
-        val normalized = code.trim().replace("\n", "").replace("\r", "")
-        require(normalized.startsWith(CODE_PREFIX))
-        val signatureBytes = Base64.getUrlDecoder().decode(normalized.removePrefix(CODE_PREFIX))
-        val publicKey = KeyFactory.getInstance("RSA").generatePublic(
-            X509EncodedKeySpec(Base64.getDecoder().decode(PUBLIC_KEY_BASE64)),
-        )
-        Signature.getInstance("SHA256withRSA").run {
-            initVerify(publicKey)
-            update(payload(androidId).toByteArray(Charsets.UTF_8))
-            verify(signatureBytes)
-        }
-    }.getOrDefault(false)
-
-    fun activate(context: Context, code: String): Boolean {
-        val id = androidId(context)
-        if (!verify(id, code)) return false
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_CODE, code.trim()).apply()
-        return true
+    fun deviceHash(context: Context): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest("night-device-v1:${androidId(context)}".toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    fun isActivated(context: Context): Boolean {
-        val code = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_CODE, null) ?: return false
-        return verify(androidId(context), code)
+    fun savedCode(context: Context): String = context
+        .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_CODE, "")
+        .orEmpty()
+
+    private suspend fun request(context: Context, action: String, code: String): Result =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val normalized = code.trim().uppercase(Locale.ROOT).replace(" ", "")
+                val json = JSONObject()
+                    .put("code", normalized)
+                    .put("deviceHash", deviceHash(context))
+                val request = Request.Builder()
+                    .url("$ENDPOINT/$action")
+                    .post(json.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val data = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+                    val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
+                    if (response.isSuccessful && data.optBoolean("ok")) {
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().putString(KEY_CODE, normalized).apply()
+                        Result(true, message)
+                    } else {
+                        if (response.code == 403 || response.code == 404) {
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                .edit().remove(KEY_CODE).apply()
+                        }
+                        Result(false, message)
+                    }
+                }
+            }.getOrElse { Result(false, "无法连接 Night 卡密服务器，请检查网络后重试") }
+        }
+
+    suspend fun activate(context: Context, code: String): Result = request(context, "activate", code)
+
+    suspend fun isActivated(context: Context): Boolean {
+        val code = savedCode(context)
+        if (code.isBlank()) return false
+        return request(context, "check", code).ok
     }
 }
 
 @Composable
 fun NightActivationScreen(onActivated: () -> Unit) {
     val context = LocalContext.current
-    val androidId = remember { NightActivation.androidId(context) }
-    var code by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val fingerprint = remember { NightActivation.deviceHash(context) }
+    var code by remember { mutableStateOf(NightActivation.savedCode(context)) }
+    var error by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -99,7 +130,7 @@ fun NightActivationScreen(onActivated: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("NIGHT", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Color(0xFF99D3FF))
-        Text("设备激活", style = MaterialTheme.typography.titleLarge, color = Color.White)
+        Text("独立卡密验证", style = MaterialTheme.typography.titleLarge, color = Color.White)
         Spacer(Modifier.height(20.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -107,35 +138,42 @@ fun NightActivationScreen(onActivated: () -> Unit) {
             colors = CardDefaults.cardColors(containerColor = Color(0xCC182133)),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Android ID", color = Color(0xFF98A6C2))
-                Text(androidId, color = Color.White, fontFamily = FontFamily.Monospace)
+                Text("Night 设备指纹", color = Color(0xFF98A6C2))
+                Text(fingerprint.take(16) + "…", color = Color.White, fontFamily = FontFamily.Monospace)
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         val clipboard = context.getSystemService(ClipboardManager::class.java)
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Night Android ID", androidId))
-                        Toast.makeText(context, "Android ID 已复制", Toast.LENGTH_SHORT).show()
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Night device fingerprint", fingerprint))
+                        Toast.makeText(context, "设备指纹已复制", Toast.LENGTH_SHORT).show()
                     },
-                ) { Text("复制设备 ID") }
+                ) { Text("复制设备指纹") }
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { code = it; error = false },
+                    onValueChange = { code = it; error = "" },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("激活码") },
-                    minLines = 3,
-                    isError = error,
-                    supportingText = { if (error) Text("激活码与本机 Android ID 不匹配") },
+                    label = { Text("Night 卡密") },
+                    placeholder = { Text("NIGHT-XXXXX-XXXXX-XXXXX-XXXXX") },
+                    isError = error.isNotBlank(),
+                    supportingText = { if (error.isNotBlank()) Text(error) },
+                    singleLine = true,
                 )
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = code.isNotBlank(),
+                    enabled = code.isNotBlank() && !loading,
                     onClick = {
-                        if (NightActivation.activate(context, code)) onActivated() else error = true
+                        loading = true
+                        error = ""
+                        scope.launch {
+                            val result = NightActivation.activate(context, code)
+                            loading = false
+                            if (result.ok) onActivated() else error = result.message
+                        }
                     },
-                ) { Text("激活并进入 Night") }
+                ) { Text(if (loading) "正在验证…" else "激活并进入 Night") }
             }
         }
         Spacer(Modifier.height(14.dp))
-        Text("激活在本机离线验证，不会上传 Android ID。", color = Color(0xFF8190AA))
+        Text("一台设备只能绑定一张 Night 卡密；管理员可在独立后台解绑。", color = Color(0xFF8190AA))
     }
 }
