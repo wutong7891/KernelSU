@@ -77,7 +77,7 @@ object NightActivation {
     private suspend fun request(context: Context, action: String, code: String): Result =
         withContext(Dispatchers.IO) {
             runCatching {
-                val normalized = code.trim().uppercase(Locale.ROOT).replace(" ", "")
+                val normalized = code.trim().replace(Regex("\\s+"), "")
                 val json = JSONObject()
                     .put("code", normalized)
                     .put("deviceHash", deviceHash(context))

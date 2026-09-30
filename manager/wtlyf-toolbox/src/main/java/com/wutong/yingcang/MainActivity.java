@@ -143,7 +143,7 @@ public final class MainActivity extends Activity {
         card.addView(code, wide());
         Button activate = button("激活并进入");
         activate.setOnClickListener(v -> {
-            String value = code.getText().toString().trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+            String value = code.getText().toString().trim().replaceAll("\\s+", "");
             if (value.isEmpty() || value.length() > 128) { code.setError("请输入 1 到 128 个字符的卡密"); return; }
             activate.setEnabled(false);
             activate.setText("正在验证…");
