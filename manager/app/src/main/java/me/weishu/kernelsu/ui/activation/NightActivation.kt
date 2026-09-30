@@ -92,30 +92,31 @@ object NightActivation {
                 val jobs = ENDPOINTS.map { endpoint ->
                     launch {
                         val attempt = runCatching {
-                    val request = Request.Builder()
-                        .url("$endpoint/$action")
-                        .post(body)
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val raw = response.body?.string().orEmpty()
-                        val data = JSONObject(raw.ifBlank { "{}" })
-                        if (response.code >= 500) error("Night server returned ${response.code}")
-                        val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
-                        if (response.isSuccessful && data.optBoolean("ok")) {
-                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                .edit().putString(KEY_CODE, normalized).apply()
-                            Result(true, message)
-                        } else {
-                            // Keep the locally saved code on transient edge/server failures so the
-                            // user can retry without having to enter the license again. Only an
-                            // explicitly expired or disabled license should clear local activation.
-                            val error = data.optString("error")
-                            if (response.code == 403 && error == "expired_code") {
-                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                    .edit().remove(KEY_CODE).apply()
+                            val request = Request.Builder()
+                                .url("$endpoint/$action")
+                                .post(body)
+                                .build()
+                            client.newCall(request).execute().use { response ->
+                                val raw = response.body?.string().orEmpty()
+                                val data = JSONObject(raw.ifBlank { "{}" })
+                                if (response.code >= 500) error("Night server returned ${response.code}")
+                                val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
+                                if (response.isSuccessful && data.optBoolean("ok")) {
+                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                        .edit().putString(KEY_CODE, normalized).apply()
+                                    Result(true, message)
+                                } else {
+                                    // Keep the locally saved code on transient edge/server failures so the
+                                    // user can retry without having to enter the license again. Only an
+                                    // explicitly expired or disabled license should clear local activation.
+                                    val error = data.optString("error")
+                                    if (response.code == 403 && error == "expired_code") {
+                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                            .edit().remove(KEY_CODE).apply()
+                                    }
+                                    Result(false, message)
+                                }
                             }
-                            Result(false, message)
-                        }
                         }
                         results.send(attempt.getOrNull())
                     }
