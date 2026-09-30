@@ -35,6 +35,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -54,9 +56,9 @@ object NightActivation {
         "https://wtlyf-night-license.pages.dev/api/v1/night",
     )
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
     data class Result(val ok: Boolean, val message: String)
@@ -85,8 +87,11 @@ object NightActivation {
                 .put("deviceHash", deviceHash(context))
             val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
 
-            for (endpoint in ENDPOINTS) {
-                val attempt = runCatching {
+            coroutineScope {
+                val results = Channel<Result?>(ENDPOINTS.size)
+                val jobs = ENDPOINTS.map { endpoint ->
+                    launch {
+                        val attempt = runCatching {
                     val request = Request.Builder()
                         .url("$endpoint/$action")
                         .post(body)
@@ -111,11 +116,20 @@ object NightActivation {
                             }
                             Result(false, message)
                         }
+                        }
+                        results.send(attempt.getOrNull())
                     }
                 }
-                attempt.getOrNull()?.let { return@withContext it }
+                repeat(ENDPOINTS.size) {
+                    results.receive()?.let { result ->
+                        jobs.forEach { job -> job.cancel() }
+                        results.close()
+                        return@coroutineScope result
+                    }
+                }
+                results.close()
+                Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
             }
-            Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
         }
 
     suspend fun activate(context: Context, code: String): Result = request(context, "activate", code)
