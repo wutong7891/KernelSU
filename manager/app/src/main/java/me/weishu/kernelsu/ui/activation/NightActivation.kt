@@ -49,7 +49,10 @@ import java.util.concurrent.TimeUnit
 object NightActivation {
     private const val PREFS = "night_activation"
     private const val KEY_CODE = "night_license_code"
-    private const val ENDPOINT = "https://wtlyf-night-license.pages.dev/api/v1/night"
+    private val ENDPOINTS = listOf(
+        "https://wtlyf-license-center.wtlyf-night.workers.dev/api/v1/night",
+        "https://wtlyf-night-license.pages.dev/api/v1/night",
+    )
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -76,35 +79,43 @@ object NightActivation {
 
     private suspend fun request(context: Context, action: String, code: String): Result =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val normalized = code.trim().replace(Regex("\\s+"), "")
-                val json = JSONObject()
-                    .put("code", normalized)
-                    .put("deviceHash", deviceHash(context))
-                val request = Request.Builder()
-                    .url("$ENDPOINT/$action")
-                    .post(json.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    val data = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
-                    val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
-                    if (response.isSuccessful && data.optBoolean("ok")) {
-                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                            .edit().putString(KEY_CODE, normalized).apply()
-                        Result(true, message)
-                    } else {
-                        // Keep the locally saved code on transient edge/server failures so the
-                        // user can retry without having to enter the license again. Only an
-                        // explicitly expired or disabled license should clear local activation.
-                        val error = data.optString("error")
-                        if (response.code == 403 && error == "expired_code") {
+            val normalized = code.trim().replace(Regex("\\s+"), "")
+            val json = JSONObject()
+                .put("code", normalized)
+                .put("deviceHash", deviceHash(context))
+            val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+
+            for (endpoint in ENDPOINTS) {
+                val attempt = runCatching {
+                    val request = Request.Builder()
+                        .url("$endpoint/$action")
+                        .post(body)
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        val raw = response.body?.string().orEmpty()
+                        val data = JSONObject(raw.ifBlank { "{}" })
+                        if (response.code >= 500) error("Night server returned ${response.code}")
+                        val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
+                        if (response.isSuccessful && data.optBoolean("ok")) {
                             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                .edit().remove(KEY_CODE).apply()
+                                .edit().putString(KEY_CODE, normalized).apply()
+                            Result(true, message)
+                        } else {
+                            // Keep the locally saved code on transient edge/server failures so the
+                            // user can retry without having to enter the license again. Only an
+                            // explicitly expired or disabled license should clear local activation.
+                            val error = data.optString("error")
+                            if (response.code == 403 && error == "expired_code") {
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .edit().remove(KEY_CODE).apply()
+                            }
+                            Result(false, message)
                         }
-                        Result(false, message)
                     }
                 }
-            }.getOrElse { Result(false, "无法连接 Night 卡密服务器，请检查网络后重试") }
+                attempt.getOrNull()?.let { return@withContext it }
+            }
+            Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
         }
 
     suspend fun activate(context: Context, code: String): Result = request(context, "activate", code)
