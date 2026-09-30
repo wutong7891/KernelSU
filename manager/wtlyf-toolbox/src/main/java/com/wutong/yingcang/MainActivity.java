@@ -143,8 +143,8 @@ public final class MainActivity extends Activity {
         card.addView(code, wide());
         Button activate = button("激活并进入");
         activate.setOnClickListener(v -> {
-            String value = code.getText().toString().trim().toUpperCase(Locale.ROOT);
-            if (!value.matches("WTLYF(?:-[A-Z2-9]{5}){4}")) { code.setError("卡密格式不正确"); return; }
+            String value = code.getText().toString().trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+            if (value.isEmpty() || value.length() > 128) { code.setError("请输入 1 到 128 个字符的卡密"); return; }
             activate.setEnabled(false);
             activate.setText("正在验证…");
             verifyLicenseAndOpen(value, false);
