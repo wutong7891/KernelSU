@@ -93,7 +93,11 @@ object NightActivation {
                             .edit().putString(KEY_CODE, normalized).apply()
                         Result(true, message)
                     } else {
-                        if (response.code == 403 || response.code == 404) {
+                        // Keep the locally saved code on transient edge/server failures so the
+                        // user can retry without having to enter the license again. Only an
+                        // explicitly expired or disabled license should clear local activation.
+                        val error = data.optString("error")
+                        if (response.code == 403 && error == "expired_code") {
                             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                                 .edit().remove(KEY_CODE).apply()
                         }

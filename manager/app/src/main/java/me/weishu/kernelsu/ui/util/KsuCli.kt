@@ -35,9 +35,11 @@ import java.util.concurrent.TimeUnit
  * @date 2023/1/1.
  */
 private const val TAG = "KsuCli"
+private const val SYSTEM_KSUD_PATH = "/data/adb/ksud"
 
 private fun getKsuDaemonPath(): String {
-    return ksuApp.applicationInfo.nativeLibraryDir + File.separator + "libksud.so"
+    val bundled = File(ksuApp.applicationInfo.nativeLibraryDir, "libksud.so")
+    return if (bundled.isFile && bundled.canExecute()) bundled.absolutePath else SYSTEM_KSUD_PATH
 }
 
 data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) {
@@ -210,8 +212,8 @@ fun flashModule(
         file.outputStream().use { output ->
             this?.copyTo(output)
         }
-        val cmd = "module install ${file.absolutePath}"
-        val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
+        val cmd = "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(file.absolutePath)}"
+        val result = flashWithIO(cmd, onStdout, onStderr)
         Log.i("KernelSU", "install module $uri result: $result")
 
         file.delete()
