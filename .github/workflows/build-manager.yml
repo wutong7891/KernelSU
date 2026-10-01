@@ -227,6 +227,13 @@ jobs:
           name: Night-Activation-Issuer-Android
           path: manager/activation-issuer/build/outputs/apk/release/*.apk
 
+      - name: Upload WTLYF toolbox APK
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: wtlyf-toolbox
+          path: manager/wtlyf-toolbox/build/outputs/apk/release/*.apk
+
       - name: Upload mappings
         uses: actions/upload-artifact@v7
         if: ${{ ( github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' )) || github.ref_type == 'tag' }}
