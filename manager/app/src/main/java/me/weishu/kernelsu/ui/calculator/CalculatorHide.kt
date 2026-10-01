@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -24,6 +25,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.topjohnwu.superuser.Shell
 import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.R
@@ -31,12 +36,14 @@ import me.weishu.kernelsu.ui.MainActivity
 import me.weishu.kernelsu.ui.util.getRootShell
 import java.math.BigDecimal
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 object CalculatorHide {
     private const val PREFS = "night_calculator_hide"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_TARGET = "target"
+    private const val KEY_STATUS = "status"
     private const val DEFAULT_TARGET = "100"
 
     fun isEnabled(context: Context): Boolean =
@@ -56,6 +63,13 @@ object CalculatorHide {
             .apply()
     }
 
+    fun status(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_STATUS, "尚未开始检测") ?: "尚未开始检测"
+
+    fun updateStatus(context: Context, status: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_STATUS, status).apply()
+    }
+
     fun applyServiceState(context: Context) {
         val intent = Intent(context, CalculatorRootMonitorService::class.java)
         if (isEnabled(context)) context.startForegroundService(intent) else context.stopService(intent)
@@ -70,6 +84,11 @@ class CalculatorHideSettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::monitorStatus.isInitialized) updateMonitorStatus()
     }
 
     private fun buildUi(): ScrollView {
@@ -105,7 +124,7 @@ class CalculatorHideSettingsActivity : Activity() {
         }
         panel.addView(target, wide().apply { topMargin = dp(8) })
         monitorStatus = label(
-            if (CalculatorHide.isEnabled(this)) "Root 监听：已配置" else "Root 监听：未启用",
+            if (CalculatorHide.isEnabled(this)) CalculatorHide.status(this) else "Root 监听：未启用",
             14f,
             if (CalculatorHide.isEnabled(this)) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103),
             true
@@ -122,12 +141,18 @@ class CalculatorHideSettingsActivity : Activity() {
             CalculatorHide.save(this, enabled.isChecked, value)
             runCatching { CalculatorHide.applyServiceState(this) }
                 .onSuccess {
-                    monitorStatus.text = if (enabled.isChecked) "Root 监听：已启动" else "Root 监听：已关闭"
+                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "Root 监听已启动，等待打开计算器" else "Root 监听：已关闭")
+                    updateMonitorStatus()
                     monitorStatus.setTextColor(if (enabled.isChecked) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
                     Toast.makeText(this, "设置已应用", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure { Toast.makeText(this, "启动监听失败：${it.message}", Toast.LENGTH_LONG).show() }
         }, wide(dp(58)).apply { topMargin = dp(18) })
+
+        root.addView(button("刷新检测状态") {
+            updateMonitorStatus()
+            Toast.makeText(this, CalculatorHide.status(this), Toast.LENGTH_LONG).show()
+        }, wide(dp(58)).apply { topMargin = dp(12) })
 
         root.addView(label("监听只在名称包含“计算器、计算机、计算、Calculator”的前台应用中读取界面。为保证后台运行，系统会显示一条 Night 监听通知。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
@@ -137,6 +162,12 @@ class CalculatorHideSettingsActivity : Activity() {
             isFillViewport = true
             addView(root, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
+    }
+
+    private fun updateMonitorStatus() {
+        val active = CalculatorHide.isEnabled(this)
+        monitorStatus.text = if (active) CalculatorHide.status(this) else "Root 监听：未启用"
+        monitorStatus.setTextColor(if (active) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
     }
 
     private fun label(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
@@ -172,17 +203,18 @@ class CalculatorHideSettingsActivity : Activity() {
 class CalculatorRootMonitorService : Service() {
     private val running = AtomicBoolean(false)
     private var worker: Thread? = null
-    private var calculatorPackages = emptySet<String>()
     private var activePackage = ""
     private var sawOperation = false
-    private var sawEquals = false
     private var lastLaunchAt = 0L
+    private var lastOcrAt = 0L
+    private var lastStatus = ""
+    private val calculatorPackageCache = mutableMapOf<String, Boolean>()
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-        calculatorPackages = discoverCalculatorPackages()
+        reportStatus("Root 监听已启动，等待打开计算器")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -209,7 +241,7 @@ class CalculatorRootMonitorService : Service() {
         while (running.get() && CalculatorHide.isEnabled(this)) {
             try {
                 val topPackage = currentForegroundPackage()
-                if (topPackage !in calculatorPackages) {
+                if (!isCalculatorPackage(topPackage)) {
                     activePackage = ""
                     resetSequence()
                     Thread.sleep(1100L)
@@ -218,9 +250,14 @@ class CalculatorRootMonitorService : Service() {
                 if (activePackage != topPackage) {
                     activePackage = topPackage
                     resetSequence()
+                    reportStatus("已识别计算器：$topPackage")
                 }
-                inspectCalculatorUi()
-                Thread.sleep(650L)
+                val matchedFromUi = inspectCalculatorUi()
+                if (!matchedFromUi && System.currentTimeMillis() - lastOcrAt >= 1500L) {
+                    lastOcrAt = System.currentTimeMillis()
+                    inspectCalculatorScreenshot()
+                }
+                Thread.sleep(850L)
             } catch (_: InterruptedException) {
                 break
             } catch (_: Throwable) {
@@ -235,34 +272,71 @@ class CalculatorRootMonitorService : Service() {
         return Regex("([A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)").find(output)?.groupValues?.getOrNull(1).orEmpty()
     }
 
-    private fun inspectCalculatorUi() {
+    private fun inspectCalculatorUi(): Boolean {
         val output = rootCommand(
             "uiautomator dump /data/local/tmp/night_calculator_ui.xml >/dev/null 2>&1; " +
                 "cat /data/local/tmp/night_calculator_ui.xml 2>/dev/null"
         )
-        if (!output.contains("<hierarchy")) return
+        if (!output.contains("<hierarchy")) {
+            reportStatus("已识别计算器，界面文本不可读，正在使用截图识别")
+            return false
+        }
         val values = Regex("(?:text|content-desc)=\"([^\"]*)\"")
             .findAll(output)
             .map { decodeXml(it.groupValues[1]).trim() }
             .filter { it.isNotEmpty() }
             .toList()
-        val joined = values.joinToString(" ")
-        if (values.any(::isClearKey)) resetSequence()
-        if (values.any(::isOperatorKey) || containsExpression(joined)) sawOperation = true
-        if (values.any(::isEqualsKey)) sawEquals = true
-        if (!sawOperation) return
+        reportStatus("已识别计算器，正在读取界面结果")
+        return processRecognizedText(values, "界面")
+    }
+
+    private fun inspectCalculatorScreenshot(): Boolean {
+        val screenshot = cacheDir.resolve("night_calculator_screen.png")
+        rootCommand("screencap -p '${screenshot.absolutePath}'; chmod 0644 '${screenshot.absolutePath}'")
+        val bitmap = BitmapFactory.decodeFile(screenshot.absolutePath) ?: run {
+            reportStatus("截图识别失败：无法读取屏幕图像")
+            return false
+        }
+        return try {
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)), 10, TimeUnit.SECONDS)
+            recognizer.close()
+            val values = result.textBlocks.flatMap { block ->
+                block.lines.map { it.text.trim() }.filter { it.isNotEmpty() }
+            }
+            reportStatus("已识别计算器，正在使用截图 OCR")
+            processRecognizedText(values, "OCR")
+        } catch (error: Throwable) {
+            reportStatus("截图 OCR 失败：${error.javaClass.simpleName}")
+            false
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun processRecognizedText(values: List<String>, source: String): Boolean {
+        if (values.any(::containsExpression)) sawOperation = true
+        if (!sawOperation) return false
 
         val target = CalculatorHide.target(this)
         val matched = values.asSequence()
-            .flatMap { numericCandidates(it).asSequence() }
+            .flatMap { value ->
+                when {
+                    !containsOperator(value) -> numericCandidates(value).asSequence()
+                    value.contains('=') || value.contains('＝') -> numericCandidates(value).takeLast(1).asSequence()
+                    else -> emptySequence()
+                }
+            }
             .any { it.compareTo(target) == 0 }
-        if (!matched || (!sawEquals && !containsExpression(joined))) return
+        if (!matched) return false
 
         val now = System.currentTimeMillis()
-        if (now - lastLaunchAt < 3000L) return
+        if (now - lastLaunchAt < 3000L) return true
         lastLaunchAt = now
         resetSequence()
+        reportStatus("$source 已匹配结果 ${target.stripTrailingZeros().toPlainString()}，正在打开 Night")
         rootCommand("am start -n ${BuildConfig.APPLICATION_ID}/${MainActivity::class.java.name} >/dev/null 2>&1")
+        return true
     }
 
     private fun rootCommand(command: String): String {
@@ -272,37 +346,30 @@ class CalculatorRootMonitorService : Service() {
         return if (result.isSuccess) stdout.joinToString("\n") else ""
     }
 
-    private fun discoverCalculatorPackages(): Set<String> = runCatching {
-        packageManager.getInstalledApplications(0).mapNotNull { info ->
-            val label = packageManager.getApplicationLabel(info).toString().trim().lowercase(Locale.ROOT)
-            val packageName = info.packageName.lowercase(Locale.ROOT)
-            val matches = label.contains("计算器") || label.contains("计算机") || label == "计算" ||
-                label.contains("calculator") || packageName.contains("calculator") || packageName.contains("calc")
-            info.packageName.takeIf { matches && it != BuildConfig.APPLICATION_ID }
-        }.toSet()
-    }.getOrDefault(emptySet())
+    private fun isCalculatorPackage(packageName: String): Boolean {
+        if (packageName.isBlank() || packageName == BuildConfig.APPLICATION_ID) return false
+        return calculatorPackageCache.getOrPut(packageName) {
+            val normalizedPackage = packageName.lowercase(Locale.ROOT)
+            val knownPackage = normalizedPackage.contains("calculator") || normalizedPackage.contains("calc") ||
+                normalizedPackage.contains("jisuanqi")
+            if (knownPackage) true else runCatching {
+                val info = packageManager.getApplicationInfo(packageName, 0)
+                val label = packageManager.getApplicationLabel(info).toString().trim().lowercase(Locale.ROOT)
+                label.contains("计算器") || label.contains("计算机") || label == "计算" || label.contains("calculator")
+            }.getOrDefault(false)
+        }
+    }
 
     private fun decodeXml(value: String): String =
         Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
 
     private fun resetSequence() {
         sawOperation = false
-        sawEquals = false
     }
 
-    private fun isOperatorKey(value: String): Boolean {
-        val key = value.trim().lowercase(Locale.ROOT)
-        return key in setOf("+", "−", "-", "×", "*", "÷", "/", "加", "减", "乘", "除", "plus", "minus", "multiply", "divide")
-    }
-
-    private fun isEqualsKey(value: String): Boolean {
-        val key = value.trim().lowercase(Locale.ROOT)
-        return key in setOf("=", "＝", "等于", "equals")
-    }
-
-    private fun isClearKey(value: String): Boolean {
-        val key = value.trim().lowercase(Locale.ROOT)
-        return key in setOf("ac", "c", "ce", "清除", "归零", "clear")
+    private fun containsOperator(value: String): Boolean {
+        val text = value.trim()
+        return text.drop(1).any { it in "+−×÷*/=＝" }
     }
 
     private fun containsExpression(value: String): Boolean =
@@ -314,6 +381,12 @@ class CalculatorRootMonitorService : Service() {
             .findAll(normalized)
             .mapNotNull { it.value.toBigDecimalOrNull() }
             .toList()
+    }
+
+    private fun reportStatus(status: String) {
+        if (lastStatus == status) return
+        lastStatus = status
+        CalculatorHide.updateStatus(this, status)
     }
 
     private fun createNotificationChannel() {
