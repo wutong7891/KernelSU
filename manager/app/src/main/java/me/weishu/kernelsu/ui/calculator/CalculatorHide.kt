@@ -20,8 +20,10 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -44,6 +46,7 @@ object CalculatorHide {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_TARGET = "target"
     private const val KEY_STATUS = "status"
+    private const val KEY_TARGET_PACKAGE = "target_package"
     private const val DEFAULT_TARGET = "100"
 
     fun isEnabled(context: Context): Boolean =
@@ -56,12 +59,16 @@ object CalculatorHide {
 
     fun targetText(context: Context): String = target(context).stripTrailingZeros().toPlainString()
 
-    fun save(context: Context, enabled: Boolean, target: BigDecimal) {
+    fun save(context: Context, enabled: Boolean, target: BigDecimal, targetPackage: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_ENABLED, enabled)
             .putString(KEY_TARGET, target.stripTrailingZeros().toPlainString())
+            .putString(KEY_TARGET_PACKAGE, targetPackage)
             .apply()
     }
+
+    fun targetPackage(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_TARGET_PACKAGE, "").orEmpty()
 
     fun status(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_STATUS, "尚未开始检测") ?: "尚未开始检测"
@@ -80,6 +87,8 @@ class CalculatorHideSettingsActivity : Activity() {
     private lateinit var enabled: CheckBox
     private lateinit var target: EditText
     private lateinit var monitorStatus: TextView
+    private lateinit var appSpinner: Spinner
+    private var appPackages = emptyList<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,6 +121,38 @@ class CalculatorHideSettingsActivity : Activity() {
             isChecked = CalculatorHide.isEnabled(this@CalculatorHideSettingsActivity)
         }
         panel.addView(enabled, wide())
+        panel.addView(label("监听目标应用", 14f, Color.rgb(185, 195, 214)).apply {
+            setPadding(0, dp(10), 0, 0)
+        })
+        val appChoices = loadAppChoices()
+        appPackages = appChoices.map { it.second }
+        appSpinner = Spinner(this).apply {
+            popupBackgroundDrawable = rounded(Color.rgb(20, 29, 49), 12f, Color.rgb(89, 110, 151))
+            adapter = object : ArrayAdapter<String>(
+                this@CalculatorHideSettingsActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                appChoices.map { it.first }
+            ) {
+                override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                    return (super.getView(position, convertView, parent) as TextView).apply {
+                        setTextColor(Color.WHITE)
+                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                    }
+                }
+
+                override fun getDropDownView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                    return (super.getDropDownView(position, convertView, parent) as TextView).apply {
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.rgb(20, 29, 49))
+                        setPadding(dp(14), dp(14), dp(14), dp(14))
+                    }
+                }
+            }
+            background = rounded(Color.rgb(10, 16, 29), 18f, Color.rgb(89, 110, 151))
+            val savedPackage = CalculatorHide.targetPackage(this@CalculatorHideSettingsActivity)
+            setSelection(appPackages.indexOf(savedPackage).coerceAtLeast(0))
+        }
+        panel.addView(appSpinner, wide().apply { topMargin = dp(8) })
         panel.addView(label("解锁结果", 14f, Color.rgb(185, 195, 214)))
         target = EditText(this).apply {
             setText(CalculatorHide.targetText(this@CalculatorHideSettingsActivity))
@@ -138,10 +179,12 @@ class CalculatorHideSettingsActivity : Activity() {
                 target.error = "请输入有效数字"
                 return@button
             }
-            CalculatorHide.save(this, enabled.isChecked, value)
+            val selectedPackage = appPackages.getOrNull(appSpinner.selectedItemPosition).orEmpty()
+            CalculatorHide.save(this, enabled.isChecked, value, selectedPackage)
             runCatching { CalculatorHide.applyServiceState(this) }
                 .onSuccess {
-                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "Root 监听已启动，等待打开计算器" else "Root 监听：已关闭")
+                    val targetText = if (selectedPackage.isBlank()) "自动识别计算器" else selectedPackage
+                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "Root 监听已启动，目标：$targetText" else "Root 监听：已关闭")
                     updateMonitorStatus()
                     monitorStatus.setTextColor(if (enabled.isChecked) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
                     Toast.makeText(this, "设置已应用", Toast.LENGTH_SHORT).show()
@@ -154,7 +197,7 @@ class CalculatorHideSettingsActivity : Activity() {
             Toast.makeText(this, CalculatorHide.status(this), Toast.LENGTH_LONG).show()
         }, wide(dp(58)).apply { topMargin = dp(12) })
 
-        root.addView(label("监听只在名称包含“计算器、计算机、计算、Calculator”的前台应用中读取界面。为保证后台运行，系统会显示一条 Night 监听通知。", 13f, Color.rgb(145, 158, 183)).apply {
+        root.addView(label("建议直接选择你的系统计算器；“自动识别”才会按应用名称判断。为保证后台运行，系统会显示一条 Night 监听通知。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
         })
         return ScrollView(this).apply {
@@ -162,6 +205,20 @@ class CalculatorHideSettingsActivity : Activity() {
             isFillViewport = true
             addView(root, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
+    }
+
+    private fun loadAppChoices(): List<Pair<String, String>> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val choices = packageManager.queryIntentActivities(launcherIntent, 0)
+            .map { resolve ->
+                val label = resolve.loadLabel(packageManager)?.toString()?.trim().orEmpty()
+                val packageName = resolve.activityInfo.packageName
+                ("$label  ·  $packageName") to packageName
+            }
+            .filter { it.second != packageName }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase(Locale.ROOT) }
+        return listOf("自动识别计算器" to "") + choices
     }
 
     private fun updateMonitorStatus() {
@@ -241,6 +298,11 @@ class CalculatorRootMonitorService : Service() {
         while (running.get() && CalculatorHide.isEnabled(this)) {
             try {
                 val topPackage = currentForegroundPackage()
+                if (topPackage.isBlank()) {
+                    reportStatus("Root 已运行，但暂时无法读取前台应用")
+                    Thread.sleep(1200L)
+                    continue
+                }
                 if (!isCalculatorPackage(topPackage)) {
                     activePackage = ""
                     resetSequence()
@@ -268,7 +330,10 @@ class CalculatorRootMonitorService : Service() {
     }
 
     private fun currentForegroundPackage(): String {
-        val output = rootCommand("dumpsys activity activities | grep -m 1 mResumedActivity")
+        val output = rootCommand(
+            "dumpsys activity activities | toybox grep -m 1 -E 'mResumedActivity|topResumedActivity'; " +
+                "dumpsys window windows | toybox grep -m 1 -E 'mCurrentFocus|mFocusedApp'"
+        )
         return Regex("([A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)").find(output)?.groupValues?.getOrNull(1).orEmpty()
     }
 
@@ -348,6 +413,8 @@ class CalculatorRootMonitorService : Service() {
 
     private fun isCalculatorPackage(packageName: String): Boolean {
         if (packageName.isBlank() || packageName == BuildConfig.APPLICATION_ID) return false
+        val selectedPackage = CalculatorHide.targetPackage(this)
+        if (selectedPackage.isNotBlank()) return packageName == selectedPackage
         return calculatorPackageCache.getOrPut(packageName) {
             val normalizedPackage = packageName.lowercase(Locale.ROOT)
             val knownPackage = normalizedPackage.contains("calculator") || normalizedPackage.contains("calc") ||
