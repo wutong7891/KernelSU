@@ -71,7 +71,7 @@ public final class MainActivity extends Activity {
         "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site"
     };
     private static final int REQUEST_BOOT_IMAGE = 5001;
-    private static final int CURRENT_VERSION_CODE = 22;
+    private static final int CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE;
 
     private static final ModuleItem ALWAYS_STRONG =
         new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store", "6F669A7F4DD438DF3EDE42C001CF24B24E78B42E85ED21F78FC842D25737A774");
