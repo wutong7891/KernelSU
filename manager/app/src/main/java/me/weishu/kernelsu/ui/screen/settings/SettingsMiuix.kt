@@ -50,6 +50,7 @@ import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.keywake.KeyWakeSettingsActivity
+import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
@@ -189,6 +190,14 @@ fun SettingPagerMiuix(
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "密钥唤醒应用", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, KeyWakeSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "计算器隐藏",
+                            summary = "自定义运算结果解锁 Night，下次启动生效",
+                            startAction = {
+                                Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) }
                         )
                         ArrowPreference(
                             title = "Night 部署与分区工具",
