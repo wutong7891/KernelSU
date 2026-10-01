@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
 
@@ -80,18 +81,21 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.KernelSU" />
         <service
-            android:name=".ui.calculator.CalculatorWakeAccessibilityService"
-            android:description="@string/app_name"
-            android:exported="true"
-            android:label="Night 系统计算器唤醒"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/night_calculator_accessibility" />
+            android:name=".ui.calculator.CalculatorRootMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Root monitor for the foreground system calculator result" />
         </service>
+        <receiver
+            android:name=".ui.calculator.CalculatorMonitorBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <activity
             android:name=".ui.webui.WebUIActivity"

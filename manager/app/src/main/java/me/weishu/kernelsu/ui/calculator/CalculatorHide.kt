@@ -1,18 +1,21 @@
 package me.weishu.kernelsu.ui.calculator
 
-import android.accessibilityservice.AccessibilityService
 import android.app.Activity
-import android.content.ComponentName
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
+import android.os.IBinder
+import android.text.Html
 import android.text.InputType
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -20,9 +23,15 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import com.topjohnwu.superuser.Shell
+import me.weishu.kernelsu.BuildConfig
+import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
+import me.weishu.kernelsu.ui.util.getRootShell
 import java.math.BigDecimal
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 object CalculatorHide {
     private const val PREFS = "night_calculator_hide"
@@ -46,21 +55,21 @@ object CalculatorHide {
             .putString(KEY_TARGET, target.stripTrailingZeros().toPlainString())
             .apply()
     }
+
+    fun applyServiceState(context: Context) {
+        val intent = Intent(context, CalculatorRootMonitorService::class.java)
+        if (isEnabled(context)) context.startForegroundService(intent) else context.stopService(intent)
+    }
 }
 
 class CalculatorHideSettingsActivity : Activity() {
     private lateinit var enabled: CheckBox
     private lateinit var target: EditText
-    private lateinit var serviceStatus: TextView
+    private lateinit var monitorStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (::serviceStatus.isInitialized) updateServiceStatus()
     }
 
     private fun buildUi(): ScrollView {
@@ -70,7 +79,7 @@ class CalculatorHideSettingsActivity : Activity() {
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
         root.addView(label("系统计算器隐藏入口", 27f, Color.WHITE, true))
-        root.addView(label("在系统自带计算器里完成加、减、乘、除运算。当结果等于你设置的数字时，自动打开 Night 面具。直接输入目标数字不会触发。", 15f, Color.rgb(185, 195, 214)))
+        root.addView(label("通过 Root 读取系统计算器界面。完成加、减、乘、除运算，结果等于设定数字时自动打开 Night；不使用无障碍权限。", 15f, Color.rgb(185, 195, 214)))
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -78,7 +87,7 @@ class CalculatorHideSettingsActivity : Activity() {
             background = rounded(Color.rgb(20, 29, 49), 24f, Color.rgb(73, 93, 130))
         }
         enabled = CheckBox(this).apply {
-            text = "启用系统计算器唤醒"
+            text = "启用 Root 计算器监听"
             textSize = 17f
             setTextColor(Color.WHITE)
             isChecked = CalculatorHide.isEnabled(this@CalculatorHideSettingsActivity)
@@ -95,43 +104,39 @@ class CalculatorHideSettingsActivity : Activity() {
             background = rounded(Color.rgb(10, 16, 29), 18f, Color.rgb(89, 110, 151))
         }
         panel.addView(target, wide().apply { topMargin = dp(8) })
-        serviceStatus = label("", 14f, Color.rgb(255, 194, 103), true).apply {
-            setPadding(0, dp(16), 0, 0)
-        }
-        panel.addView(serviceStatus, wide())
+        monitorStatus = label(
+            if (CalculatorHide.isEnabled(this)) "Root 监听：已配置" else "Root 监听：未启用",
+            14f,
+            if (CalculatorHide.isEnabled(this)) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103),
+            true
+        ).apply { setPadding(0, dp(16), 0, 0) }
+        panel.addView(monitorStatus, wide())
         root.addView(panel, wide().apply { topMargin = dp(24) })
 
-        root.addView(button("保存设置") {
+        root.addView(button("保存并应用") {
             val value = target.text.toString().trim().toBigDecimalOrNull()
             if (value == null) {
                 target.error = "请输入有效数字"
                 return@button
             }
             CalculatorHide.save(this, enabled.isChecked, value)
-            Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
+            runCatching { CalculatorHide.applyServiceState(this) }
+                .onSuccess {
+                    monitorStatus.text = if (enabled.isChecked) "Root 监听：已启动" else "Root 监听：已关闭"
+                    monitorStatus.setTextColor(if (enabled.isChecked) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
+                    Toast.makeText(this, "设置已应用", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { Toast.makeText(this, "启动监听失败：${it.message}", Toast.LENGTH_LONG).show() }
         }, wide(dp(58)).apply { topMargin = dp(18) })
 
-        root.addView(button("打开系统辅助功能设置") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }, wide(dp(58)).apply { topMargin = dp(12) })
-
-        root.addView(label("首次使用：保存设置后，点击上方按钮，在系统辅助功能中启用“Night 系统计算器唤醒”。系统不允许应用替你自动打开这个权限。", 13f, Color.rgb(145, 158, 183)).apply {
+        root.addView(label("监听只在名称包含“计算器、计算机、计算、Calculator”的前台应用中读取界面。为保证后台运行，系统会显示一条 Night 监听通知。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
         })
-        updateServiceStatus()
         return ScrollView(this).apply {
             setBackgroundColor(Color.rgb(7, 11, 20))
             isFillViewport = true
             addView(root, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-    }
-
-    private fun updateServiceStatus() {
-        val component = ComponentName(this, CalculatorWakeAccessibilityService::class.java)
-        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-        val active = enabledServices.split(':').any { ComponentName.unflattenFromString(it) == component }
-        serviceStatus.text = if (active) "辅助功能：已启用" else "辅助功能：未启用（必须手动开启）"
-        serviceStatus.setTextColor(if (active) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
     }
 
     private fun label(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
@@ -164,85 +169,125 @@ class CalculatorHideSettingsActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
 
-class CalculatorWakeAccessibilityService : AccessibilityService() {
+class CalculatorRootMonitorService : Service() {
+    private val running = AtomicBoolean(false)
+    private var worker: Thread? = null
+    private var calculatorPackages = emptySet<String>()
     private var activePackage = ""
     private var sawOperation = false
     private var sawEquals = false
     private var lastLaunchAt = 0L
-    private val calculatorPackageCache = mutableMapOf<String, Boolean>()
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || !CalculatorHide.isEnabled(this)) return
-        val packageName = event.packageName?.toString().orEmpty()
-        if (!isCalculatorPackage(packageName)) return
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildNotification())
+        calculatorPackages = discoverCalculatorPackages()
+    }
 
-        if (activePackage != packageName) {
-            activePackage = packageName
-            resetSequence()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!CalculatorHide.isEnabled(this)) {
+            stopSelf()
+            return START_NOT_STICKY
         }
+        if (running.compareAndSet(false, true)) {
+            worker = Thread(::monitorLoop, "NightCalculatorRootMonitor").apply { start() }
+        }
+        return START_STICKY
+    }
 
-        val eventText = buildList {
-            event.text.mapNotNullTo(this) { it?.toString() }
-            event.contentDescription?.toString()?.let(::add)
-            event.source?.let { collectNodeText(it, this) }
-            rootInActiveWindow?.let { collectNodeText(it, this) }
-        }.map { it.trim() }.filter { it.isNotEmpty() }
+    override fun onDestroy() {
+        running.set(false)
+        worker?.interrupt()
+        worker = null
+        super.onDestroy()
+    }
 
-        val joined = eventText.joinToString(" ")
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            when {
-                eventText.any(::isClearKey) -> resetSequence()
-                eventText.any(::isOperatorKey) -> sawOperation = true
-                eventText.any(::isEqualsKey) -> sawEquals = true
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun monitorLoop() {
+        while (running.get() && CalculatorHide.isEnabled(this)) {
+            try {
+                val topPackage = currentForegroundPackage()
+                if (topPackage !in calculatorPackages) {
+                    activePackage = ""
+                    resetSequence()
+                    Thread.sleep(1100L)
+                    continue
+                }
+                if (activePackage != topPackage) {
+                    activePackage = topPackage
+                    resetSequence()
+                }
+                inspectCalculatorUi()
+                Thread.sleep(650L)
+            } catch (_: InterruptedException) {
+                break
+            } catch (_: Throwable) {
+                runCatching { Thread.sleep(1300L) }
             }
         }
-        if (containsExpression(joined)) sawOperation = true
+        running.set(false)
+    }
+
+    private fun currentForegroundPackage(): String {
+        val output = rootCommand("dumpsys activity activities | grep -m 1 mResumedActivity")
+        return Regex("([A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)").find(output)?.groupValues?.getOrNull(1).orEmpty()
+    }
+
+    private fun inspectCalculatorUi() {
+        val output = rootCommand(
+            "uiautomator dump /data/local/tmp/night_calculator_ui.xml >/dev/null 2>&1; " +
+                "cat /data/local/tmp/night_calculator_ui.xml 2>/dev/null"
+        )
+        if (!output.contains("<hierarchy")) return
+        val values = Regex("(?:text|content-desc)=\"([^\"]*)\"")
+            .findAll(output)
+            .map { decodeXml(it.groupValues[1]).trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        val joined = values.joinToString(" ")
+        if (values.any(::isClearKey)) resetSequence()
+        if (values.any(::isOperatorKey) || containsExpression(joined)) sawOperation = true
+        if (values.any(::isEqualsKey)) sawEquals = true
         if (!sawOperation) return
 
         val target = CalculatorHide.target(this)
-        val resultMatched = eventText.asSequence()
+        val matched = values.asSequence()
             .flatMap { numericCandidates(it).asSequence() }
             .any { it.compareTo(target) == 0 }
-        if (!resultMatched) return
+        if (!matched || (!sawEquals && !containsExpression(joined))) return
 
-        // 部分系统计算器没有等号（输入后实时出结果），因此检测到完整运算表达式也允许触发。
-        if (!sawEquals && !containsExpression(joined)) return
         val now = System.currentTimeMillis()
-        if (now - lastLaunchAt < 2500L) return
+        if (now - lastLaunchAt < 3000L) return
         lastLaunchAt = now
         resetSequence()
-        startActivity(Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        })
+        rootCommand("am start -n ${BuildConfig.APPLICATION_ID}/${MainActivity::class.java.name} >/dev/null 2>&1")
     }
 
-    override fun onInterrupt() = Unit
+    private fun rootCommand(command: String): String {
+        val stdout = ArrayList<String>()
+        val stderr = ArrayList<String>()
+        val result: Shell.Result = getRootShell().newJob().add(command).to(stdout, stderr).exec()
+        return if (result.isSuccess) stdout.joinToString("\n") else ""
+    }
+
+    private fun discoverCalculatorPackages(): Set<String> = runCatching {
+        packageManager.getInstalledApplications(0).mapNotNull { info ->
+            val label = packageManager.getApplicationLabel(info).toString().trim().lowercase(Locale.ROOT)
+            val packageName = info.packageName.lowercase(Locale.ROOT)
+            val matches = label.contains("计算器") || label.contains("计算机") || label == "计算" ||
+                label.contains("calculator") || packageName.contains("calculator") || packageName.contains("calc")
+            info.packageName.takeIf { matches && it != BuildConfig.APPLICATION_ID }
+        }.toSet()
+    }.getOrDefault(emptySet())
+
+    private fun decodeXml(value: String): String =
+        Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
 
     private fun resetSequence() {
         sawOperation = false
         sawEquals = false
-    }
-
-    private fun collectNodeText(node: AccessibilityNodeInfo, output: MutableList<String>) {
-        node.text?.toString()?.let(output::add)
-        node.contentDescription?.toString()?.let(output::add)
-        for (index in 0 until node.childCount) {
-            node.getChild(index)?.let { collectNodeText(it, output) }
-        }
-    }
-
-    private fun isCalculatorPackage(packageName: String): Boolean {
-        if (packageName.isBlank() || packageName == applicationContext.packageName) return false
-        return calculatorPackageCache.getOrPut(packageName) {
-            val known = packageName.lowercase(Locale.ROOT).let {
-                it.contains("calculator") || it.contains("calc") || it.contains("jisuanqi")
-            }
-            if (known) true else runCatching {
-                val info = packageManager.getApplicationInfo(packageName, 0)
-                val label = packageManager.getApplicationLabel(info).toString().lowercase(Locale.ROOT)
-                label.contains("计算器") || label.contains("calculator")
-            }.getOrDefault(false)
-        }
     }
 
     private fun isOperatorKey(value: String): Boolean {
@@ -269,5 +314,44 @@ class CalculatorWakeAccessibilityService : AccessibilityService() {
             .findAll(normalized)
             .mapNotNull { it.value.toBigDecimalOrNull() }
             .toList()
+    }
+
+    private fun createNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Night 计算器监听", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Root 监测系统计算器的运算结果"
+                setShowBadge(false)
+            }
+        )
+    }
+
+    private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_logo_vector)
+        .setContentTitle("Night 计算器隐藏入口")
+        .setContentText("正在等待系统计算器的指定结果")
+        .setOngoing(true)
+        .setSilent(true)
+        .setContentIntent(
+            PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, CalculatorHideSettingsActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        )
+        .build()
+
+    companion object {
+        private const val CHANNEL_ID = "night_calculator_root_monitor"
+        private const val NOTIFICATION_ID = 4102
+    }
+}
+
+class CalculatorMonitorBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED && CalculatorHide.isEnabled(context)) {
+            runCatching { CalculatorHide.applyServiceState(context) }
+        }
     }
 }
