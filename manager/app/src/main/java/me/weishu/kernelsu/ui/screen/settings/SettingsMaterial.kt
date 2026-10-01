@@ -62,7 +62,6 @@ import me.weishu.kernelsu.ui.component.material.SendLogBottomSheet
 import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
-import me.weishu.kernelsu.ui.keywake.KeyWakeSettingsActivity
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
 
@@ -155,18 +154,9 @@ fun SettingPagerMaterial(
                     }
                     add {
                         SegmentedListItem(
-                            onClick = { context.startActivity(Intent(context, KeyWakeSettingsActivity::class.java)) },
-                            headlineContent = { Text("密钥唤醒应用") },
-                            supportingContent = { Text("通过显式链接匹配密钥后跳转目标 App") },
-                            leadingContent = { Icon(Icons.Filled.Lock, "密钥唤醒应用") },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
                             onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) },
-                            headlineContent = { Text("计算器隐藏") },
-                            supportingContent = { Text("自定义运算结果解锁 Night，下次启动生效") },
+                            headlineContent = { Text("系统计算器隐藏入口") },
+                            supportingContent = { Text("系统计算器算出指定结果时打开 Night") },
                             leadingContent = { Icon(Icons.Filled.Lock, "计算器隐藏") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )

@@ -1,13 +1,18 @@
 package me.weishu.kernelsu.ui.calculator
 
+import android.accessibilityservice.AccessibilityService
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
-import android.view.Gravity
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -15,41 +20,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import me.weishu.kernelsu.ui.MainActivity
 import java.math.BigDecimal
-import java.math.MathContext
-import java.math.RoundingMode
+import java.util.Locale
 
 object CalculatorHide {
     private const val PREFS = "night_calculator_hide"
@@ -78,10 +51,16 @@ object CalculatorHide {
 class CalculatorHideSettingsActivity : Activity() {
     private lateinit var enabled: CheckBox
     private lateinit var target: EditText
+    private lateinit var serviceStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::serviceStatus.isInitialized) updateServiceStatus()
     }
 
     private fun buildUi(): ScrollView {
@@ -90,9 +69,8 @@ class CalculatorHideSettingsActivity : Activity() {
             setPadding(dp(24), dp(48), dp(24), dp(32))
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
-
-        root.addView(label("计算器隐藏", 28f, Color.WHITE, true))
-        root.addView(label("启用后，打开 Night 会先显示计算器。只有通过加、减、乘、除计算出设定数字并按下等号，才会进入面具。", 15f, Color.rgb(185, 195, 214)))
+        root.addView(label("系统计算器隐藏入口", 27f, Color.WHITE, true))
+        root.addView(label("在系统自带计算器里完成加、减、乘、除运算。当结果等于你设置的数字时，自动打开 Night 面具。直接输入目标数字不会触发。", 15f, Color.rgb(185, 195, 214)))
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -100,7 +78,7 @@ class CalculatorHideSettingsActivity : Activity() {
             background = rounded(Color.rgb(20, 29, 49), 24f, Color.rgb(73, 93, 130))
         }
         enabled = CheckBox(this).apply {
-            text = "启用计算器隐藏"
+            text = "启用系统计算器唤醒"
             textSize = 17f
             setTextColor(Color.WHITE)
             isChecked = CalculatorHide.isEnabled(this@CalculatorHideSettingsActivity)
@@ -117,30 +95,43 @@ class CalculatorHideSettingsActivity : Activity() {
             background = rounded(Color.rgb(10, 16, 29), 18f, Color.rgb(89, 110, 151))
         }
         panel.addView(target, wide().apply { topMargin = dp(8) })
+        serviceStatus = label("", 14f, Color.rgb(255, 194, 103), true).apply {
+            setPadding(0, dp(16), 0, 0)
+        }
+        panel.addView(serviceStatus, wide())
         root.addView(panel, wide().apply { topMargin = dp(24) })
 
-        val save = Button(this).apply {
-            text = "保存设置"
-            textSize = 17f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            background = rounded(Color.rgb(83, 87, 190), 24f, Color.rgb(130, 155, 244))
-            setOnClickListener {
-                val value = target.text.toString().trim().toBigDecimalOrNull()
-                if (value == null) {
-                    target.error = "请输入有效数字"
-                    return@setOnClickListener
-                }
-                CalculatorHide.save(this@CalculatorHideSettingsActivity, enabled.isChecked, value)
-                Toast.makeText(this@CalculatorHideSettingsActivity, "已保存，下次启动 Night 时生效", Toast.LENGTH_LONG).show()
-                finish()
+        root.addView(button("保存设置") {
+            val value = target.text.toString().trim().toBigDecimalOrNull()
+            if (value == null) {
+                target.error = "请输入有效数字"
+                return@button
             }
-        }
-        root.addView(save, wide(dp(58)).apply { topMargin = dp(20) })
-        root.addView(label("为了避免直接输入目标值解锁，必须至少进行一次运算并按下“＝”。请记住设置的数字。", 13f, Color.rgb(145, 158, 183)).apply {
+            CalculatorHide.save(this, enabled.isChecked, value)
+            Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
+        }, wide(dp(58)).apply { topMargin = dp(18) })
+
+        root.addView(button("打开系统辅助功能设置") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }, wide(dp(58)).apply { topMargin = dp(12) })
+
+        root.addView(label("首次使用：保存设置后，点击上方按钮，在系统辅助功能中启用“Night 系统计算器唤醒”。系统不允许应用替你自动打开这个权限。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
         })
-        return ScrollView(this).apply { addView(root) }
+        updateServiceStatus()
+        return ScrollView(this).apply {
+            setBackgroundColor(Color.rgb(7, 11, 20))
+            isFillViewport = true
+            addView(root, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun updateServiceStatus() {
+        val component = ComponentName(this, CalculatorWakeAccessibilityService::class.java)
+        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        val active = enabledServices.split(':').any { ComponentName.unflattenFromString(it) == component }
+        serviceStatus.text = if (active) "辅助功能：已启用" else "辅助功能：未启用（必须手动开启）"
+        serviceStatus.setTextColor(if (active) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
     }
 
     private fun label(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
@@ -149,6 +140,15 @@ class CalculatorHideSettingsActivity : Activity() {
         setTextColor(color)
         if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
         setLineSpacing(0f, 1.15f)
+    }
+
+    private fun button(value: String, action: () -> Unit) = Button(this).apply {
+        text = value
+        textSize = 16f
+        isAllCaps = false
+        setTextColor(Color.WHITE)
+        background = rounded(Color.rgb(83, 87, 190), 24f, Color.rgb(130, 155, 244))
+        setOnClickListener { action() }
     }
 
     private fun rounded(fill: Int, radius: Float, stroke: Int) = GradientDrawable().apply {
@@ -164,199 +164,110 @@ class CalculatorHideSettingsActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
 
-@Composable
-fun CalculatorHideScreen(onUnlocked: () -> Unit) {
-    val context = LocalContext.current
-    val unlockTarget = remember { CalculatorHide.target(context) }
-    var display by remember { mutableStateOf("0") }
-    var accumulator by remember { mutableStateOf<BigDecimal?>(null) }
-    var pendingOperation by remember { mutableStateOf<Char?>(null) }
-    var resetInput by remember { mutableStateOf(false) }
-    var performedOperation by remember { mutableStateOf(false) }
+class CalculatorWakeAccessibilityService : AccessibilityService() {
+    private var activePackage = ""
+    private var sawOperation = false
+    private var sawEquals = false
+    private var lastLaunchAt = 0L
+    private val calculatorPackageCache = mutableMapOf<String, Boolean>()
 
-    fun format(value: BigDecimal): String {
-        val normalized = value.stripTrailingZeros()
-        val plain = normalized.toPlainString()
-        return if (plain.length <= 18) plain else normalized.round(MathContext(12)).toEngineeringString()
-    }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || !CalculatorHide.isEnabled(this)) return
+        val packageName = event.packageName?.toString().orEmpty()
+        if (!isCalculatorPackage(packageName)) return
 
-    fun calculate(left: BigDecimal, right: BigDecimal, operation: Char): BigDecimal? = runCatching {
-        when (operation) {
-            '+' -> left.add(right, MathContext.DECIMAL64)
-            '-' -> left.subtract(right, MathContext.DECIMAL64)
-            '*' -> left.multiply(right, MathContext.DECIMAL64)
-            '/' -> if (right.compareTo(BigDecimal.ZERO) == 0) null else left.divide(right, 12, RoundingMode.HALF_UP)
-            else -> right
+        if (activePackage != packageName) {
+            activePackage = packageName
+            resetSequence()
         }
-    }.getOrNull()
 
-    fun clearError() {
-        if (display == "错误") {
-            display = "0"
-            accumulator = null
-            pendingOperation = null
-            performedOperation = false
-            resetInput = false
-        }
-    }
+        val eventText = buildList {
+            event.text.mapNotNullTo(this) { it?.toString() }
+            event.contentDescription?.toString()?.let(::add)
+            event.source?.let { collectNodeText(it, this) }
+            rootInActiveWindow?.let { collectNodeText(it, this) }
+        }.map { it.trim() }.filter { it.isNotEmpty() }
 
-    fun input(value: String) {
-        clearError()
-        if (resetInput) {
-            display = "0"
-            resetInput = false
-        }
-        when (value) {
-            "." -> if (!display.contains('.')) display += "."
-            "00" -> if (display != "0" && display.length < 16) display += "00"
-            else -> if (display.length < 16) display = if (display == "0") value else display + value
-        }
-    }
-
-    fun chooseOperation(operation: Char) {
-        clearError()
-        val current = display.toBigDecimalOrNull() ?: return
-        val resolved = if (accumulator != null && pendingOperation != null && !resetInput) {
-            calculate(accumulator!!, current, pendingOperation!!)
-        } else current
-        if (resolved == null) {
-            display = "错误"
-            accumulator = null
-            pendingOperation = null
-            return
-        }
-        accumulator = resolved
-        display = format(resolved)
-        pendingOperation = operation
-        resetInput = true
-        performedOperation = true
-    }
-
-    fun equals() {
-        val left = accumulator ?: return
-        val operation = pendingOperation ?: return
-        val right = display.toBigDecimalOrNull() ?: return
-        val result = calculate(left, right, operation)
-        accumulator = null
-        pendingOperation = null
-        resetInput = true
-        if (result == null) {
-            display = "错误"
-            performedOperation = false
-            return
-        }
-        display = format(result)
-        val shouldUnlock = performedOperation && result.compareTo(unlockTarget) == 0
-        performedOperation = false
-        if (shouldUnlock) onUnlocked()
-    }
-
-    fun action(key: String) {
-        when (key) {
-            "AC" -> {
-                display = "0"; accumulator = null; pendingOperation = null
-                resetInput = false; performedOperation = false
+        val joined = eventText.joinToString(" ")
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            when {
+                eventText.any(::isClearKey) -> resetSequence()
+                eventText.any(::isOperatorKey) -> sawOperation = true
+                eventText.any(::isEqualsKey) -> sawEquals = true
             }
-            "±" -> {
-                clearError()
-                display.toBigDecimalOrNull()?.let { display = format(it.negate()) }
-            }
-            "%" -> {
-                clearError()
-                display.toBigDecimalOrNull()?.let { display = format(it.divide(BigDecimal(100))) }
-            }
-            "+" -> chooseOperation('+')
-            "−" -> chooseOperation('-')
-            "×" -> chooseOperation('*')
-            "÷" -> chooseOperation('/')
-            "=" -> equals()
-            else -> input(key)
+        }
+        if (containsExpression(joined)) sawOperation = true
+        if (!sawOperation) return
+
+        val target = CalculatorHide.target(this)
+        val resultMatched = eventText.asSequence()
+            .flatMap { numericCandidates(it).asSequence() }
+            .any { it.compareTo(target) == 0 }
+        if (!resultMatched) return
+
+        // 部分系统计算器没有等号（输入后实时出结果），因此检测到完整运算表达式也允许触发。
+        if (!sawEquals && !containsExpression(joined)) return
+        val now = System.currentTimeMillis()
+        if (now - lastLaunchAt < 2500L) return
+        lastLaunchAt = now
+        resetSequence()
+        startActivity(Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        })
+    }
+
+    override fun onInterrupt() = Unit
+
+    private fun resetSequence() {
+        sawOperation = false
+        sawEquals = false
+    }
+
+    private fun collectNodeText(node: AccessibilityNodeInfo, output: MutableList<String>) {
+        node.text?.toString()?.let(output::add)
+        node.contentDescription?.toString()?.let(output::add)
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let { collectNodeText(it, output) }
         }
     }
 
-    val rows = listOf(
-        listOf("AC", "±", "%", "÷"),
-        listOf("7", "8", "9", "×"),
-        listOf("4", "5", "6", "−"),
-        listOf("1", "2", "3", "+"),
-        listOf("0", "00", ".", "=")
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(ComposeColor(0xFF070B14), ComposeColor(0xFF10182A), ComposeColor(0xFF070B14))
-                )
-            )
-            .padding(WindowInsets.safeDrawing.asPaddingValues())
-            .padding(horizontal = 22.dp, vertical = 18.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Text("NIGHT", color = ComposeColor(0xFF88C8FF), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text("计算器", color = ComposeColor.White, fontSize = 31.sp, fontWeight = FontWeight.Bold)
-            Text("", modifier = Modifier.weight(0.25f))
-            Text(
-                text = pendingOperation?.let { "$it" }.orEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-                color = ComposeColor(0xFF93A4C4),
-                fontSize = 20.sp,
-                textAlign = TextAlign.End
-            )
-            Text(
-                text = display,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                color = ComposeColor.White,
-                fontSize = if (display.length > 12) 42.sp else 58.sp,
-                fontWeight = FontWeight.Light,
-                textAlign = TextAlign.End,
-                maxLines = 1
-            )
-            Spacer(Modifier.height(18.dp))
-            rows.forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    row.forEach { key ->
-                        val accent = key in setOf("÷", "×", "−", "+", "=")
-                        val utility = key in setOf("AC", "±", "%")
-                        val fill = when {
-                            key == "=" -> Brush.linearGradient(listOf(ComposeColor(0xFF5267D8), ComposeColor(0xFF8A55B5)))
-                            accent -> Brush.linearGradient(listOf(ComposeColor(0xFF263A68), ComposeColor(0xFF443663)))
-                            utility -> Brush.linearGradient(listOf(ComposeColor(0xFF283044), ComposeColor(0xFF32374A)))
-                            else -> Brush.linearGradient(listOf(ComposeColor(0xFF151D2E), ComposeColor(0xFF1B263C)))
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .height(68.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(fill)
-                                .clickable { action(key) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                key,
-                                color = if (accent) ComposeColor(0xFFE5E9FF) else ComposeColor.White,
-                                fontSize = if (key == "AC") 20.sp else 26.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
+    private fun isCalculatorPackage(packageName: String): Boolean {
+        if (packageName.isBlank() || packageName == applicationContext.packageName) return false
+        return calculatorPackageCache.getOrPut(packageName) {
+            val known = packageName.lowercase(Locale.ROOT).let {
+                it.contains("calculator") || it.contains("calc") || it.contains("jisuanqi")
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Night Calculator",
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                textAlign = TextAlign.Center,
-                fontSize = 12.sp
-            )
+            if (known) true else runCatching {
+                val info = packageManager.getApplicationInfo(packageName, 0)
+                val label = packageManager.getApplicationLabel(info).toString().lowercase(Locale.ROOT)
+                label.contains("计算器") || label.contains("calculator")
+            }.getOrDefault(false)
         }
+    }
+
+    private fun isOperatorKey(value: String): Boolean {
+        val key = value.trim().lowercase(Locale.ROOT)
+        return key in setOf("+", "−", "-", "×", "*", "÷", "/", "加", "减", "乘", "除", "plus", "minus", "multiply", "divide")
+    }
+
+    private fun isEqualsKey(value: String): Boolean {
+        val key = value.trim().lowercase(Locale.ROOT)
+        return key in setOf("=", "＝", "等于", "equals")
+    }
+
+    private fun isClearKey(value: String): Boolean {
+        val key = value.trim().lowercase(Locale.ROOT)
+        return key in setOf("ac", "c", "ce", "清除", "归零", "clear")
+    }
+
+    private fun containsExpression(value: String): Boolean =
+        Regex("[-+]?\\d+(?:[.,]\\d+)?\\s*[+−×÷*/-]\\s*[-+]?\\d+(?:[.,]\\d+)?").containsMatchIn(value)
+
+    private fun numericCandidates(value: String): List<BigDecimal> {
+        val normalized = value.replace(',', '.').replace('−', '-')
+        return Regex("(?<![\\d.])[-+]?\\d+(?:\\.\\d+)?(?![\\d.])")
+            .findAll(normalized)
+            .mapNotNull { it.value.toBigDecimalOrNull() }
+            .toList()
     }
 }

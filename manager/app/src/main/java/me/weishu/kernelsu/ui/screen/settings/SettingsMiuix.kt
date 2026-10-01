@@ -49,7 +49,6 @@ import me.weishu.kernelsu.ui.component.KsuIsValid
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
-import me.weishu.kernelsu.ui.keywake.KeyWakeSettingsActivity
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
@@ -184,16 +183,8 @@ fun SettingPagerMiuix(
                             onClick = actions.onOpenTheme
                         )
                         ArrowPreference(
-                            title = "密钥唤醒应用",
-                            summary = "通过显式链接匹配密钥后跳转目标 App",
-                            startAction = {
-                                Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "密钥唤醒应用", tint = colorScheme.onBackground)
-                            },
-                            onClick = { context.startActivity(Intent(context, KeyWakeSettingsActivity::class.java)) }
-                        )
-                        ArrowPreference(
-                            title = "计算器隐藏",
-                            summary = "自定义运算结果解锁 Night，下次启动生效",
+                            title = "系统计算器隐藏入口",
+                            summary = "系统计算器算出指定结果时打开 Night",
                             startAction = {
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
                             },

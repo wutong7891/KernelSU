@@ -74,8 +74,6 @@ import me.weishu.kernelsu.ui.component.bottombar.rememberMainPagerState
 import me.weishu.kernelsu.ui.component.bottombar.useNavigationRail
 import me.weishu.kernelsu.ui.activation.NightActivation
 import me.weishu.kernelsu.ui.activation.NightActivationScreen
-import me.weishu.kernelsu.ui.calculator.CalculatorHide
-import me.weishu.kernelsu.ui.calculator.CalculatorHideScreen
 import me.weishu.kernelsu.ui.navigation3.IntentDispatcher
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Navigator
@@ -180,11 +178,6 @@ class MainActivity : ComponentActivity() {
                 LocalUiMode provides uiMode,
             ) {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
-                    var calculatorUnlocked by remember { mutableStateOf(!CalculatorHide.isEnabled(this@MainActivity)) }
-                    if (!calculatorUnlocked) {
-                        CalculatorHideScreen(onUnlocked = { calculatorUnlocked = true })
-                        SideEffect { contentReady = true }
-                    } else {
                     var nightActivated by remember { mutableStateOf<Boolean?>(null) }
                     LaunchedEffect(Unit) {
                         nightActivated = NightActivation.isActivated(this@MainActivity)
@@ -260,7 +253,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     SideEffect { contentReady = true }
-                    }
                     }
                 }
             }
