@@ -71,7 +71,6 @@ public final class MainActivity extends Activity {
         "https://wtlyf-license-center.creamy-bowl-8571.chatgpt.site"
     };
     private static final int REQUEST_BOOT_IMAGE = 5001;
-    private static final int CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE;
 
     private static final ModuleItem ALWAYS_STRONG =
         new ModuleItem("AlwaysStrong", "v1.0.3", "always-strong.zip", "tricky_store", "6F669A7F4DD438DF3EDE42C001CF24B24E78B42E85ED21F78FC842D25737A774");
@@ -484,7 +483,7 @@ public final class MainActivity extends Activity {
                 JSONObject push = response.optJSONObject("push");
                 if (push == null) return;
                 int minimumVersion = push.optInt("minVersionCode", 0);
-                if (minimumVersion > 0 && minimumVersion <= CURRENT_VERSION_CODE) return;
+                if (minimumVersion > 0 && minimumVersion <= currentVersionCode()) return;
                 String id = push.optString("id");
                 if (id.isBlank() || id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_PUSH, ""))) return;
                 runOnUiThread(() -> showRemotePush(push));
@@ -502,7 +501,7 @@ public final class MainActivity extends Activity {
         String fileName = push.optString("fileName", "");
         String downloadUrl = push.optString("downloadUrl", "");
         boolean forceUpdate = push.optBoolean("forceUpdate", false)
-            && push.optInt("minVersionCode", 0) > CURRENT_VERSION_CODE;
+            && push.optInt("minVersionCode", 0) > currentVersionCode();
         String body = message;
         if (!fileName.isBlank()) body += (body.isBlank() ? "" : "\n\n") + "附件：" + fileName;
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
@@ -531,6 +530,17 @@ public final class MainActivity extends Activity {
 
     private void markPushSeen(String id) {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_PUSH, id).apply();
+    }
+
+    private int currentVersionCode() {
+        try {
+            long version = getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+            return version > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) version;
+        } catch (Throwable ignored) {
+            // A failed local version lookup must never turn an ordinary notification into
+            // a permanent update loop.
+            return Integer.MAX_VALUE;
+        }
     }
 
     private void downloadRemoteFile(String path, String requestedName, String contentType) {
