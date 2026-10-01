@@ -127,7 +127,7 @@ class CalculatorHideSettingsActivity : Activity() {
         val appChoices = loadAppChoices()
         appPackages = appChoices.map { it.second }
         appSpinner = Spinner(this).apply {
-            popupBackgroundDrawable = rounded(Color.rgb(20, 29, 49), 12f, Color.rgb(89, 110, 151))
+            setPopupBackgroundDrawable(rounded(Color.rgb(20, 29, 49), 12f, Color.rgb(89, 110, 151)))
             adapter = object : ArrayAdapter<String>(
                 this@CalculatorHideSettingsActivity,
                 android.R.layout.simple_spinner_dropdown_item,
