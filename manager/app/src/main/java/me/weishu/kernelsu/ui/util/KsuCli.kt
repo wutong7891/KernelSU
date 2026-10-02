@@ -48,13 +48,23 @@ data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) 
 }
 
 object KsuCli {
-    val SHELL: Shell = createRootShell()
-    val GLOBAL_MNT_SHELL: Shell = createRootShell(true)
+    @Volatile var SHELL: Shell = createRootShell()
+    @Volatile var GLOBAL_MNT_SHELL: Shell = createRootShell(true)
 }
 
 fun getRootShell(globalMnt: Boolean = false): Shell {
-    return if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else {
-        KsuCli.SHELL
+    val cached = if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else KsuCli.SHELL
+    if (cached.isRoot) return cached
+
+    // ksud can become ready shortly after the manager process starts. Do not permanently cache
+    // the fallback non-root `sh` created by an early connection attempt.
+    synchronized(KsuCli) {
+        val current = if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else KsuCli.SHELL
+        if (current.isRoot) return current
+        runCatching { current.close() }
+        val replacement = createRootShell(globalMnt)
+        if (globalMnt) KsuCli.GLOBAL_MNT_SHELL = replacement else KsuCli.SHELL = replacement
+        return replacement
     }
 }
 
@@ -635,8 +645,11 @@ fun reboot(reason: String = "") {
 }
 
 fun rootAvailable(): Boolean {
-    val shell = getRootShell()
-    return shell.isRoot
+    repeat(3) { attempt ->
+        if (getRootShell().isRoot) return true
+        if (attempt < 2) SystemClock.sleep(180L)
+    }
+    return false
 }
 
 suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {
