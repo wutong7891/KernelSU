@@ -51,7 +51,7 @@ object CalculatorHide {
     private const val KEY_TARGET_PACKAGE = "target_package"
     private const val KEY_NO_BACKGROUND = "no_background"
     private const val DEFAULT_TARGET = "100"
-    private const val WATCHER_PID = "/dev/night_calculator_watcher.pid"
+    private const val WATCHER_PID = "/data/adb/night_calculator_watcher.pid"
     private const val WATCHER_WORKER = "/data/adb/night_calculator_watcher_worker.sh"
     private const val WATCHER_BOOT = "/data/adb/service.d/night_calculator_watcher.sh"
 
@@ -94,6 +94,7 @@ object CalculatorHide {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_STATUS, status).apply()
     }
 
+    @Synchronized
     fun applyServiceState(context: Context) {
         val intent = Intent(context, CalculatorRootMonitorService::class.java)
         context.stopService(intent)
@@ -112,7 +113,8 @@ object CalculatorHide {
                 "if [ -f \"\$pidfile\" ]; then kill \"\$(cat \"\$pidfile\")\" 2>/dev/null; fi; " +
                 "oldpid=/data/local/tmp/night_calculator_watcher.pid; " +
                 "if [ -f \"\$oldpid\" ]; then kill \"\$(cat \"\$oldpid\")\" 2>/dev/null; fi; " +
-                "rm -f \"\$pidfile\" \"\$oldpid\" /data/adb/night_calculator_watcher.sh"
+                "rm -f \"\$pidfile\" \"\$oldpid\" /dev/night_calculator_watcher.pid " +
+                "/data/adb/night_calculator_watcher.sh; sleep 0.3"
         ).exec()
     }
 
@@ -122,7 +124,10 @@ object CalculatorHide {
         val component = "${BuildConfig.APPLICATION_ID}/${CalculatorRootMonitorService::class.java.name}"
         val workerText = """#!/system/bin/sh
 pidfile='$WATCHER_PID'
-if [ -f "${'$'}pidfile" ] && kill -0 "${'$'}(cat "${'$'}pidfile")" 2>/dev/null; then exit 0; fi
+if [ -f "${'$'}pidfile" ]; then
+  oldpid="${'$'}(cat "${'$'}pidfile" 2>/dev/null)"
+  if [ -n "${'$'}oldpid" ] && /system/bin/toybox tr '\000' ' ' < "/proc/${'$'}oldpid/cmdline" 2>/dev/null | /system/bin/toybox grep -Fq '$WATCHER_WORKER'; then exit 0; fi
+fi
 echo ${'$'}${'$'} > "${'$'}pidfile"
 trap 'rm -f "${'$'}pidfile"' EXIT
 while true; do
@@ -143,11 +148,15 @@ done
 """.trimIndent()
         val bootText = """#!/system/bin/sh
 pidfile='$WATCHER_PID'
-if [ -f "${'$'}pidfile" ] && kill -0 "${'$'}(cat "${'$'}pidfile")" 2>/dev/null; then exit 0; fi
-if /system/bin/toybox 2>/dev/null | /system/bin/toybox grep -qw setsid; then
-  nohup /system/bin/toybox setsid /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
-else
-  nohup /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
+if [ -f "${'$'}pidfile" ]; then
+  oldpid="${'$'}(cat "${'$'}pidfile" 2>/dev/null)"
+  if [ -n "${'$'}oldpid" ] && /system/bin/toybox tr '\000' ' ' < "/proc/${'$'}oldpid/cmdline" 2>/dev/null | /system/bin/toybox grep -Fq '$WATCHER_WORKER'; then exit 0; fi
+fi
+/system/bin/toybox setsid /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
+starter=${'$'}!
+sleep 0.1
+if ! kill -0 "${'$'}starter" 2>/dev/null && [ ! -f "${'$'}pidfile" ]; then
+  /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
 fi
 exit 0
 """.trimIndent()
@@ -158,8 +167,10 @@ exit 0
                 "echo '$workerEncoded' | /system/bin/toybox base64 -d > '$WATCHER_WORKER'; " +
                 "echo '$bootEncoded' | /system/bin/toybox base64 -d > '$WATCHER_BOOT'; " +
                 "chmod 0700 '$WATCHER_WORKER' '$WATCHER_BOOT'; " +
-                "/system/bin/sh '$WATCHER_BOOT'; sleep 0.5; " +
-                "test -f '$WATCHER_PID' && kill -0 \$(cat '$WATCHER_PID')"
+                "/system/bin/sh '$WATCHER_BOOT'; " +
+                "i=0; while [ \$i -lt 15 ]; do " +
+                "if [ -f '$WATCHER_PID' ] && kill -0 \$(cat '$WATCHER_PID') 2>/dev/null; then exit 0; fi; " +
+                "i=\$((i+1)); sleep 0.2; done; exit 1"
         ).exec()
         return result.isSuccess
     }
@@ -182,13 +193,6 @@ class CalculatorHideSettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         CalculatorHide.enableByDefault(this)
         setContentView(buildUi())
-        if (CalculatorHide.targetPackage(this).isNotBlank()) {
-            Thread {
-                runCatching { CalculatorHide.applyServiceState(this) }
-                    .onSuccess { CalculatorHide.updateStatus(this, "无后台 Root 守护已自动启动") }
-                    .onFailure { CalculatorHide.updateStatus(this, "无后台守护启动失败：${it.message}") }
-            }.start()
-        }
     }
 
     override fun onResume() {
