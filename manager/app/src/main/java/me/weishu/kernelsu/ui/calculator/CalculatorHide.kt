@@ -330,11 +330,35 @@ class CalculatorRootMonitorService : Service() {
     }
 
     private fun currentForegroundPackage(): String {
-        val output = rootCommand(
-            "dumpsys activity activities | toybox grep -m 1 -E 'mResumedActivity|topResumedActivity'; " +
-                "dumpsys window windows | toybox grep -m 1 -E 'mCurrentFocus|mFocusedApp'"
+        val selectedPackage = CalculatorHide.targetPackage(this)
+        val probeCommands = listOf(
+            "/system/bin/dumpsys activity top | /system/bin/toybox head -n 100",
+            "/system/bin/dumpsys activity activities | /system/bin/toybox grep -m 1 mResumedActivity",
+            "/system/bin/dumpsys activity activities | /system/bin/toybox grep -m 1 topResumedActivity",
+            "/system/bin/dumpsys window | /system/bin/toybox grep -m 1 mCurrentFocus",
+            "/system/bin/dumpsys window | /system/bin/toybox grep -m 1 mFocusedApp"
         )
-        return Regex("([A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)").find(output)?.groupValues?.getOrNull(1).orEmpty()
+        val patterns = listOf(
+            Regex("(?m)^\\s*ACTIVITY\\s+([A-Za-z0-9_.]+)/"),
+            Regex("mResumedActivity[:=].*?\\s([A-Za-z0-9_.]+)/"),
+            Regex("topResumedActivity[:=].*?\\s([A-Za-z0-9_.]+)/"),
+            Regex("mCurrentFocus[:=].*?\\s([A-Za-z0-9_.]+)/"),
+            Regex("mFocusedApp[:=].*?\\s([A-Za-z0-9_.]+)/"),
+            Regex("\\bu\\d+\\s+([A-Za-z0-9_.]+)(?:/|\\})")
+        )
+        probeCommands.forEach { command ->
+            val output = rootCommand(command)
+            if (selectedPackage.isNotBlank() && (
+                    output.contains("$selectedPackage/") ||
+                        output.contains(" $selectedPackage ") ||
+                        output.contains(" $selectedPackage}")
+                    )
+            ) return selectedPackage
+            patterns.forEach { pattern ->
+                pattern.find(output)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { return it }
+            }
+        }
+        return ""
     }
 
     private fun inspectCalculatorUi(): Boolean {
@@ -400,7 +424,7 @@ class CalculatorRootMonitorService : Service() {
         lastLaunchAt = now
         resetSequence()
         reportStatus("$source 已匹配结果 ${target.stripTrailingZeros().toPlainString()}，正在打开 Night")
-        rootCommand("am start -n ${BuildConfig.APPLICATION_ID}/${MainActivity::class.java.name} >/dev/null 2>&1")
+        rootCommand("am start --user current -n ${BuildConfig.APPLICATION_ID}/${MainActivity::class.java.name} >/dev/null 2>&1")
         return true
     }
 
