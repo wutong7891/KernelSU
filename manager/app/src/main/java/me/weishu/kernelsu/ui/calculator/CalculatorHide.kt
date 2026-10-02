@@ -365,6 +365,7 @@ class CalculatorRootMonitorService : Service() {
     private var lastOcrAt = 0L
     private var lastStatus = ""
     private var currentUiXml = ""
+    @Volatile private var rootForegroundLeaseUntil = 0L
     private val calculatorPackageCache = mutableMapOf<String, Boolean>()
     private val ocrClient by lazy {
         OkHttpClient.Builder()
@@ -386,6 +387,11 @@ class CalculatorRootMonitorService : Service() {
         if (!CalculatorHide.isEnabled(this)) {
             stopSelf()
             return START_NOT_STICKY
+        }
+        // The root watcher has already verified the selected calculator UID is TOP. Some OEMs
+        // redact dumpsys output from the app process, so carry that trusted observation forward.
+        if (intent?.getBooleanExtra("root_wakeup", false) == true) {
+            rootForegroundLeaseUntil = System.currentTimeMillis() + 5_000L
         }
         if (running.compareAndSet(false, true)) {
             worker = Thread(::monitorLoop, "NightCalculatorRootMonitor").apply { start() }
@@ -453,6 +459,9 @@ class CalculatorRootMonitorService : Service() {
 
     private fun currentForegroundPackage(): String {
         val selectedPackage = CalculatorHide.targetPackage(this)
+        if (selectedPackage.isNotBlank() && System.currentTimeMillis() <= rootForegroundLeaseUntil) {
+            return selectedPackage
+        }
         if (selectedPackage.isNotBlank() && isTargetUidInForeground(selectedPackage)) {
             return selectedPackage
         }
