@@ -346,7 +346,9 @@ class CalculatorRootMonitorService : Service() {
 
     override fun onDestroy() {
         running.set(false)
-        worker?.interrupt()
+        val activeWorker = worker
+        activeWorker?.interrupt()
+        runCatching { activeWorker?.join(2_000L) }
         worker = null
         runCatching { textRecognizer.close() }
         super.onDestroy()
