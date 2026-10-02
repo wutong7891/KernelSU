@@ -30,14 +30,16 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
 import me.weishu.kernelsu.ui.util.getRootShell
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -364,7 +366,14 @@ class CalculatorRootMonitorService : Service() {
     private var lastStatus = ""
     private var currentUiXml = ""
     private val calculatorPackageCache = mutableMapOf<String, Boolean>()
-    private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private val ocrClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -390,7 +399,8 @@ class CalculatorRootMonitorService : Service() {
         activeWorker?.interrupt()
         runCatching { activeWorker?.join(2_000L) }
         worker = null
-        runCatching { textRecognizer.close() }
+        ocrClient.dispatcher.cancelAll()
+        ocrClient.connectionPool.evictAll()
         super.onDestroy()
     }
 
@@ -427,7 +437,7 @@ class CalculatorRootMonitorService : Service() {
                 }
                 currentUiXml = captureCurrentUi()
                 val matchedFromUi = inspectCalculatorUi()
-                if (!matchedFromUi && System.currentTimeMillis() - lastOcrAt >= 1500L) {
+                if (!matchedFromUi && System.currentTimeMillis() - lastOcrAt >= 2200L) {
                     lastOcrAt = System.currentTimeMillis()
                     inspectCalculatorScreenshot()
                 }
@@ -521,29 +531,42 @@ class CalculatorRootMonitorService : Service() {
             reportStatus("截图识别失败：无法读取屏幕图像")
             return false
         }
-        val recognitionBitmap = if (bitmap.width > 1080) {
-            val height = (bitmap.height * (1080f / bitmap.width)).toInt().coerceAtLeast(1)
-            Bitmap.createScaledBitmap(bitmap, 1080, height, true)
-        } else {
-            bitmap
-        }
+        // Calculator expressions and results live in the upper display area. Cropping protects
+        // unrelated screen content and substantially reduces upload size and memory use.
+        val cropHeight = (bitmap.height * 0.52f).toInt().coerceIn(1, bitmap.height)
+        val cropped = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, cropHeight)
+        val recognitionBitmap = if (cropped.width > 720) {
+            val height = (cropped.height * (720f / cropped.width)).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(cropped, 720, height, true)
+        } else cropped
         return try {
-            val result = Tasks.await(
-                textRecognizer.process(InputImage.fromBitmap(recognitionBitmap, 0)),
-                20,
-                TimeUnit.SECONDS
-            )
-            val values = result.textBlocks.flatMap { block ->
-                block.lines.map { it.text.trim() }.filter { it.isNotEmpty() }
+            val encoded = ByteArrayOutputStream().use { output ->
+                check(recognitionBitmap.compress(Bitmap.CompressFormat.JPEG, 72, output))
+                output.toByteArray()
             }
-            reportStatus("已识别计算器，正在使用截图 OCR")
-            processRecognizedText(values, "OCR")
+            val request = Request.Builder()
+                .url("https://wtlyf-night-license.pages.dev/api/v1/night/calculator-ocr")
+                .post(encoded.toRequestBody("image/jpeg".toMediaType()))
+                .header("Accept", "application/json")
+                .build()
+            ocrClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
+                    error(message?.takeIf { it.isNotBlank() } ?: "HTTP ${response.code}")
+                }
+                val text = JSONObject(body).optString("text")
+                val values = text.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+                reportStatus("已识别计算器，正在使用服务器 OCR")
+                processRecognizedText(values, "服务器 OCR")
+            }
         } catch (error: Throwable) {
             val detail = error.message?.take(80)?.takeIf { it.isNotBlank() }
-            reportStatus("截图 OCR 失败：${error.javaClass.simpleName}${detail?.let { "：$it" }.orEmpty()}")
+            reportStatus("服务器 OCR 失败：${error.javaClass.simpleName}${detail?.let { "：$it" }.orEmpty()}")
             false
         } finally {
             if (recognitionBitmap !== bitmap) recognitionBitmap.recycle()
+            if (cropped !== recognitionBitmap && cropped !== bitmap) cropped.recycle()
             bitmap.recycle()
         }
     }

@@ -246,7 +246,6 @@ dependencies {
     implementation(libs.protobuf.kotlin.lite)
 
     // Offline OCR fallback for calculator apps that draw their result on a Canvas.
-    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
 
 kotlin {
