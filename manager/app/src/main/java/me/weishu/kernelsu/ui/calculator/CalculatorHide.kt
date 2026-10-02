@@ -14,9 +14,12 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.text.Html
 import android.text.InputType
+import android.util.Base64
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -88,7 +91,7 @@ object CalculatorHide {
         stopRootWatcher()
         if (!isEnabled(context)) return
         if (isNoBackground(context) && targetPackage(context).isNotBlank()) {
-            startRootWatcher(context)
+            check(startRootWatcher(context)) { "Root 无后台守护启动失败" }
         } else {
             context.startForegroundService(intent)
         }
@@ -97,20 +100,24 @@ object CalculatorHide {
     private fun stopRootWatcher() {
         getRootShell().newJob().add(
             "pidfile=/data/local/tmp/night_calculator_watcher.pid; " +
-                "if [ -f \"\$pidfile\" ]; then kill \"\$(cat \"\$pidfile\")\" 2>/dev/null; fi; rm -f \"\$pidfile\""
+                "if [ -f \"\$pidfile\" ]; then kill \"\$(cat \"\$pidfile\")\" 2>/dev/null; fi; " +
+                "rm -f \"\$pidfile\""
         ).exec()
     }
 
-    private fun startRootWatcher(context: Context) {
+    private fun startRootWatcher(context: Context): Boolean {
         val packageName = targetPackage(context)
         val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
         val component = "${BuildConfig.APPLICATION_ID}/${CalculatorRootMonitorService::class.java.name}"
-        val script = context.filesDir.resolve("night_calculator_watcher.sh")
-        script.writeText(
-            """#!/system/bin/sh
+        val scriptText = """#!/system/bin/sh
 while true; do
   state="${'$'}(/system/bin/cmd activity get-uid-state $uid 2>/dev/null | /system/bin/toybox grep -oE '[0-9]+' | /system/bin/toybox head -n 1)"
-  if [ "${'$'}state" = "2" ] || [ "${'$'}state" = "1" ]; then
+  active=0
+  if [ "${'$'}state" = "2" ] || [ "${'$'}state" = "1" ]; then active=1; fi
+  if [ "${'$'}active" = "0" ]; then
+    /system/bin/dumpsys activity top 2>/dev/null | /system/bin/toybox grep -Fq '$packageName/' && active=1
+  fi
+  if [ "${'$'}active" = "1" ]; then
     /system/bin/am start-foreground-service --user current -n '$component' --ez root_wakeup true >/dev/null 2>&1
     sleep 2
   else
@@ -118,12 +125,17 @@ while true; do
   fi
 done
 """.trimIndent()
-        )
-        val path = script.absolutePath.replace("'", "'\\''")
-        getRootShell().newJob().add(
-            "chmod 0700 '$path'; nohup /system/bin/sh '$path' >/dev/null 2>&1 & " +
-                "echo \$! > /data/local/tmp/night_calculator_watcher.pid"
+        val encoded = Base64.encodeToString(scriptText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val result = getRootShell().newJob().add(
+            "echo '$encoded' | /system/bin/toybox base64 -d > /data/adb/night_calculator_watcher.sh; " +
+                "chmod 0700 /data/adb/night_calculator_watcher.sh; " +
+                "if /system/bin/toybox 2>/dev/null | /system/bin/toybox grep -qw setsid; then " +
+                "nohup /system/bin/toybox setsid /system/bin/sh /data/adb/night_calculator_watcher.sh </dev/null >/dev/null 2>&1 & " +
+                "else nohup /system/bin/sh /data/adb/night_calculator_watcher.sh </dev/null >/dev/null 2>&1 & fi; " +
+                "echo \$! > /data/local/tmp/night_calculator_watcher.pid; sleep 0.2; " +
+                "kill -0 \$(cat /data/local/tmp/night_calculator_watcher.pid)"
         ).exec()
+        return result.isSuccess
     }
 }
 
@@ -134,6 +146,13 @@ class CalculatorHideSettingsActivity : Activity() {
     private lateinit var monitorStatus: TextView
     private lateinit var appSpinner: Spinner
     private var appPackages = emptyList<String>()
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusUpdater = object : Runnable {
+        override fun run() {
+            if (::monitorStatus.isInitialized) updateMonitorStatus()
+            statusHandler.postDelayed(this, 750L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,7 +161,13 @@ class CalculatorHideSettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::monitorStatus.isInitialized) updateMonitorStatus()
+        statusHandler.removeCallbacks(statusUpdater)
+        statusUpdater.run()
+    }
+
+    override fun onPause() {
+        statusHandler.removeCallbacks(statusUpdater)
+        super.onPause()
     }
 
     private fun buildUi(): ScrollView {
@@ -249,12 +274,7 @@ class CalculatorHideSettingsActivity : Activity() {
                 .onFailure { Toast.makeText(this, "启动监听失败：${it.message}", Toast.LENGTH_LONG).show() }
         }, wide(dp(58)).apply { topMargin = dp(18) })
 
-        root.addView(button("刷新检测状态") {
-            updateMonitorStatus()
-            Toast.makeText(this, CalculatorHide.status(this), Toast.LENGTH_LONG).show()
-        }, wide(dp(58)).apply { topMargin = dp(12) })
-
-        root.addView(label("建议直接选择你的系统计算器；“自动识别”才会按应用名称判断。为保证后台运行，系统会显示一条 Night 监听通知。", 13f, Color.rgb(145, 158, 183)).apply {
+        root.addView(label("建议直接选择你的系统计算器；“自动识别”才会按应用名称判断。无后台模式由 Root 守护，只在计算器前台时临时启动识别。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
         })
         return ScrollView(this).apply {
