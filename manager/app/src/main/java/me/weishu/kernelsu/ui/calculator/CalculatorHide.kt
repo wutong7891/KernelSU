@@ -22,7 +22,6 @@ import android.text.InputType
 import android.util.Base64
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
@@ -52,9 +51,12 @@ object CalculatorHide {
     private const val KEY_TARGET_PACKAGE = "target_package"
     private const val KEY_NO_BACKGROUND = "no_background"
     private const val DEFAULT_TARGET = "100"
+    private const val WATCHER_PID = "/dev/night_calculator_watcher.pid"
+    private const val WATCHER_WORKER = "/data/adb/night_calculator_watcher_worker.sh"
+    private const val WATCHER_BOOT = "/data/adb/service.d/night_calculator_watcher.sh"
 
     fun isEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
 
     fun target(context: Context): BigDecimal = runCatching {
         BigDecimal(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -63,12 +65,19 @@ object CalculatorHide {
 
     fun targetText(context: Context): String = target(context).stripTrailingZeros().toPlainString()
 
-    fun save(context: Context, enabled: Boolean, target: BigDecimal, targetPackage: String, noBackground: Boolean) {
+    fun save(context: Context, target: BigDecimal, targetPackage: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_ENABLED, true)
             .putString(KEY_TARGET, target.stripTrailingZeros().toPlainString())
             .putString(KEY_TARGET_PACKAGE, targetPackage)
-            .putBoolean(KEY_NO_BACKGROUND, noBackground)
+            .putBoolean(KEY_NO_BACKGROUND, true)
+            .apply()
+    }
+
+    fun enableByDefault(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_ENABLED, true)
+            .putBoolean(KEY_NO_BACKGROUND, true)
             .apply()
     }
 
@@ -76,7 +85,7 @@ object CalculatorHide {
         .getString(KEY_TARGET_PACKAGE, "").orEmpty()
 
     fun isNoBackground(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NO_BACKGROUND, false)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NO_BACKGROUND, true)
 
     fun status(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_STATUS, "尚未开始检测") ?: "尚未开始检测"
@@ -99,9 +108,11 @@ object CalculatorHide {
 
     private fun stopRootWatcher() {
         getRootShell().newJob().add(
-            "pidfile=/data/local/tmp/night_calculator_watcher.pid; " +
+            "pidfile=$WATCHER_PID; " +
                 "if [ -f \"\$pidfile\" ]; then kill \"\$(cat \"\$pidfile\")\" 2>/dev/null; fi; " +
-                "rm -f \"\$pidfile\""
+                "oldpid=/data/local/tmp/night_calculator_watcher.pid; " +
+                "if [ -f \"\$oldpid\" ]; then kill \"\$(cat \"\$oldpid\")\" 2>/dev/null; fi; " +
+                "rm -f \"\$pidfile\" \"\$oldpid\" /data/adb/night_calculator_watcher.sh"
         ).exec()
     }
 
@@ -109,7 +120,11 @@ object CalculatorHide {
         val packageName = targetPackage(context)
         val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
         val component = "${BuildConfig.APPLICATION_ID}/${CalculatorRootMonitorService::class.java.name}"
-        val scriptText = """#!/system/bin/sh
+        val workerText = """#!/system/bin/sh
+pidfile='$WATCHER_PID'
+if [ -f "${'$'}pidfile" ] && kill -0 "${'$'}(cat "${'$'}pidfile")" 2>/dev/null; then exit 0; fi
+echo ${'$'}${'$'} > "${'$'}pidfile"
+trap 'rm -f "${'$'}pidfile"' EXIT
 while true; do
   state="${'$'}(/system/bin/cmd activity get-uid-state $uid 2>/dev/null | /system/bin/toybox grep -oE '[0-9]+' | /system/bin/toybox head -n 1)"
   active=0
@@ -118,6 +133,7 @@ while true; do
     /system/bin/dumpsys activity top 2>/dev/null | /system/bin/toybox grep -Fq '$packageName/' && active=1
   fi
   if [ "${'$'}active" = "1" ]; then
+    /system/bin/cmd package set-stopped-state --user current '${BuildConfig.APPLICATION_ID}' false 2>/dev/null
     /system/bin/am start-foreground-service --user current -n '$component' --ez root_wakeup true >/dev/null 2>&1
     sleep 2
   else
@@ -125,23 +141,31 @@ while true; do
   fi
 done
 """.trimIndent()
-        val encoded = Base64.encodeToString(scriptText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val bootText = """#!/system/bin/sh
+pidfile='$WATCHER_PID'
+if [ -f "${'$'}pidfile" ] && kill -0 "${'$'}(cat "${'$'}pidfile")" 2>/dev/null; then exit 0; fi
+if /system/bin/toybox 2>/dev/null | /system/bin/toybox grep -qw setsid; then
+  nohup /system/bin/toybox setsid /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
+else
+  nohup /system/bin/sh '$WATCHER_WORKER' </dev/null >/dev/null 2>&1 &
+fi
+exit 0
+""".trimIndent()
+        val workerEncoded = Base64.encodeToString(workerText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val bootEncoded = Base64.encodeToString(bootText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
         val result = getRootShell().newJob().add(
-            "echo '$encoded' | /system/bin/toybox base64 -d > /data/adb/night_calculator_watcher.sh; " +
-                "chmod 0700 /data/adb/night_calculator_watcher.sh; " +
-                "if /system/bin/toybox 2>/dev/null | /system/bin/toybox grep -qw setsid; then " +
-                "nohup /system/bin/toybox setsid /system/bin/sh /data/adb/night_calculator_watcher.sh </dev/null >/dev/null 2>&1 & " +
-                "else nohup /system/bin/sh /data/adb/night_calculator_watcher.sh </dev/null >/dev/null 2>&1 & fi; " +
-                "echo \$! > /data/local/tmp/night_calculator_watcher.pid; sleep 0.2; " +
-                "kill -0 \$(cat /data/local/tmp/night_calculator_watcher.pid)"
+            "mkdir -p /data/adb/service.d; " +
+                "echo '$workerEncoded' | /system/bin/toybox base64 -d > '$WATCHER_WORKER'; " +
+                "echo '$bootEncoded' | /system/bin/toybox base64 -d > '$WATCHER_BOOT'; " +
+                "chmod 0700 '$WATCHER_WORKER' '$WATCHER_BOOT'; " +
+                "/system/bin/sh '$WATCHER_BOOT'; sleep 0.5; " +
+                "test -f '$WATCHER_PID' && kill -0 \$(cat '$WATCHER_PID')"
         ).exec()
         return result.isSuccess
     }
 }
 
 class CalculatorHideSettingsActivity : Activity() {
-    private lateinit var enabled: CheckBox
-    private lateinit var noBackground: CheckBox
     private lateinit var target: EditText
     private lateinit var monitorStatus: TextView
     private lateinit var appSpinner: Spinner
@@ -156,7 +180,15 @@ class CalculatorHideSettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CalculatorHide.enableByDefault(this)
         setContentView(buildUi())
+        if (CalculatorHide.targetPackage(this).isNotBlank()) {
+            Thread {
+                runCatching { CalculatorHide.applyServiceState(this) }
+                    .onSuccess { CalculatorHide.updateStatus(this, "无后台 Root 守护已自动启动") }
+                    .onFailure { CalculatorHide.updateStatus(this, "无后台守护启动失败：${it.message}") }
+            }.start()
+        }
     }
 
     override fun onResume() {
@@ -184,20 +216,6 @@ class CalculatorHideSettingsActivity : Activity() {
             setPadding(dp(18), dp(18), dp(18), dp(18))
             background = rounded(Color.rgb(20, 29, 49), 24f, Color.rgb(73, 93, 130))
         }
-        enabled = CheckBox(this).apply {
-            text = "启用 Root 计算器监听"
-            textSize = 17f
-            setTextColor(Color.WHITE)
-            isChecked = CalculatorHide.isEnabled(this@CalculatorHideSettingsActivity)
-        }
-        panel.addView(enabled, wide())
-        noBackground = CheckBox(this).apply {
-            text = "无后台模式（Root 守护）"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            isChecked = CalculatorHide.isNoBackground(this@CalculatorHideSettingsActivity)
-        }
-        panel.addView(noBackground, wide())
         panel.addView(label("监听目标应用", 14f, Color.rgb(185, 195, 214)).apply {
             setPadding(0, dp(10), 0, 0)
         })
@@ -257,18 +275,16 @@ class CalculatorHideSettingsActivity : Activity() {
                 return@button
             }
             val selectedPackage = appPackages.getOrNull(appSpinner.selectedItemPosition).orEmpty()
-            if (noBackground.isChecked && selectedPackage.isBlank()) {
-                Toast.makeText(this, "无后台模式需要选择一个目标计算器应用", Toast.LENGTH_LONG).show()
+            if (selectedPackage.isBlank()) {
+                Toast.makeText(this, "请选择一个目标计算器应用", Toast.LENGTH_LONG).show()
                 return@button
             }
-            CalculatorHide.save(this, enabled.isChecked, value, selectedPackage, noBackground.isChecked)
+            CalculatorHide.save(this, value, selectedPackage)
             runCatching { CalculatorHide.applyServiceState(this) }
                 .onSuccess {
-                    val targetText = if (selectedPackage.isBlank()) "自动识别计算器" else selectedPackage
-                    val modeText = if (noBackground.isChecked) "无后台 Root 守护" else "后台监听"
-                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "$modeText 已启动，目标：$targetText" else "Root 监听：已关闭")
+                    CalculatorHide.updateStatus(this, "无后台 Root 守护已启动，目标：$selectedPackage")
                     updateMonitorStatus()
-                    monitorStatus.setTextColor(if (enabled.isChecked) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
+                    monitorStatus.setTextColor(Color.rgb(111, 224, 174))
                     Toast.makeText(this, "设置已应用", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure { Toast.makeText(this, "启动监听失败：${it.message}", Toast.LENGTH_LONG).show() }
@@ -639,8 +655,18 @@ class CalculatorRootMonitorService : Service() {
 
 class CalculatorMonitorBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED && CalculatorHide.isEnabled(context)) {
+        if (intent?.action !in setOf(
+                Intent.ACTION_BOOT_COMPLETED,
+                Intent.ACTION_USER_UNLOCKED,
+                Intent.ACTION_MY_PACKAGE_REPLACED
+            )
+        ) return
+        CalculatorHide.enableByDefault(context)
+        if (CalculatorHide.targetPackage(context).isBlank()) return
+        val pending = goAsync()
+        Thread {
             runCatching { CalculatorHide.applyServiceState(context) }
-        }
+            pending.finish()
+        }.start()
     }
 }
