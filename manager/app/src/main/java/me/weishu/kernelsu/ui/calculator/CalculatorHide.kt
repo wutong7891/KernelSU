@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -31,7 +32,6 @@ import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.topjohnwu.superuser.Shell
 import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
@@ -47,6 +47,7 @@ object CalculatorHide {
     private const val KEY_TARGET = "target"
     private const val KEY_STATUS = "status"
     private const val KEY_TARGET_PACKAGE = "target_package"
+    private const val KEY_NO_BACKGROUND = "no_background"
     private const val DEFAULT_TARGET = "100"
 
     fun isEnabled(context: Context): Boolean =
@@ -59,16 +60,20 @@ object CalculatorHide {
 
     fun targetText(context: Context): String = target(context).stripTrailingZeros().toPlainString()
 
-    fun save(context: Context, enabled: Boolean, target: BigDecimal, targetPackage: String) {
+    fun save(context: Context, enabled: Boolean, target: BigDecimal, targetPackage: String, noBackground: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_ENABLED, enabled)
             .putString(KEY_TARGET, target.stripTrailingZeros().toPlainString())
             .putString(KEY_TARGET_PACKAGE, targetPackage)
+            .putBoolean(KEY_NO_BACKGROUND, noBackground)
             .apply()
     }
 
     fun targetPackage(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_TARGET_PACKAGE, "").orEmpty()
+
+    fun isNoBackground(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NO_BACKGROUND, false)
 
     fun status(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_STATUS, "尚未开始检测") ?: "尚未开始检测"
@@ -79,12 +84,52 @@ object CalculatorHide {
 
     fun applyServiceState(context: Context) {
         val intent = Intent(context, CalculatorRootMonitorService::class.java)
-        if (isEnabled(context)) context.startForegroundService(intent) else context.stopService(intent)
+        context.stopService(intent)
+        stopRootWatcher()
+        if (!isEnabled(context)) return
+        if (isNoBackground(context) && targetPackage(context).isNotBlank()) {
+            startRootWatcher(context)
+        } else {
+            context.startForegroundService(intent)
+        }
+    }
+
+    private fun stopRootWatcher() {
+        getRootShell().newJob().add(
+            "pidfile=/data/local/tmp/night_calculator_watcher.pid; " +
+                "if [ -f \"\$pidfile\" ]; then kill \"\$(cat \"\$pidfile\")\" 2>/dev/null; fi; rm -f \"\$pidfile\""
+        ).exec()
+    }
+
+    private fun startRootWatcher(context: Context) {
+        val packageName = targetPackage(context)
+        val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
+        val component = "${BuildConfig.APPLICATION_ID}/${CalculatorRootMonitorService::class.java.name}"
+        val script = context.filesDir.resolve("night_calculator_watcher.sh")
+        script.writeText(
+            """#!/system/bin/sh
+while true; do
+  state="${'$'}(/system/bin/cmd activity get-uid-state $uid 2>/dev/null | /system/bin/toybox grep -oE '[0-9]+' | /system/bin/toybox head -n 1)"
+  if [ "${'$'}state" = "2" ] || [ "${'$'}state" = "1" ]; then
+    /system/bin/am start-foreground-service --user current -n '$component' --ez root_wakeup true >/dev/null 2>&1
+    sleep 2
+  else
+    sleep 0.4
+  fi
+done
+""".trimIndent()
+        )
+        val path = script.absolutePath.replace("'", "'\\''")
+        getRootShell().newJob().add(
+            "chmod 0700 '$path'; nohup /system/bin/sh '$path' >/dev/null 2>&1 & " +
+                "echo \$! > /data/local/tmp/night_calculator_watcher.pid"
+        ).exec()
     }
 }
 
 class CalculatorHideSettingsActivity : Activity() {
     private lateinit var enabled: CheckBox
+    private lateinit var noBackground: CheckBox
     private lateinit var target: EditText
     private lateinit var monitorStatus: TextView
     private lateinit var appSpinner: Spinner
@@ -121,6 +166,13 @@ class CalculatorHideSettingsActivity : Activity() {
             isChecked = CalculatorHide.isEnabled(this@CalculatorHideSettingsActivity)
         }
         panel.addView(enabled, wide())
+        noBackground = CheckBox(this).apply {
+            text = "无后台模式（Root 守护）"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = CalculatorHide.isNoBackground(this@CalculatorHideSettingsActivity)
+        }
+        panel.addView(noBackground, wide())
         panel.addView(label("监听目标应用", 14f, Color.rgb(185, 195, 214)).apply {
             setPadding(0, dp(10), 0, 0)
         })
@@ -180,11 +232,16 @@ class CalculatorHideSettingsActivity : Activity() {
                 return@button
             }
             val selectedPackage = appPackages.getOrNull(appSpinner.selectedItemPosition).orEmpty()
-            CalculatorHide.save(this, enabled.isChecked, value, selectedPackage)
+            if (noBackground.isChecked && selectedPackage.isBlank()) {
+                Toast.makeText(this, "无后台模式需要选择一个目标计算器应用", Toast.LENGTH_LONG).show()
+                return@button
+            }
+            CalculatorHide.save(this, enabled.isChecked, value, selectedPackage, noBackground.isChecked)
             runCatching { CalculatorHide.applyServiceState(this) }
                 .onSuccess {
                     val targetText = if (selectedPackage.isBlank()) "自动识别计算器" else selectedPackage
-                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "Root 监听已启动，目标：$targetText" else "Root 监听：已关闭")
+                    val modeText = if (noBackground.isChecked) "无后台 Root 守护" else "后台监听"
+                    CalculatorHide.updateStatus(this, if (enabled.isChecked) "$modeText 已启动，目标：$targetText" else "Root 监听：已关闭")
                     updateMonitorStatus()
                     monitorStatus.setTextColor(if (enabled.isChecked) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
                     Toast.makeText(this, "设置已应用", Toast.LENGTH_SHORT).show()
@@ -265,7 +322,9 @@ class CalculatorRootMonitorService : Service() {
     private var lastLaunchAt = 0L
     private var lastOcrAt = 0L
     private var lastStatus = ""
+    private var currentUiXml = ""
     private val calculatorPackageCache = mutableMapOf<String, Boolean>()
+    private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
     override fun onCreate() {
         super.onCreate()
@@ -289,6 +348,7 @@ class CalculatorRootMonitorService : Service() {
         running.set(false)
         worker?.interrupt()
         worker = null
+        runCatching { textRecognizer.close() }
         super.onDestroy()
     }
 
@@ -297,15 +357,24 @@ class CalculatorRootMonitorService : Service() {
     private fun monitorLoop() {
         while (running.get() && CalculatorHide.isEnabled(this)) {
             try {
+                currentUiXml = ""
                 val topPackage = currentForegroundPackage()
                 if (topPackage.isBlank()) {
                     reportStatus("Root 已运行，但暂时无法读取前台应用")
+                    if (CalculatorHide.isNoBackground(this)) {
+                        stopSelf()
+                        break
+                    }
                     Thread.sleep(1200L)
                     continue
                 }
                 if (!isCalculatorPackage(topPackage)) {
                     activePackage = ""
                     resetSequence()
+                    if (CalculatorHide.isNoBackground(this)) {
+                        stopSelf()
+                        break
+                    }
                     Thread.sleep(1100L)
                     continue
                 }
@@ -314,12 +383,13 @@ class CalculatorRootMonitorService : Service() {
                     resetSequence()
                     reportStatus("已识别计算器：$topPackage")
                 }
+                currentUiXml = captureCurrentUi()
                 val matchedFromUi = inspectCalculatorUi()
                 if (!matchedFromUi && System.currentTimeMillis() - lastOcrAt >= 1500L) {
                     lastOcrAt = System.currentTimeMillis()
                     inspectCalculatorScreenshot()
                 }
-                Thread.sleep(850L)
+                Thread.sleep(300L)
             } catch (_: InterruptedException) {
                 break
             } catch (_: Throwable) {
@@ -331,12 +401,15 @@ class CalculatorRootMonitorService : Service() {
 
     private fun currentForegroundPackage(): String {
         val selectedPackage = CalculatorHide.targetPackage(this)
+        if (selectedPackage.isNotBlank() && isTargetUidInForeground(selectedPackage)) {
+            return selectedPackage
+        }
+
         val probeCommands = listOf(
-            "/system/bin/dumpsys activity top | /system/bin/toybox head -n 100",
-            "/system/bin/dumpsys activity activities | /system/bin/toybox grep -m 1 mResumedActivity",
-            "/system/bin/dumpsys activity activities | /system/bin/toybox grep -m 1 topResumedActivity",
-            "/system/bin/dumpsys window | /system/bin/toybox grep -m 1 mCurrentFocus",
-            "/system/bin/dumpsys window | /system/bin/toybox grep -m 1 mFocusedApp"
+            "/system/bin/dumpsys activity top",
+            "/system/bin/dumpsys activity activities",
+            "/system/bin/dumpsys window windows",
+            "/system/bin/dumpsys window"
         )
         val patterns = listOf(
             Regex("(?m)^\\s*ACTIVITY\\s+([A-Za-z0-9_.]+)/"),
@@ -361,11 +434,23 @@ class CalculatorRootMonitorService : Service() {
         return ""
     }
 
-    private fun inspectCalculatorUi(): Boolean {
+    private fun captureCurrentUi(): String = rootCommand(
+        "/system/bin/uiautomator dump /data/local/tmp/night_calculator_ui.xml >/dev/null 2>&1; " +
+            "/system/bin/cat /data/local/tmp/night_calculator_ui.xml 2>/dev/null"
+    )
+
+    private fun isTargetUidInForeground(packageName: String): Boolean = runCatching {
+        val uid = packageManager.getApplicationInfo(packageName, 0).uid
         val output = rootCommand(
-            "uiautomator dump /data/local/tmp/night_calculator_ui.xml >/dev/null 2>&1; " +
-                "cat /data/local/tmp/night_calculator_ui.xml 2>/dev/null"
+            "/system/bin/cmd activity get-uid-state $uid 2>/dev/null || " +
+                "/system/bin/am get-uid-state $uid 2>/dev/null"
         )
+        val state = Regex("(?:^|\\s)(\\d+)(?:\\s|$)").find(output)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        state != null && state <= 2
+    }.getOrDefault(false)
+
+    private fun inspectCalculatorUi(): Boolean {
+        val output = currentUiXml.ifBlank(::captureCurrentUi)
         if (!output.contains("<hierarchy")) {
             reportStatus("已识别计算器，界面文本不可读，正在使用截图识别")
             return false
@@ -381,24 +466,42 @@ class CalculatorRootMonitorService : Service() {
 
     private fun inspectCalculatorScreenshot(): Boolean {
         val screenshot = cacheDir.resolve("night_calculator_screen.png")
-        rootCommand("screencap -p '${screenshot.absolutePath}'; chmod 0644 '${screenshot.absolutePath}'")
+        runCatching {
+            screenshot.delete()
+            screenshot.parentFile?.mkdirs()
+            screenshot.createNewFile()
+        }.onFailure {
+            reportStatus("截图识别失败：无法创建缓存文件")
+            return false
+        }
+        rootCommand("/system/bin/screencap -p > '${screenshot.absolutePath}'")
         val bitmap = BitmapFactory.decodeFile(screenshot.absolutePath) ?: run {
             reportStatus("截图识别失败：无法读取屏幕图像")
             return false
         }
+        val recognitionBitmap = if (bitmap.width > 1080) {
+            val height = (bitmap.height * (1080f / bitmap.width)).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, 1080, height, true)
+        } else {
+            bitmap
+        }
         return try {
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)), 10, TimeUnit.SECONDS)
-            recognizer.close()
+            val result = Tasks.await(
+                textRecognizer.process(InputImage.fromBitmap(recognitionBitmap, 0)),
+                20,
+                TimeUnit.SECONDS
+            )
             val values = result.textBlocks.flatMap { block ->
                 block.lines.map { it.text.trim() }.filter { it.isNotEmpty() }
             }
             reportStatus("已识别计算器，正在使用截图 OCR")
             processRecognizedText(values, "OCR")
         } catch (error: Throwable) {
-            reportStatus("截图 OCR 失败：${error.javaClass.simpleName}")
+            val detail = error.message?.take(80)?.takeIf { it.isNotBlank() }
+            reportStatus("截图 OCR 失败：${error.javaClass.simpleName}${detail?.let { "：$it" }.orEmpty()}")
             false
         } finally {
+            if (recognitionBitmap !== bitmap) recognitionBitmap.recycle()
             bitmap.recycle()
         }
     }
@@ -431,8 +534,8 @@ class CalculatorRootMonitorService : Service() {
     private fun rootCommand(command: String): String {
         val stdout = ArrayList<String>()
         val stderr = ArrayList<String>()
-        val result: Shell.Result = getRootShell().newJob().add(command).to(stdout, stderr).exec()
-        return if (result.isSuccess) stdout.joinToString("\n") else ""
+        getRootShell().newJob().add(command).to(stdout, stderr).exec()
+        return stdout.joinToString("\n")
     }
 
     private fun isCalculatorPackage(packageName: String): Boolean {
