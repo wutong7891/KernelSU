@@ -158,7 +158,7 @@ fun NightActivationScreen(onActivated: () -> Unit) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Image(
-            painter = painterResource(R.drawable.night_ui_background),
+            painter = painterResource(R.drawable.night_ui_background_v2),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
@@ -166,7 +166,7 @@ fun NightActivationScreen(onActivated: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0x99070B14)),
+                .background(Color(0x66070B14)),
         )
         Column(
             modifier = Modifier
@@ -181,7 +181,7 @@ fun NightActivationScreen(onActivated: () -> Unit) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xCC182133)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xB3182942)),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Night 设备指纹", color = Color(0xFF98A6C2))

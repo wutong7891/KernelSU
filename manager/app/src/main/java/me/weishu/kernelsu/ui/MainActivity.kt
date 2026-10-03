@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -248,10 +250,10 @@ class MainActivity : ComponentActivity() {
                     NightBackground(uiState.backgroundUri) {
                         when (uiMode) {
                             UiMode.Material -> androidx.compose.material3.Scaffold(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.84f)
+                                containerColor = Color.Transparent
                             ) { navDisplay() }
 
-                            UiMode.Miuix -> Scaffold { navDisplay() }
+                            UiMode.Miuix -> Scaffold(containerColor = Color.Transparent) { navDisplay() }
                         }
                     }
                     SideEffect { contentReady = true }
@@ -289,13 +291,18 @@ private fun NightBackground(uriText: String, content: @Composable () -> Unit) {
             )
         } else {
             Image(
-                painter = painterResource(R.drawable.night_ui_background),
+                painter = painterResource(R.drawable.night_ui_background_v2),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = 0.52f,
+                alpha = 1f,
             )
         }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.18f))
+        )
         content()
     }
 }
@@ -432,7 +439,7 @@ fun MainScreen(
 
             when (uiMode) {
                 UiMode.Material -> androidx.compose.material3.Scaffold(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    containerColor = Color.Transparent
                 ) {
                     Row {
                         SideRail(navigationBadge)
@@ -446,7 +453,7 @@ fun MainScreen(
                     }
                 }
 
-                UiMode.Miuix -> Scaffold { _ ->
+                UiMode.Miuix -> Scaffold(containerColor = Color.Transparent) { _ ->
                     Row {
                         SideRail(navigationBadge)
                         Box(
@@ -476,12 +483,12 @@ fun MainScreen(
             when (uiMode) {
                 UiMode.Material -> androidx.compose.material3.Scaffold(
                     bottomBar = bottomBar,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    containerColor = Color.Transparent
                 ) { innerPadding ->
                     pagerContent(innerPadding.calculateBottomPadding())
                 }
 
-                UiMode.Miuix -> Scaffold(bottomBar = bottomBar) { innerPadding ->
+                UiMode.Miuix -> Scaffold(bottomBar = bottomBar, containerColor = Color.Transparent) { innerPadding ->
                     pagerContent(innerPadding.calculateBottomPadding())
                 }
             }
