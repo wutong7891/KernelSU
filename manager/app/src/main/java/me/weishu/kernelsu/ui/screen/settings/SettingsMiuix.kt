@@ -50,6 +50,7 @@ import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
+import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
@@ -189,6 +190,14 @@ fun SettingPagerMiuix(
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "Root 应用监听",
+                            summary = "指定应用前后台切换时执行自选脚本",
+                            startAction = {
+                                Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "Root 应用监听", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
                         )
                         ArrowPreference(
                             title = "Night 部署与分区工具",

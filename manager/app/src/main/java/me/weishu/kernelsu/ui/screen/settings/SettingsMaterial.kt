@@ -63,6 +63,7 @@ import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
+import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
 
 /**
@@ -158,6 +159,15 @@ fun SettingPagerMaterial(
                             headlineContent = { Text("系统计算器隐藏入口") },
                             supportingContent = { Text("系统计算器算出指定结果时打开 Night") },
                             leadingContent = { Icon(Icons.Filled.Lock, "计算器隐藏") },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
+                        )
+                    }
+                    add {
+                        SegmentedListItem(
+                            onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) },
+                            headlineContent = { Text("Root 应用监听") },
+                            supportingContent = { Text("指定应用前后台切换时执行自选脚本") },
+                            leadingContent = { Icon(Icons.Filled.DeveloperMode, "Root 应用监听") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }
