@@ -36,6 +36,7 @@ object RootAppMonitor {
     private const val PID = "$ROOT_DIR/watcher.pid"
     private const val STATUS = "$ROOT_DIR/status"
     private const val LOG = "$ROOT_DIR/events.log"
+    private const val START_LOG = "$ROOT_DIR/startup.log"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     fun enabled(context: Context) = prefs(context).getBoolean(KEY_ENABLED, false)
@@ -126,8 +127,27 @@ done
 mkdir -p '$ROOT_DIR'
 if [ -f '$PID' ]; then p="${'$'}(cat '$PID' 2>/dev/null)"; [ -n "${'$'}p" ] && kill "${'$'}p" 2>/dev/null; fi
 rm -f '$PID'
-/system/bin/toybox setsid /system/bin/sh '$WORKER' </dev/null >/dev/null 2>&1 &
-exit 0
+: > '$START_LOG'
+/system/bin/toybox setsid /system/bin/sh '$WORKER' </dev/null >>'$START_LOG' 2>&1 &
+starter=${'$'}!
+/system/bin/sleep 1
+if [ -f '$PID' ]; then
+  p="${'$'}(cat '$PID' 2>/dev/null)"
+  [ -n "${'$'}p" ] && kill -0 "${'$'}p" 2>/dev/null && exit 0
+fi
+kill "${'$'}starter" 2>/dev/null
+rm -f '$PID'
+echo 'setsid unavailable; using plain background launch' >> '$START_LOG'
+/system/bin/sh '$WORKER' </dev/null >>'$START_LOG' 2>&1 &
+starter=${'$'}!
+/system/bin/sleep 1
+if [ -f '$PID' ]; then
+  p="${'$'}(cat '$PID' 2>/dev/null)"
+  [ -n "${'$'}p" ] && kill -0 "${'$'}p" 2>/dev/null && exit 0
+fi
+kill "${'$'}starter" 2>/dev/null
+echo launch_failed > '$STATUS'
+exit 1
 """.trimIndent()
 
         val commands = buildString {
@@ -141,9 +161,16 @@ exit 0
             else append("rm -f '$ROOT_DIR/background.sh'; ")
             append("chmod 0700 '$WORKER' '$BOOT' '$ROOT_DIR'/*.sh 2>/dev/null; ")
             append("/system/bin/sh '$BOOT'; ")
-            append("i=0; while [ \$i -lt 20 ]; do [ -f '$PID' ] && kill -0 \$(cat '$PID') 2>/dev/null && exit 0; i=\$((i+1)); sleep 0.2; done; exit 1")
+            append("i=0; while [ \$i -lt 10 ]; do p=\$(cat '$PID' 2>/dev/null); [ -n \"\$p\" ] && kill -0 \"\$p\" 2>/dev/null && exit 0; i=\$((i+1)); /system/bin/sleep 1; done; ")
+            append("echo '--- startup log ---' >&2; cat '$START_LOG' >&2 2>/dev/null; echo '--- status ---' >&2; cat '$STATUS' >&2 2>/dev/null; exit 1")
         }
-        check(shell.newJob().add(commands).exec().isSuccess) { "Root 守护启动失败" }
+        val stdout = arrayListOf<String>()
+        val stderr = arrayListOf<String>()
+        val launch = shell.newJob().add(commands).to(stdout, stderr).exec()
+        check(launch.isSuccess) {
+            val detail = (stderr + stdout).takeLast(6).joinToString(" · ").ifBlank { "未返回详细日志" }
+            "Root 守护启动失败：$detail"
+        }
         "Root 监听已运行：$packageName"
     }
 
@@ -247,7 +274,7 @@ class RootAppMonitorSettingsActivity : Activity() {
             val decoded = runCatching {
                 String(Base64.decode(line.substring(split + 1), Base64.DEFAULT), Charsets.UTF_8)
             }.getOrNull() ?: return@mapNotNull null
-            RootEntry(decoded, line[0] == 'd')
+            RootEntry(decoded.replace(Regex("^//+"), "/"), line[0] == 'd')
         }.sortedWith(compareBy<RootEntry> { !it.directory }.thenBy { File(it.path).name.lowercase(Locale.ROOT) })
     }
 
