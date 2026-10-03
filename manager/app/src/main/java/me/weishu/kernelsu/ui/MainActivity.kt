@@ -10,6 +10,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,7 +34,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -227,6 +235,9 @@ class MainActivity : ComponentActivity() {
                                     else -> navigator.pop()
                                 }
                             },
+                            transitionSpec = { nightScaleTransition() },
+                            popTransitionSpec = { nightScaleTransition() },
+                            predictivePopTransitionSpec = { _ -> nightScaleTransition() },
                             entryProvider = entryProvider {
                                 entry<Route.Main> { mainScreenEntry() }
                                 entry<Route.About> { AboutScreen() }
@@ -308,6 +319,19 @@ private fun NightBackground(uriText: String, content: @Composable () -> Unit) {
     }
 }
 
+private fun nightScaleTransition(): ContentTransform =
+    (fadeIn(
+        animationSpec = tween(durationMillis = 220, delayMillis = 20, easing = FastOutSlowInEasing)
+    ) + scaleIn(
+        initialScale = 0.94f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+    )).togetherWith(
+        fadeOut(animationSpec = tween(durationMillis = 110)) + scaleOut(
+            targetScale = 1.025f,
+            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+        )
+    )
+
 val LocalMainPagerState = staticCompositionLocalOf<MainPagerState> { error("LocalMainPagerState not provided") }
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
@@ -324,10 +348,9 @@ fun MainScreen(
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { MainPagerConfig.PAGE_COUNT })
     val mainPagerState = rememberMainPagerState(
         pagerState = pagerState,
-        animatePageChanges = !useNavigationRail,
+        animatePageChanges = false,
     )
     val isFullFeatured = Natives.isFullFeatured()
-    var userScrollEnabled by remember(isFullFeatured) { mutableStateOf(isFullFeatured) }
 
     val enableNavigationBadge = LocalEnableNavigationBadge.current
     val badgeEnabled = enableNavigationBadge && isFullFeatured
@@ -368,14 +391,9 @@ fun MainScreen(
         drawContent()
     }
 
-    val settledPage = mainPagerState.pagerState.settledPage
-    LaunchedEffect(settledPage) {
-        onPageChanged(settledPage)
-    }
-
-    val currentPage = mainPagerState.pagerState.currentPage
-    LaunchedEffect(currentPage) {
-        mainPagerState.syncPage()
+    val selectedPage = mainPagerState.selectedPage
+    LaunchedEffect(selectedPage) {
+        onPageChanged(selectedPage)
     }
 
     MainScreenBackHandler(mainPagerState, navController)
@@ -386,17 +404,15 @@ fun MainScreen(
         val contentReady = rememberContentReady()
         val pagerContent = @Composable { bottomInnerPadding: Dp ->
             Box(modifier = if (blurBackdrop != null) Modifier.layerBackdrop(blurBackdrop) else Modifier) {
-                HorizontalPager(
+                AnimatedContent(
                     modifier = Modifier
                         .then(if (enableFloatingBottomBar && enableFloatingBottomBarBlur) Modifier.layerBackdrop(backdrop) else Modifier),
-                    state = mainPagerState.pagerState,
-                    // Keep only the visible page composed. Module/app lists can be large and
-                    // retaining several off-screen pages multiplies memory and recomposition work.
-                    beyondViewportPageCount = 0,
-                    overscrollEffect = null,
-                    userScrollEnabled = userScrollEnabled,
+                    targetState = selectedPage,
+                    transitionSpec = { nightScaleTransition() },
+                    contentKey = { it },
+                    label = "NightMainPageTransition",
                 ) { page ->
-                    val isCurrentPage = page == settledPage
+                    val isCurrentPage = page == selectedPage
                     when (page) {
                         0 -> if (contentReady || isCurrentPage) HomePager(navController, bottomInnerPadding, isCurrentPage)
                         1 -> if (contentReady || isCurrentPage) SuperUserPager(navController, bottomInnerPadding, isCurrentPage)

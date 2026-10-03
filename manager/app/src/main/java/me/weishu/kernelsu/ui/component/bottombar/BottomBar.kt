@@ -39,6 +39,13 @@ class MainPagerState(
     fun animateToPage(targetIndex: Int) {
         if (targetIndex == selectedPage) return
 
+        if (!animatePageChanges) {
+            navJob?.cancel()
+            selectedPage = targetIndex.coerceIn(0, pagerState.pageCount - 1)
+            isNavigating = false
+            return
+        }
+
         navJob?.cancel()
 
         selectedPage = targetIndex
