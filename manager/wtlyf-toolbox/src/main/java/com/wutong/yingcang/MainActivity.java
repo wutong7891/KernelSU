@@ -15,6 +15,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Looper;
 import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.text.method.ScrollingMovementMethod;
@@ -759,9 +760,22 @@ public final class MainActivity extends Activity {
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("取消", null)
-            .setPositiveButton("开始部署", (ignoredDialog, which) -> install(items, postInstallAction))
+            .setPositiveButton("开始部署", null)
             .create();
         showGlassDialog(dialog, false);
+        Button start = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        if (start != null) {
+            start.setOnClickListener(view -> {
+                if (installing.get()) {
+                    Toast.makeText(this, "已有部署任务正在执行", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                start.setEnabled(false);
+                start.setText("正在启动…");
+                dialog.dismiss();
+                install(items, postInstallAction);
+            });
+        }
     }
 
     private void install(ModuleItem[] items) {
@@ -780,14 +794,7 @@ public final class MainActivity extends Activity {
                     appendLog(item.name + " " + item.version + "\n");
                     appendLog("正在从服务器下载模块…\n");
                     File zip = downloadModule(item);
-                    Process process = new ProcessBuilder(
-                        "su", "-c", "/data/adb/ksud module install " + shellQuote(zip.getAbsolutePath())
-                    ).redirectErrorStream(true).start();
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) appendLog(line + "\n");
-                    }
-                    int code = process.waitFor();
+                    int code = installModuleWithTimeout(zip);
                     appendLog("退出码：" + code + "\n");
                     zip.delete();
                     if (code != 0) {
@@ -945,8 +952,37 @@ public final class MainActivity extends Activity {
         return false;
     }
 
+    private int installModuleWithTimeout(File zip) throws Exception {
+        String path = shellQuote(zip.getAbsolutePath());
+        String command = "ZIP=" + path + "; KSUD=''; "
+            + "for CANDIDATE in /data/adb/ksud /data/adb/ksu/bin/ksud /data/adb/ksu/ksud /system/bin/ksud; do "
+            + "[ -x \"$CANDIDATE\" ] && { KSUD=\"$CANDIDATE\"; break; }; done; "
+            + "if [ -z \"$KSUD\" ]; then KSUD=$(command -v ksud 2>/dev/null || true); fi; "
+            + "if [ -z \"$KSUD\" ]; then echo '未找到 KernelSU 模块安装器 ksud' >&2; exit 127; fi; "
+            + "echo \"使用安装器：$KSUD\"; exec \"$KSUD\" module install \"$ZIP\"";
+        Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+        Thread outputReader = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) appendLog(line + "\n");
+            } catch (Throwable error) {
+                appendLog("读取安装日志失败：" + error.getMessage() + "\n");
+            }
+        }, "wtlyf-ksud-output");
+        outputReader.start();
+        boolean finished = process.waitFor(180, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroy();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly();
+            outputReader.join(3000L);
+            throw new Exception("模块安装等待超过 3 分钟，已停止任务；请检查 KernelSU 授权和模块兼容性");
+        }
+        outputReader.join(3000L);
+        return process.exitValue();
+    }
+
     private void showOperationPage(String heading, String subtitle) {
-        runOnUiThread(() -> {
+        Runnable render = () -> {
             LinearLayout root = rootLayout();
             root.addView(title(heading, 28));
             root.addView(label(subtitle, 14, MUTED));
@@ -969,7 +1005,8 @@ public final class MainActivity extends Activity {
             panel.addView(operationBack, wide());
             root.addView(panel, wide());
             setAnimatedContent(scroll(root));
-        });
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) render.run(); else runOnUiThread(render);
     }
 
     private void completeOperation(String message, boolean success) {
