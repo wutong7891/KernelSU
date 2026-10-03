@@ -4,7 +4,10 @@ package me.weishu.kernelsu.ui.component
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -204,6 +207,84 @@ fun RowScope.FloatingBottomBarItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content
     )
+}
+
+/**
+ * Lightweight Night navigation bar used when blur is disabled.
+ *
+ * The original liquid-glass implementation keeps multiple backdrop layers, sensor-driven
+ * highlights and duplicated tab rows alive even with blur switched off.  That is unnecessary for
+ * Night's global artwork and makes tab changes expensive on slower GPUs.  This version keeps one
+ * tab row and moves a single inexpensive indicator layer.
+ */
+@Composable
+fun FloatingBottomBarLite(
+    modifier: Modifier = Modifier,
+    selectedIndex: Int,
+    onSelected: (index: Int) -> Unit,
+    tabsCount: Int,
+    content: @Composable RowScope.((Int) -> Unit) -> Unit,
+) {
+    val pillShape = remember { CircleShape }
+    val density = LocalDensity.current
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val accentColor = MiuixTheme.colorScheme.primary
+    val tabContentColor = MiuixTheme.colorScheme.onSurface
+    val containerColor = MiuixTheme.colorScheme.surfaceContainer
+    var totalWidthPx by remember { mutableFloatStateOf(0f) }
+    var tabWidthPx by remember { mutableFloatStateOf(0f) }
+    val indicatorIndex by animateFloatAsState(
+        targetValue = selectedIndex.toFloat(),
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "NightBottomIndicator",
+    )
+
+    Box(
+        modifier = modifier
+            .width(IntrinsicSize.Min)
+            .clip(pillShape)
+            .background(containerColor, pillShape),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.night_liquid_glass_nav),
+            contentDescription = null,
+            modifier = Modifier
+                .matchParentSize()
+                .alpha(if (isInDarkTheme()) 0.22f else 0.30f),
+            contentScale = ContentScale.FillBounds,
+        )
+        if (tabWidthPx > 0f) {
+            Box(
+                Modifier
+                    .padding(horizontal = 4.dp)
+                    .graphicsLayer {
+                        val offset = indicatorIndex * tabWidthPx
+                        translationX = if (isLtr) offset else -offset
+                    }
+                    .clip(pillShape)
+                    .background(accentColor.copy(alpha = 0.16f), pillShape)
+                    .height(56.dp)
+                    .width(with(density) { tabWidthPx.toDp() })
+            )
+        }
+        Row(
+            Modifier
+                .onGloballyPositioned { coords ->
+                    totalWidthPx = coords.size.width.toFloat()
+                    tabWidthPx = ((totalWidthPx - with(density) { 8.dp.toPx() }) / tabsCount)
+                        .coerceAtLeast(0f)
+                }
+                .selectableGroup()
+                .height(64.dp)
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides tabContentColor) {
+                content { index -> if (index in 0 until tabsCount) onSelected(index) }
+            }
+        }
+    }
 }
 
 @Composable

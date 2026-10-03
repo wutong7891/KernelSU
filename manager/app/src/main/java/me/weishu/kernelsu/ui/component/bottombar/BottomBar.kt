@@ -34,6 +34,9 @@ class MainPagerState(
     var isNavigating by mutableStateOf(false)
         private set
 
+    var navigationDirection by mutableIntStateOf(1)
+        private set
+
     private var navJob: Job? = null
 
     fun animateToPage(targetIndex: Int) {
@@ -41,13 +44,16 @@ class MainPagerState(
 
         if (!animatePageChanges) {
             navJob?.cancel()
-            selectedPage = targetIndex.coerceIn(0, pagerState.pageCount - 1)
+            val target = targetIndex.coerceIn(0, pagerState.pageCount - 1)
+            navigationDirection = if (target >= selectedPage) 1 else -1
+            selectedPage = target
             isNavigating = false
             return
         }
 
         navJob?.cancel()
 
+        navigationDirection = if (targetIndex >= selectedPage) 1 else -1
         selectedPage = targetIndex
         isNavigating = true
 
@@ -142,7 +148,7 @@ fun useNavigationRail(enableFloatingBottomBar: Boolean): Boolean {
 @Composable
 fun BottomBar(
     blurBackdrop: LayerBackdrop?,
-    backdrop: Backdrop,
+    backdrop: Backdrop?,
     navigationBadge: NavigationBadgeState,
     modifier: Modifier = Modifier,
 ) {

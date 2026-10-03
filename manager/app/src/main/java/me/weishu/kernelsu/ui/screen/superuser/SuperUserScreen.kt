@@ -3,11 +3,6 @@ package me.weishu.kernelsu.ui.screen.superuser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,9 +21,6 @@ fun SuperUserPager(
 ) {
     val viewModel = viewModel<SuperUserViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val latestIsCurrentPage by rememberUpdatedState(isCurrentPage)
-    val initialResumeHandled = rememberSaveable { mutableStateOf(false) }
-
     LaunchedEffect(isCurrentPage) {
         if (isCurrentPage) {
             val state = viewModel.uiState.value
@@ -39,22 +31,6 @@ fun SuperUserPager(
         } else if (!uiState.searchStatus.isCollapsed()) {
             viewModel.updateSearchStatus(uiState.searchStatus.copy(searchText = "", current = SearchStatus.Status.COLLAPSED))
         }
-    }
-
-    LifecycleResumeEffect(Unit) {
-        if (initialResumeHandled.value && latestIsCurrentPage) {
-            val state = viewModel.uiState.value
-            if (!state.isRefreshing) {
-                if (!state.hasLoaded) {
-                    viewModel.initializePreferences()
-                    viewModel.loadAppList()
-                } else if (viewModel.isNeedRefresh) {
-                    viewModel.loadAppList(resort = false)
-                }
-            }
-        }
-        initialResumeHandled.value = true
-        onPauseOrDispose {}
     }
 
     val onSearchTextChange: (String) -> Unit = viewModel::updateSearchText

@@ -31,7 +31,9 @@ class SettingsViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        // Native capability probes may block for a noticeable amount of time on some kernels.
+        // Never run them on the UI thread while the settings tab is being composed.
+        viewModelScope.launch(Dispatchers.IO) {
             val checkUpdate = repo.checkUpdate
             val checkModuleUpdate = repo.checkModuleUpdate
             val themeMode = repo.themeMode

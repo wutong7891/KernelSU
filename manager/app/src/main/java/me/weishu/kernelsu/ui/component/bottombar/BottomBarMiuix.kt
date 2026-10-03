@@ -27,6 +27,7 @@ import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.LocalMainPagerState
 import me.weishu.kernelsu.ui.component.FloatingBottomBar
 import me.weishu.kernelsu.ui.component.FloatingBottomBarItem
+import me.weishu.kernelsu.ui.component.FloatingBottomBarLite
 import me.weishu.kernelsu.ui.theme.LocalEnableFloatingBottomBar
 import me.weishu.kernelsu.ui.theme.LocalEnableFloatingBottomBarBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
@@ -44,7 +45,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun BottomBarMiuix(
     blurBackdrop: LayerBackdrop?,
-    backdrop: Backdrop,
+    backdrop: Backdrop?,
     navigationBadge: NavigationBadgeState,
     modifier: Modifier,
 ) {
@@ -85,6 +86,39 @@ fun BottomBarMiuix(
     } else {
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             .let { inset -> if (inset != 0.dp) 8.dp + inset else 28.dp }
+        if (!enableFloatingBottomBarBlur || backdrop == null) {
+            FloatingBottomBarLite(
+                modifier = modifier
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(start = 28.dp, end = 28.dp, bottom = bottomPadding),
+                selectedIndex = mainState.selectedPage,
+                onSelected = { mainState.animateToPage(it) },
+                tabsCount = items.size,
+            ) { activateTab ->
+                items.forEachIndexed { index, item ->
+                    FloatingBottomBarItem(
+                        selected = mainState.selectedPage == index,
+                        onClick = { activateTab(index) },
+                        modifier = Modifier.defaultMinSize(minWidth = 76.dp)
+                    ) {
+                        val badge = navigationBadgeFor(index, navigationBadge, floating = true)
+                        val icon: @Composable () -> Unit = {
+                            Icon(imageVector = item.icon, contentDescription = item.label)
+                        }
+                        if (badge != null) BadgedBox(badge = { badge() }) { icon() } else icon()
+                        Text(
+                            text = item.label,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Visible
+                        )
+                    }
+                }
+            }
+            return
+        }
         FloatingBottomBar(
             modifier = modifier
                 .pointerInput(Unit) {
