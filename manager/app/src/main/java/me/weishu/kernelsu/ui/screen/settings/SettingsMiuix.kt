@@ -1,5 +1,6 @@
 package me.weishu.kernelsu.ui.screen.settings
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.rounded.DisplaySettings
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LayersClear
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
@@ -37,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,9 @@ import me.weishu.kernelsu.ui.component.KsuIsValid
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
+import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
+import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
+import me.weishu.kernelsu.ui.NightToolsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
@@ -80,6 +86,7 @@ fun SettingPagerMiuix(
     val loadingDialog = rememberLoadingDialog()
     val showUninstallDialog = rememberSaveable { mutableStateOf(false) }
     val showSendLogDialog = rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -175,6 +182,30 @@ fun SettingPagerMiuix(
                                 )
                             },
                             onClick = actions.onOpenTheme
+                        )
+                        ArrowPreference(
+                            title = "系统计算器隐藏入口",
+                            summary = "系统计算器算出指定结果时打开 Night",
+                            startAction = {
+                                Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "Root 应用监听",
+                            summary = "指定应用前后台切换时执行自选脚本",
+                            startAction = {
+                                Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "Root 应用监听", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "Night 部署与分区工具",
+                            summary = "刷写 boot/init_boot、配置 TEE/PathMask、部署 Sokey",
+                            startAction = {
+                                Icon(Icons.Rounded.FlashOn, modifier = Modifier.padding(end = 6.dp), contentDescription = "Night 部署与分区工具", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, NightToolsActivity::class.java)) }
                         )
                     }
 

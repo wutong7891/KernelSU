@@ -83,8 +83,8 @@ annotation class SegmentedColumnDsl
 
 @Composable
 private fun defaultSegmentedColors(): ListItemColors = ListItemDefaults.segmentedColors(
-    containerColor = colorScheme.surfaceBright.copy(alpha = 0.76f),
-    disabledContainerColor = colorScheme.surfaceBright.copy(alpha = 0.62f),
+    containerColor = colorScheme.surfaceBright,
+    disabledContainerColor = colorScheme.surfaceBright,
     supportingContentColor = colorScheme.onSurfaceVariant
 )
 

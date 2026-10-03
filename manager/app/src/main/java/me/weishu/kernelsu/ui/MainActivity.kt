@@ -2,8 +2,6 @@ package me.weishu.kernelsu.ui
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
@@ -14,7 +12,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -41,12 +38,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -66,10 +62,10 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.Natives
-import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.component.bottombar.BottomBar
 import me.weishu.kernelsu.ui.component.bottombar.MainPagerState
 import me.weishu.kernelsu.ui.component.bottombar.NavigationBadgeState
@@ -110,13 +106,14 @@ import me.weishu.kernelsu.ui.util.getSuperuserCount
 import me.weishu.kernelsu.ui.util.install
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
 import me.weishu.kernelsu.ui.util.rememberContentReady
-import me.weishu.kernelsu.ui.util.getRootShell
 import me.weishu.kernelsu.ui.viewmodel.MainActivityViewModel
 import me.weishu.kernelsu.ui.viewmodel.MainPagerConfig
 import me.weishu.kernelsu.ui.viewmodel.ModuleViewModel
 import me.weishu.kernelsu.ui.viewmodel.SuperUserViewModel
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -173,12 +170,9 @@ class MainActivity : ComponentActivity() {
                 LocalNavigator provides navigator,
                 LocalDensity provides density,
                 LocalColorMode provides appSettings.colorMode.value,
-                // The full-screen Night artwork already provides visual depth. Runtime backdrop
-                // blur forces an expensive off-screen render pass on every frame, which causes
-                // severe jank on mid-range devices, so Night uses lightweight translucent layers.
-                LocalEnableBlur provides false,
+                LocalEnableBlur provides uiState.enableBlur,
                 LocalEnableFloatingBottomBar provides uiState.enableFloatingBottomBar,
-                LocalEnableFloatingBottomBarBlur provides false,
+                LocalEnableFloatingBottomBarBlur provides uiState.enableFloatingBottomBarBlur,
                 LocalEnableNavigationBadge provides uiState.enableNavigationBadge,
                 LocalModuleDescriptionMaxLines provides uiState.moduleDescriptionMaxLines,
                 LocalUiMode provides uiMode,
@@ -200,11 +194,6 @@ class MainActivity : ComponentActivity() {
                         NightActivationScreen(onActivated = { nightActivated = true })
                         SideEffect { contentReady = true }
                     } else {
-                    LaunchedEffect(Unit) {
-                        withContext(Dispatchers.IO) {
-                            cleanupRemovedNightFeatures(this@MainActivity)
-                        }
-                    }
                     IntentDispatcher(intentChannel = intentChannel)
                     val mainScreenEntry = @Composable {
                         MainScreen(
@@ -257,10 +246,10 @@ class MainActivity : ComponentActivity() {
                     NightBackground(uiState.backgroundUri) {
                         when (uiMode) {
                             UiMode.Material -> androidx.compose.material3.Scaffold(
-                                containerColor = Color.Transparent
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.84f)
                             ) { navDisplay() }
 
-                            UiMode.Miuix -> Scaffold(containerColor = Color.Transparent) { navDisplay() }
+                            UiMode.Miuix -> Scaffold { navDisplay() }
                         }
                     }
                     SideEffect { contentReady = true }
@@ -280,99 +269,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun NightBackground(uriText: String, content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val metrics = context.resources.displayMetrics
-    val targetWidth = metrics.widthPixels.coerceAtLeast(1)
-    val targetHeight = metrics.heightPixels.coerceAtLeast(1)
-    val bitmap by produceState<Bitmap?>(null, uriText, targetWidth, targetHeight) {
+    val bitmap by produceState<android.graphics.Bitmap?>(null, uriText) {
         value = withContext(Dispatchers.IO) {
-            decodeNightBackground(context, uriText, targetWidth, targetHeight)
+            runCatching {
+                if (uriText.isBlank()) null else context.contentResolver.openInputStream(Uri.parse(uriText))?.use(BitmapFactory::decodeStream)
+            }.getOrNull()
         }
     }
     Box(Modifier.fillMaxSize()) {
-        bitmap?.let { background ->
+        bitmap?.let {
             Image(
-                bitmap = background.asImageBitmap(),
+                bitmap = it.asImageBitmap(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = if (uriText.isBlank()) 1f else 0.52f,
-                filterQuality = FilterQuality.Low,
+                alpha = 0.42f,
             )
         }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.18f))
-        )
         content()
     }
-}
-
-private fun decodeNightBackground(
-    context: Context,
-    uriText: String,
-    targetWidth: Int,
-    targetHeight: Int,
-): Bitmap? = runCatching {
-    if (uriText.isBlank()) {
-        return@runCatching BitmapFactory.decodeResource(
-            context.resources,
-            R.drawable.night_ui_background_v2,
-            BitmapFactory.Options().apply {
-                inPreferredConfig = Bitmap.Config.RGB_565
-                inDither = true
-            },
-        )
-    }
-    val uri = Uri.parse(uriText)
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-    var sampleSize = 1
-    while (bounds.outWidth / sampleSize > targetWidth * 2 ||
-        bounds.outHeight / sampleSize > targetHeight * 2
-    ) {
-        sampleSize *= 2
-    }
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sampleSize
-        inPreferredConfig = Bitmap.Config.RGB_565
-        inDither = true
-    }
-    context.contentResolver.openInputStream(uri)?.use {
-        BitmapFactory.decodeStream(it, null, options)
-    } ?: BitmapFactory.decodeResource(context.resources, R.drawable.night_ui_background_v2, options)
-}.getOrElse {
-    BitmapFactory.decodeResource(
-        context.resources,
-        R.drawable.night_ui_background_v2,
-        BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 },
-    )
-}
-
-private fun cleanupRemovedNightFeatures(context: Context) {
-    val prefs = context.getSharedPreferences("night_removed_features", Context.MODE_PRIVATE)
-    if (prefs.getBoolean("cleanup_v1", false)) return
-    runCatching {
-        getRootShell().newJob().add(
-            "if [ -f /data/adb/night_app_monitor/watcher.pid ]; then " +
-                "kill \$(cat /data/adb/night_app_monitor/watcher.pid) 2>/dev/null; fi; " +
-                "if [ -f /data/adb/night_calculator_watcher.pid ]; then " +
-                "kill \$(cat /data/adb/night_calculator_watcher.pid) 2>/dev/null; fi; " +
-                "if [ -f /data/local/tmp/night_calculator_watcher.pid ]; then " +
-                "kill \$(cat /data/local/tmp/night_calculator_watcher.pid) 2>/dev/null; fi; " +
-                "rm -rf /data/adb/night_app_monitor; " +
-                "rm -f /data/adb/service.d/night_app_monitor.sh " +
-                "/data/adb/service.d/night_calculator_watcher.sh " +
-                "/data/adb/night_calculator_watcher.pid " +
-                "/data/adb/night_calculator_watcher_worker.sh " +
-                "/data/adb/night_calculator_watcher.sh " +
-                "/data/local/tmp/night_calculator_watcher.pid /dev/night_calculator_watcher.pid"
-        ).exec()
-    }
-    context.deleteSharedPreferences("night_root_app_monitor")
-    context.deleteSharedPreferences("night_calculator_hide")
-    context.filesDir.resolve("night_app_monitor").deleteRecursively()
-    prefs.edit().putBoolean("cleanup_v1", true).apply()
 }
 
 val LocalMainPagerState = staticCompositionLocalOf<MainPagerState> { error("LocalMainPagerState not provided") }
@@ -386,6 +301,7 @@ fun MainScreen(
     val navController = LocalNavigator.current
     val enableBlur = LocalEnableBlur.current
     val enableFloatingBottomBar = LocalEnableFloatingBottomBar.current
+    val enableFloatingBottomBarBlur = LocalEnableFloatingBottomBarBlur.current
     val useNavigationRail = useNavigationRail(enableFloatingBottomBar)
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { MainPagerConfig.PAGE_COUNT })
     val mainPagerState = rememberMainPagerState(
@@ -393,7 +309,7 @@ fun MainScreen(
         animatePageChanges = !useNavigationRail,
     )
     val isFullFeatured = Natives.isFullFeatured()
-    val userScrollEnabled = isFullFeatured
+    var userScrollEnabled by remember(isFullFeatured) { mutableStateOf(isFullFeatured) }
 
     val enableNavigationBadge = LocalEnableNavigationBadge.current
     val badgeEnabled = enableNavigationBadge && isFullFeatured
@@ -406,6 +322,33 @@ fun MainScreen(
             .map { state -> state.groupedApps.count { it.anyAllowSu } }
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(0)
+
+    var startupPreloadStarted by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(isFullFeatured) {
+        if (!isFullFeatured || startupPreloadStarted) {
+            return@LaunchedEffect
+        }
+
+        moduleViewModel.initializePreferences()
+        val moduleState = moduleViewModel.uiState.value
+        if (!moduleState.hasLoaded) {
+            if (!moduleState.isRefreshing) moduleViewModel.fetchModuleList()
+            moduleViewModel.uiState.first { it.hasLoaded }
+        }
+        moduleViewModel.syncModuleUpdateInfo(moduleViewModel.uiState.value.modules)
+
+        val superUserState = superUserViewModel.uiState.value
+        if (!superUserState.hasLoaded) {
+            superUserViewModel.initializePreferences()
+            if (superUserState.isRefreshing) {
+                superUserViewModel.uiState.first { it.hasLoaded }
+            } else {
+                superUserViewModel.loadAppList().join()
+            }
+        }
+
+        startupPreloadStarted = true
+    }
 
     // Loading the app list just for a badge is too expensive; read the kernel allowlist instead.
     var superuserCount by remember { mutableIntStateOf(0) }
@@ -423,15 +366,22 @@ fun MainScreen(
         NavigationBadgeState()
     }
     val uiMode = LocalUiMode.current
+    val surfaceColor = when (uiMode) {
+        UiMode.Material -> MaterialTheme.colorScheme.surface // Blur is not used in Material, this is just a placeholder
+        UiMode.Miuix -> MiuixTheme.colorScheme.surface
+    }
     val blurBackdrop = rememberBlurBackdrop(enableBlur)
-    // Night fixes blur off globally, so do not allocate a full-screen layer backdrop merely for
-    // the bottom bar. The lightweight bar does not copy or blur page pixels.
-    val backdrop = null
+
+    val backdrop = rememberLayerBackdrop {
+        drawRect(surfaceColor)
+        drawContent()
+    }
 
     val settledPage = mainPagerState.pagerState.settledPage
     LaunchedEffect(settledPage) {
         onPageChanged(settledPage)
     }
+
     val currentPage = mainPagerState.pagerState.currentPage
     LaunchedEffect(currentPage) {
         mainPagerState.syncPage()
@@ -446,6 +396,8 @@ fun MainScreen(
         val pagerContent = @Composable { bottomInnerPadding: Dp ->
             Box(modifier = if (blurBackdrop != null) Modifier.layerBackdrop(blurBackdrop) else Modifier) {
                 HorizontalPager(
+                    modifier = Modifier
+                        .then(if (enableFloatingBottomBar && enableFloatingBottomBarBlur) Modifier.layerBackdrop(backdrop) else Modifier),
                     state = mainPagerState.pagerState,
                     beyondViewportPageCount = if (contentReady) 3 else 0,
                     overscrollEffect = null,
@@ -470,7 +422,7 @@ fun MainScreen(
 
             when (uiMode) {
                 UiMode.Material -> androidx.compose.material3.Scaffold(
-                    containerColor = Color.Transparent
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 ) {
                     Row {
                         SideRail(navigationBadge)
@@ -484,7 +436,7 @@ fun MainScreen(
                     }
                 }
 
-                UiMode.Miuix -> Scaffold(containerColor = Color.Transparent) { _ ->
+                UiMode.Miuix -> Scaffold { _ ->
                     Row {
                         SideRail(navigationBadge)
                         Box(
@@ -514,12 +466,12 @@ fun MainScreen(
             when (uiMode) {
                 UiMode.Material -> androidx.compose.material3.Scaffold(
                     bottomBar = bottomBar,
-                    containerColor = Color.Transparent
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 ) { innerPadding ->
                     pagerContent(innerPadding.calculateBottomPadding())
                 }
 
-                UiMode.Miuix -> Scaffold(bottomBar = bottomBar, containerColor = Color.Transparent) { innerPadding ->
+                UiMode.Miuix -> Scaffold(bottomBar = bottomBar) { innerPadding ->
                     pagerContent(innerPadding.calculateBottomPadding())
                 }
             }

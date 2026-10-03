@@ -98,7 +98,7 @@ fun HomePagerMiuix(
     val enableBlur = LocalEnableBlur.current
     val backdrop = rememberBlurBackdrop(enableBlur)
     val blurActive = backdrop != null
-    val barColor = if (blurActive) Color.Transparent else colorScheme.surface.copy(alpha = 0.72f)
+    val barColor = if (blurActive) Color.Transparent else colorScheme.surface
     Scaffold(
         topBar = {
             TopBar(
@@ -108,7 +108,6 @@ fun HomePagerMiuix(
             )
         },
         popupHost = { },
-        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal)
     ) { innerPadding ->
         Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
