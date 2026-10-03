@@ -94,11 +94,11 @@ jobs:
     needs: generate-key
     uses: ./.github/workflows/build-lkm.yml
     with:
-      expected_size: ${{ github.event_name == 'workflow_dispatch' && '0x02ca' || '' }}
-      expected_hash: ${{ github.event_name == 'workflow_dispatch' && '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be' || '' }}
+      expected_size: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && '0x02ca' || '' }}
+      expected_hash: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be' || '' }}
       expected_size2: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_size || '' }}
       expected_hash2: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_hash || '' }}
-      manager_package: ${{ github.event_name == 'workflow_dispatch' && 'com.Night.night' || '' }}
+      manager_package: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && 'com.Night.night' || '' }}
       build_x86: false
     secrets: inherit
 
@@ -146,7 +146,7 @@ jobs:
           PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.ref }}" = "refs/heads/night" ]; then
             test -n "$NIGHT_KEYSTORE"
             KEYSTORE_DATA="$NIGHT_KEYSTORE"
             STORE_PASSWORD="$NIGHT_KEYSTORE_PASSWORD"
@@ -207,7 +207,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             ./gradlew clean assembleRelease -PIS_PR_BUILD=true -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.ref }}" = "refs/heads/night" ]; then
             ./gradlew clean assembleRelease -PIS_PR_BUILD=false -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
           else
             ./gradlew clean assembleRelease -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
@@ -316,7 +316,7 @@ jobs:
             echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
             echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
             echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.ref }}" = "refs/heads/night" ]; then
             test -n "$NIGHT_KEYSTORE"
             echo "$NIGHT_KEYSTORE" | base64 -d > night-key.jks
             echo "SIGN_KEYSTORE_FILE=night-key.jks" >> $GITHUB_ENV
@@ -373,7 +373,7 @@ jobs:
 
   publish-night-artifacts:
     needs: [repack-manager, build-lkm]
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.repack-manager.result == 'success' && needs.build-lkm.result == 'success' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/night')) && needs.repack-manager.result == 'success' && needs.build-lkm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
