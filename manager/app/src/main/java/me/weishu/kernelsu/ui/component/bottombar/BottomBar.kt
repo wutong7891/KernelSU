@@ -34,9 +34,6 @@ class MainPagerState(
     var isNavigating by mutableStateOf(false)
         private set
 
-    var navigationDirection by mutableIntStateOf(1)
-        private set
-
     private var navJob: Job? = null
 
     fun animateToPage(targetIndex: Int) {
@@ -45,7 +42,6 @@ class MainPagerState(
         if (!animatePageChanges) {
             navJob?.cancel()
             val target = targetIndex.coerceIn(0, pagerState.pageCount - 1)
-            navigationDirection = if (target >= selectedPage) 1 else -1
             selectedPage = target
             isNavigating = false
             return
@@ -53,7 +49,6 @@ class MainPagerState(
 
         navJob?.cancel()
 
-        navigationDirection = if (targetIndex >= selectedPage) 1 else -1
         selectedPage = targetIndex
         isNavigating = true
 
