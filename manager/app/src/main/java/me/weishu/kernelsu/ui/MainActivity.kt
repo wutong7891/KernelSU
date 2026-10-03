@@ -39,7 +39,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -65,7 +64,6 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.Natives
@@ -174,9 +172,12 @@ class MainActivity : ComponentActivity() {
                 LocalNavigator provides navigator,
                 LocalDensity provides density,
                 LocalColorMode provides appSettings.colorMode.value,
-                LocalEnableBlur provides uiState.enableBlur,
+                // The full-screen Night artwork already provides visual depth. Runtime backdrop
+                // blur forces an expensive off-screen render pass on every frame, which causes
+                // severe jank on mid-range devices, so Night uses lightweight translucent layers.
+                LocalEnableBlur provides false,
                 LocalEnableFloatingBottomBar provides uiState.enableFloatingBottomBar,
-                LocalEnableFloatingBottomBarBlur provides uiState.enableFloatingBottomBarBlur,
+                LocalEnableFloatingBottomBarBlur provides false,
                 LocalEnableNavigationBadge provides uiState.enableNavigationBadge,
                 LocalModuleDescriptionMaxLines provides uiState.moduleDescriptionMaxLines,
                 LocalUiMode provides uiMode,
@@ -340,33 +341,6 @@ fun MainScreen(
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(0)
 
-    var startupPreloadStarted by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(isFullFeatured) {
-        if (!isFullFeatured || startupPreloadStarted) {
-            return@LaunchedEffect
-        }
-
-        moduleViewModel.initializePreferences()
-        val moduleState = moduleViewModel.uiState.value
-        if (!moduleState.hasLoaded) {
-            if (!moduleState.isRefreshing) moduleViewModel.fetchModuleList()
-            moduleViewModel.uiState.first { it.hasLoaded }
-        }
-        moduleViewModel.syncModuleUpdateInfo(moduleViewModel.uiState.value.modules)
-
-        val superUserState = superUserViewModel.uiState.value
-        if (!superUserState.hasLoaded) {
-            superUserViewModel.initializePreferences()
-            if (superUserState.isRefreshing) {
-                superUserViewModel.uiState.first { it.hasLoaded }
-            } else {
-                superUserViewModel.loadAppList().join()
-            }
-        }
-
-        startupPreloadStarted = true
-    }
-
     // Loading the app list just for a badge is too expensive; read the kernel allowlist instead.
     var superuserCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(badgeEnabled, grantedUidCount) {
@@ -416,7 +390,9 @@ fun MainScreen(
                     modifier = Modifier
                         .then(if (enableFloatingBottomBar && enableFloatingBottomBarBlur) Modifier.layerBackdrop(backdrop) else Modifier),
                     state = mainPagerState.pagerState,
-                    beyondViewportPageCount = if (contentReady) 3 else 0,
+                    // Keep only the visible page composed. Module/app lists can be large and
+                    // retaining several off-screen pages multiplies memory and recomposition work.
+                    beyondViewportPageCount = 0,
                     overscrollEffect = null,
                     userScrollEnabled = userScrollEnabled,
                 ) { page ->
