@@ -42,6 +42,32 @@ private fun getKsuDaemonPath(): String {
     return if (bundled.isFile && bundled.canExecute()) bundled.absolutePath else SYSTEM_KSUD_PATH
 }
 
+private fun rootShellCommands(globalMnt: Boolean): List<Array<String>> {
+    val bundled = File(ksuApp.applicationInfo.nativeLibraryDir, "libksud.so")
+        .takeIf { it.isFile && it.canExecute() }
+        ?.absolutePath
+    return buildList {
+        if (bundled != null) {
+            add(if (globalMnt) arrayOf(bundled, "debug", "su", "-g") else arrayOf(bundled, "debug", "su"))
+        }
+        // The bundled daemon can be incompatible with an older/newer kernel-side implementation.
+        // Always try the daemon installed by the currently running KernelSU before legacy su.
+        if (bundled != SYSTEM_KSUD_PATH) {
+            add(if (globalMnt) arrayOf(SYSTEM_KSUD_PATH, "debug", "su", "-g") else arrayOf(SYSTEM_KSUD_PATH, "debug", "su"))
+        }
+        add(if (globalMnt) arrayOf("su", "-mm") else arrayOf("su"))
+    }
+}
+
+private fun Shell.hasRealRoot(): Boolean {
+    if (!isRoot) return false
+    val output = arrayListOf<String>()
+    val result = runCatching {
+        newJob().add("id -u").to(output, null).exec()
+    }.getOrNull() ?: return false
+    return result.isSuccess && output.lastOrNull()?.trim() == "0"
+}
+
 data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) {
     constructor(result: Shell.Result, showReboot: Boolean) : this(result.code, result.err.joinToString("\n"), showReboot)
     constructor(result: Shell.Result) : this(result, result.isSuccess)
@@ -54,18 +80,28 @@ object KsuCli {
 
 fun getRootShell(globalMnt: Boolean = false): Shell {
     val cached = if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else KsuCli.SHELL
-    if (cached.isRoot) return cached
+    if (cached.hasRealRoot()) return cached
 
     // ksud can become ready shortly after the manager process starts. Do not permanently cache
     // the fallback non-root `sh` created by an early connection attempt.
     synchronized(KsuCli) {
         val current = if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else KsuCli.SHELL
-        if (current.isRoot) return current
+        if (current.hasRealRoot()) return current
         runCatching { current.close() }
         val replacement = createRootShell(globalMnt)
         if (globalMnt) KsuCli.GLOBAL_MNT_SHELL = replacement else KsuCli.SHELL = replacement
         return replacement
     }
+}
+
+fun getRootShellWithRetry(globalMnt: Boolean = false, attempts: Int = 4): Shell {
+    var shell = getRootShell(globalMnt)
+    repeat(attempts.coerceAtLeast(1) - 1) {
+        if (shell.hasRealRoot()) return shell
+        SystemClock.sleep(250L)
+        shell = getRootShell(globalMnt)
+    }
+    return shell
 }
 
 inline fun <T> withNewRootShell(
@@ -89,26 +125,21 @@ fun Uri.getFileName(context: Context): String? {
 
 fun createRootShell(globalMnt: Boolean = false): Shell {
     Shell.enableVerboseLogging = BuildConfig.DEBUG
-    val builder = Shell.Builder.create()
-    return try {
-        if (globalMnt) {
-            builder.build(getKsuDaemonPath(), "debug", "su", "-g")
-        } else {
-            builder.build(getKsuDaemonPath(), "debug", "su")
-        }
-    } catch (e: Throwable) {
-        Log.w(TAG, "ksu failed: ", e)
-        try {
-            if (globalMnt) {
-                builder.build("su", "-mm")
-            } else {
-                builder.build("su")
-            }
+    rootShellCommands(globalMnt).forEach { command ->
+        val shell = try {
+            Shell.Builder.create().build(*command)
         } catch (e: Throwable) {
-            Log.e(TAG, "su failed: ", e)
-            builder.build("sh")
+            Log.w(TAG, "Root shell failed via ${command.first()}", e)
+            null
+        }
+        if (shell != null) {
+            if (shell.hasRealRoot()) return shell
+            Log.w(TAG, "Root shell returned non-root via ${command.first()}")
+            runCatching { shell.close() }
         }
     }
+    Log.e(TAG, "All root shell methods failed")
+    return Shell.Builder.create().build("sh")
 }
 
 fun execKsud(args: String, newShell: Boolean = false, globalMnt: Boolean = false): Boolean {
@@ -645,11 +676,7 @@ fun reboot(reason: String = "") {
 }
 
 fun rootAvailable(): Boolean {
-    repeat(3) { attempt ->
-        if (getRootShell().isRoot) return true
-        if (attempt < 2) SystemClock.sleep(180L)
-    }
-    return false
+    return getRootShellWithRetry().hasRealRoot()
 }
 
 suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {

@@ -21,6 +21,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import me.weishu.kernelsu.ui.util.getRootShell
+import me.weishu.kernelsu.ui.util.getRootShellWithRetry
 import java.io.File
 import java.util.Locale
 
@@ -69,7 +70,7 @@ object RootAppMonitor {
     }
 
     fun apply(context: Context): Result<String> = runCatching {
-        val shell = getRootShell()
+        val shell = getRootShellWithRetry()
         check(shell.isRoot) { "Night 尚未获得 Root 权限" }
         val packageName = targetPackage(context)
         if (!enabled(context)) {
@@ -253,7 +254,7 @@ class RootAppMonitorSettingsActivity : Activity() {
     }
 
     private fun readRootDirectory(path: String): Result<List<RootEntry>> = runCatching {
-        val shell = getRootShell()
+        val shell = getRootShellWithRetry()
         check(shell.isRoot) { "Night 尚未获得 Root 权限" }
         val output = arrayListOf<String>()
         val quoted = shellQuote(path)
@@ -310,7 +311,7 @@ class RootAppMonitorSettingsActivity : Activity() {
     private fun importRootScript(path: String, foreground: Boolean) {
         Thread {
             val result = runCatching {
-                val shell = getRootShell()
+                val shell = getRootShellWithRetry()
                 check(shell.isRoot) { "Night 尚未获得 Root 权限" }
                 val target = if (foreground) RootAppMonitor.foregroundFile(this) else RootAppMonitor.backgroundFile(this)
                 target.parentFile?.mkdirs()
