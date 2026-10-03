@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.monitor
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -58,6 +59,7 @@ object RootAppMonitor {
     }
 
     private fun b64(value: ByteArray) = Base64.encodeToString(value, Base64.NO_WRAP)
+    private fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
 
     private fun stopCommand(removeBoot: Boolean = false): String = buildString {
         append("if [ -f '$PID' ]; then p=\$(cat '$PID' 2>/dev/null); [ -n \"\$p\" ] && kill \"\$p\" 2>/dev/null; fi; ")
@@ -75,10 +77,9 @@ object RootAppMonitor {
         }
         check(packageName.matches(Regex("[A-Za-z0-9_.]{3,255}"))) { "请选择监听目标应用" }
         val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
-        val foreground = foregroundFile(context).takeIf(File::isFile)?.readBytes()
-        val background = backgroundFile(context).takeIf(File::isFile)?.readBytes()
+        val foreground = foregroundFile(context).takeIf { it.isFile && it.length() > 0 }
+        val background = backgroundFile(context).takeIf { it.isFile && it.length() > 0 }
         check(foreground != null || background != null) { "请至少选择一个前台或后台脚本" }
-        check((foreground?.size ?: 0) <= 512 * 1024 && (background?.size ?: 0) <= 512 * 1024) { "单个脚本不能超过 512 KB" }
 
         val workerText = """#!/system/bin/sh
 dir='$ROOT_DIR'
@@ -134,9 +135,9 @@ exit 0
             append("mkdir -p '$ROOT_DIR' /data/adb/service.d; ")
             append("echo '${b64(workerText.toByteArray())}' | /system/bin/toybox base64 -d > '$WORKER'; ")
             append("echo '${b64(bootText.toByteArray())}' | /system/bin/toybox base64 -d > '$BOOT'; ")
-            if (foreground != null) append("echo '${b64(foreground)}' | /system/bin/toybox base64 -d > '$ROOT_DIR/foreground.sh'; ")
+            if (foreground != null) append("/system/bin/toybox cp ${shellQuote(foreground.absolutePath)} '$ROOT_DIR/foreground.sh'; ")
             else append("rm -f '$ROOT_DIR/foreground.sh'; ")
-            if (background != null) append("echo '${b64(background)}' | /system/bin/toybox base64 -d > '$ROOT_DIR/background.sh'; ")
+            if (background != null) append("/system/bin/toybox cp ${shellQuote(background.absolutePath)} '$ROOT_DIR/background.sh'; ")
             else append("rm -f '$ROOT_DIR/background.sh'; ")
             append("chmod 0700 '$WORKER' '$BOOT' '$ROOT_DIR'/*.sh 2>/dev/null; ")
             append("/system/bin/sh '$BOOT'; ")
@@ -183,7 +184,7 @@ class RootAppMonitorSettingsActivity : Activity() {
             requireNotNull(input) { "无法读取文件" }
             target.outputStream().use { output -> input.copyTo(output) }
         }
-        require(target.length() in 1..(512 * 1024)) { "脚本必须小于 512 KB 且不能为空" }
+        require(target.length() > 0) { "脚本不能为空" }
         RootAppMonitor.saveScriptName(this, foreground, displayName(uri))
     }
 
@@ -195,11 +196,117 @@ class RootAppMonitorSettingsActivity : Activity() {
     }
 
     private fun chooseScript(requestCode: Int) {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-        }, requestCode)
+        AlertDialog.Builder(this)
+            .setTitle("选择脚本来源")
+            .setItems(arrayOf("浏览 Root 根目录", "使用系统文件选择器")) { _, which ->
+                if (which == 0) {
+                    browseRoot("/", requestCode == REQUEST_FOREGROUND)
+                } else {
+                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    }, requestCode)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
+
+    private data class RootEntry(val path: String, val directory: Boolean)
+
+    private fun browseRoot(path: String, foreground: Boolean) {
+        Toast.makeText(this, "正在读取 $path", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = readRootDirectory(path)
+            runOnUiThread {
+                result.onSuccess { entries -> showRootDirectory(path, foreground, entries) }
+                    .onFailure { Toast.makeText(this, "读取 Root 目录失败：${it.message}", Toast.LENGTH_LONG).show() }
+            }
+        }.start()
+    }
+
+    private fun readRootDirectory(path: String): Result<List<RootEntry>> = runCatching {
+        val shell = getRootShell()
+        check(shell.isRoot) { "Night 尚未获得 Root 权限" }
+        val output = arrayListOf<String>()
+        val quoted = shellQuote(path)
+        val command = """
+            dir=$quoted
+            [ -d "${'$'}dir" ] || exit 2
+            for p in "${'$'}dir"/* "${'$'}dir"/.[!.]* "${'$'}dir"/..?*; do
+              [ -e "${'$'}p" ] || continue
+              if [ -d "${'$'}p" ]; then t=d; elif [ -f "${'$'}p" ]; then t=f; else continue; fi
+              n="${'$'}(printf %s "${'$'}p" | /system/bin/toybox base64 | /system/bin/toybox tr -d '\n')"
+              printf '%s:%s\n' "${'$'}t" "${'$'}n"
+            done
+        """.trimIndent()
+        check(shell.newJob().add(command).to(output, null).exec().isSuccess) { "目录不存在或没有读取权限" }
+        output.mapNotNull { line ->
+            val split = line.indexOf(':')
+            if (split != 1) return@mapNotNull null
+            val decoded = runCatching {
+                String(Base64.decode(line.substring(split + 1), Base64.DEFAULT), Charsets.UTF_8)
+            }.getOrNull() ?: return@mapNotNull null
+            RootEntry(decoded, line[0] == 'd')
+        }.sortedWith(compareBy<RootEntry> { !it.directory }.thenBy { File(it.path).name.lowercase(Locale.ROOT) })
+    }
+
+    private fun showRootDirectory(path: String, foreground: Boolean, entries: List<RootEntry>) {
+        val visible = buildList {
+            if (path != "/") add(RootEntry(File(path).parent ?: "/", true))
+            addAll(entries)
+        }
+        val labels = visible.mapIndexed { index, entry ->
+            if (path != "/" && index == 0) "↰  返回上级目录"
+            else (if (entry.directory) "📁  " else "📄  ") + File(entry.path).name
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Root：$path")
+            .setItems(labels) { _, which ->
+                val entry = visible[which]
+                if (entry.directory) browseRoot(entry.path, foreground)
+                else confirmRootScript(entry.path, foreground)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmRootScript(path: String, foreground: Boolean) {
+        AlertDialog.Builder(this)
+            .setTitle("导入 Root 脚本")
+            .setMessage(path)
+            .setPositiveButton("导入") { _, _ -> importRootScript(path, foreground) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun importRootScript(path: String, foreground: Boolean) {
+        Thread {
+            val result = runCatching {
+                val shell = getRootShell()
+                check(shell.isRoot) { "Night 尚未获得 Root 权限" }
+                val target = if (foreground) RootAppMonitor.foregroundFile(this) else RootAppMonitor.backgroundFile(this)
+                target.parentFile?.mkdirs()
+                target.writeBytes(byteArrayOf(10))
+                val command = "p=${shellQuote(path)}; [ -s \"${'$'}p\" ] || exit 2; " +
+                    "/system/bin/toybox cp \"${'$'}p\" ${shellQuote(target.absolutePath)} && " +
+                    "chown ${applicationInfo.uid}:${applicationInfo.uid} ${shellQuote(target.absolutePath)} && " +
+                    "chmod 0600 ${shellQuote(target.absolutePath)}"
+                check(shell.newJob().add(command).exec().isSuccess && target.length() > 0) { "脚本不存在、为空或无法读取" }
+                RootAppMonitor.saveScriptName(this, foreground, path)
+            }
+            runOnUiThread {
+                result.onSuccess {
+                    refreshScriptLabels()
+                    Toast.makeText(this, "Root 脚本已导入", Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(this, "导入 Root 脚本失败：${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
 
     private fun buildUi(): ScrollView {
         val root = LinearLayout(this).apply {
