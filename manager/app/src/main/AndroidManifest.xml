@@ -95,22 +95,20 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.KernelSU" />
         <service
-            android:name=".ui.calculator.CalculatorRootMonitorService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Root monitor for the foreground system calculator result" />
+            android:name=".ui.calculator.CalculatorAccessibilityService"
+            android:exported="true"
+            android:label="Night 计算器监听"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/calculator_accessibility_service" />
         </service>
         <receiver
-            android:name=".ui.calculator.CalculatorMonitorBootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.USER_UNLOCKED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
+            android:name=".ui.calculator.CalculatorAccessibilityControlReceiver"
+            android:exported="false">
         </receiver>
 
         <activity

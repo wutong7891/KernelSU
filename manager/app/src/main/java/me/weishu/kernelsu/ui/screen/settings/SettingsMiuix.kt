@@ -184,8 +184,8 @@ fun SettingPagerMiuix(
                             onClick = actions.onOpenTheme
                         )
                         ArrowPreference(
-                            title = "系统计算器隐藏入口",
-                            summary = "系统计算器算出指定结果时打开 Night",
+                            title = "计算器无障碍监听",
+                            summary = "计算器显示指定数字时打开 Night",
                             startAction = {
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
                             },
