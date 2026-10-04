@@ -35,6 +35,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -51,6 +53,8 @@ import java.util.concurrent.TimeUnit
 object NightActivation {
     private const val PREFS = "night_activation"
     private const val KEY_CODE = "night_license_code"
+    private const val KEY_OFFLINE_DEVICE = "night_offline_device"
+    private const val KEY_OFFLINE_VERIFIED = "night_offline_verified"
     private val ENDPOINTS = listOf(
         "https://wtlyf-license-center.wtlyf-night.workers.dev/api/v1/night",
         "https://wtlyf-night-license.pages.dev/api/v1/night",
@@ -60,8 +64,13 @@ object NightActivation {
         .readTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
         .build()
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    data class Result(val ok: Boolean, val message: String)
+    data class Result(
+        val ok: Boolean,
+        val message: String,
+        val authoritative: Boolean = false,
+    )
 
     fun androidId(context: Context): String = Settings.Secure.getString(
         context.contentResolver,
@@ -78,6 +87,31 @@ object NightActivation {
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_CODE, "")
         .orEmpty()
+
+    private fun hasOfflineCredential(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return savedCode(context).isNotBlank() &&
+            prefs.getBoolean(KEY_OFFLINE_VERIFIED, false) &&
+            prefs.getString(KEY_OFFLINE_DEVICE, "") == deviceHash(context)
+    }
+
+    private fun saveOfflineCredential(context: Context, code: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CODE, code)
+            .putString(KEY_OFFLINE_DEVICE, deviceHash(context))
+            .putBoolean(KEY_OFFLINE_VERIFIED, true)
+            .apply()
+    }
+
+    private fun clearOfflineCredential(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_CODE)
+            .remove(KEY_OFFLINE_DEVICE)
+            .remove(KEY_OFFLINE_VERIFIED)
+            .apply()
+    }
 
     private suspend fun request(context: Context, action: String, code: String): Result =
         withContext(Dispatchers.IO) {
@@ -102,34 +136,43 @@ object NightActivation {
                                 if (response.code >= 500) error("Night server returned ${response.code}")
                                 val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
                                 if (response.isSuccessful && data.optBoolean("ok")) {
-                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                        .edit().putString(KEY_CODE, normalized).apply()
-                                    Result(true, message)
+                                    saveOfflineCredential(context, normalized)
+                                    Result(true, message, authoritative = true)
                                 } else {
-                                    // Keep the locally saved code on transient edge/server failures so the
-                                    // user can retry without having to enter the license again. Only an
-                                    // explicitly expired or disabled license should clear local activation.
-                                    val error = data.optString("error")
-                                    if (response.code == 403 && error == "expired_code") {
-                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                            .edit().remove(KEY_CODE).apply()
-                                    }
-                                    Result(false, message)
+                                    // A 4xx response is an authoritative rejection (deleted, unbound,
+                                    // disabled or expired). Network/edge failures never erase the offline
+                                    // credential, so an activated device remains usable without a network.
+                                    val authoritative = response.code in 400..499
+                                    Result(false, message, authoritative)
                                 }
                             }
                         }
                         results.send(attempt.getOrNull())
                     }
                 }
+                var authoritativeFailure: Result? = null
+                var transientFailure: Result? = null
                 repeat(ENDPOINTS.size) {
                     results.receive()?.let { result ->
-                        jobs.forEach { job -> job.cancel() }
-                        results.close()
-                        return@coroutineScope result
+                        if (result.ok) {
+                            jobs.forEach { job -> job.cancel() }
+                            results.close()
+                            return@coroutineScope result
+                        }
+                        if (result.authoritative) {
+                            authoritativeFailure = authoritativeFailure ?: result
+                        } else {
+                            transientFailure = transientFailure ?: result
+                        }
                     }
                 }
                 results.close()
-                Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
+                authoritativeFailure?.let {
+                    clearOfflineCredential(context)
+                    return@coroutineScope it
+                }
+                transientFailure
+                    ?: Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
             }
         }
 
@@ -138,7 +181,16 @@ object NightActivation {
     suspend fun isActivated(context: Context): Boolean {
         val code = savedCode(context)
         if (code.isBlank()) return false
-        return request(context, "check", code).ok
+        if (!hasOfflineCredential(context)) {
+            return request(context, "check", code).ok
+        }
+
+        // Do not block startup on a server connection. Reconcile deletion/unbind state in
+        // the background; an authoritative rejection clears the credential for next entry.
+        syncScope.launch {
+            request(context.applicationContext, "check", code)
+        }
+        return true
     }
 }
 
