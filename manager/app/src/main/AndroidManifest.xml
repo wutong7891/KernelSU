@@ -98,7 +98,9 @@
             android:name=".ui.calculator.CalculatorAccessibilityService"
             android:exported="true"
             android:label="Night 计算器监听"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:process=":night_accessibility"
+            android:stopWithTask="false">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -108,7 +110,8 @@
         </service>
         <receiver
             android:name=".ui.calculator.CalculatorAccessibilityControlReceiver"
-            android:exported="false">
+            android:exported="false"
+            android:process=":night_accessibility">
         </receiver>
 
         <activity

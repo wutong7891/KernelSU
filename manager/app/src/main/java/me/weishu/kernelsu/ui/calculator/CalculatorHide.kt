@@ -333,7 +333,11 @@ class CalculatorHideSettingsActivity : Activity() {
             else Color.rgb(255, 194, 103),
         )
         if (::launcherButton.isInitialized) {
-            launcherButton.text = if (CalculatorHide.isLauncherVisible(this)) "隐藏桌面图标" else "恢复桌面图标"
+            launcherButton.text = if (CalculatorHide.isLauncherVisible(this)) {
+                "Root/ADB 隐藏桌面图标"
+            } else {
+                "Root/ADB 恢复桌面图标"
+            }
         }
     }
 
@@ -349,8 +353,8 @@ class CalculatorHideSettingsActivity : Activity() {
             return
         }
         AlertDialog.Builder(this)
-            .setTitle("隐藏桌面图标")
-            .setMessage("Night 不会被卸载。隐藏前请确认无障碍监听通知可见，以便随时恢复图标。")
+            .setTitle("Root/ADB 隐藏桌面图标")
+            .setMessage("仅禁用 NightLauncher 桌面组件，不停用 Night 应用或无障碍服务。可从监听通知恢复图标。")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认隐藏") { _, _ ->
                 val hidden = CalculatorHide.setLauncherVisible(this, false)
