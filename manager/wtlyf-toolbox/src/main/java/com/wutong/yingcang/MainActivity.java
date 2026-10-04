@@ -114,6 +114,9 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         String savedCode = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_CODE, null);
         if (savedCode == null || savedCode.isBlank()) showActivation(); else verifyLicenseAndOpen(savedCode, true);
+        // Notifications and pushed files are independent from license activation. Check as
+        // soon as the first screen is attached so users can receive them before entering a key.
+        getWindow().getDecorView().post(this::checkRemotePush);
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -231,6 +234,15 @@ public final class MainActivity extends Activity {
             String response = text.toString().trim();
             if ((contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("json")) || response.startsWith("<")) {
                 throw new NonJsonResponse("系统网络组件返回了网页内容");
+            }
+            if (status >= 500) {
+                String detail = "卡密服务器暂时不可用（HTTP " + status + "）";
+                try {
+                    JSONObject error = new JSONObject(response.length() == 0 ? "{}" : response);
+                    detail = error.optString("message", detail);
+                } catch (Throwable ignored) {
+                }
+                throw new Exception(detail);
             }
             return new JSONObject(response.length() == 0 ? "{}" : response);
         }
@@ -462,7 +474,6 @@ public final class MainActivity extends Activity {
         log.setBackground(glassDrawable(Color.argb(205, 3, 8, 18), 18, Color.argb(135, 115, 190, 255)));
         root.addView(log, wide());
         setAnimatedContent(scroll(root));
-        checkRemotePush();
     }
 
     private void checkRemotePush() {
