@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
+import android.util.Base64
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -51,7 +52,12 @@ object CalculatorHide {
     private const val KEY_LAUNCHER_HIDDEN = "launcher_hidden"
     private const val DEFAULT_TARGET = "100"
     private const val RUNTIME_CONFIG = "night_calculator_accessibility.conf"
+    private const val WATCHDOG_ASSET = "night-accessibility-watchdog.sh"
+    private const val WATCHDOG_SCRIPT = "/data/adb/service.d/99-night-accessibility-watchdog.sh"
+    private const val WATCHDOG_MARKER = "/data/adb/night_accessibility_watchdog.enabled"
+    private const val WATCHDOG_PID = "/data/adb/night_accessibility_watchdog.pid"
     @Volatile private var backgroundProtectionRunning = false
+    @Volatile private var watchdogConfigRunning = false
 
     data class RuntimeConfig(
         val enabled: Boolean,
@@ -66,6 +72,7 @@ object CalculatorHide {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
         writeRuntimeConfig(context, enabled, target(context), targetPackage(context))
         if (enabled) applyRootBackgroundProtection(context)
+        configureRootWatchdog(context, enabled)
         updateStatus(context, if (enabled) "等待计算器界面变化" else "监听已停止")
     }
 
@@ -86,6 +93,42 @@ object CalculatorHide {
             .apply()
         writeRuntimeConfig(context, enabled, target, targetPackage)
         if (enabled) applyRootBackgroundProtection(context)
+        configureRootWatchdog(context, enabled)
+    }
+
+    fun configureRootWatchdog(context: Context, enabled: Boolean) {
+        if (watchdogConfigRunning) return
+        watchdogConfigRunning = true
+        val appContext = context.applicationContext
+        Thread({
+            try {
+                val shell = getRootShell()
+                if (!shell.isRoot) {
+                    updateStatus(appContext, "Root 权限确认失败，无法启动无障碍守护")
+                    return@Thread
+                }
+                val command = if (enabled) {
+                    val script = appContext.assets.open(WATCHDOG_ASSET).bufferedReader().use { it.readText() }
+                    val encoded = Base64.encodeToString(script.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    "mkdir -p /data/adb/service.d; " +
+                        "echo '$encoded' | /system/bin/toybox base64 -d > '$WATCHDOG_SCRIPT'; " +
+                        "chmod 0700 '$WATCHDOG_SCRIPT'; " +
+                        "touch '$WATCHDOG_MARKER'; " +
+                        "/system/bin/sh '$WATCHDOG_SCRIPT'"
+                } else {
+                    "rm -f '$WATCHDOG_MARKER'; " +
+                        "if [ -f '$WATCHDOG_PID' ]; then " +
+                        "kill \$(cat '$WATCHDOG_PID') 2>/dev/null; fi; " +
+                        "rm -f '$WATCHDOG_PID'"
+                }
+                val result = shell.newJob().add(command).exec()
+                if (!result.isSuccess) {
+                    updateStatus(appContext, "Root 无障碍守护配置失败")
+                }
+            } finally {
+                watchdogConfigRunning = false
+            }
+        }, "NightAccessibilityWatchdogSetup").start()
     }
 
     fun applyRootBackgroundProtection(context: Context) {
@@ -272,10 +315,13 @@ class CalculatorHideSettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        CalculatorHide.configureRootWatchdog(this, CalculatorHide.isEnabled(this))
         if (CalculatorHide.shouldPromptAccessibility(this)) {
             Handler(Looper.getMainLooper()).postDelayed({
-                Toast.makeText(this, "请在列表中开启 Night 计算器监听", Toast.LENGTH_LONG).show()
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                if (!CalculatorHide.isAccessibilityEnabled(this)) {
+                    Toast.makeText(this, "请在列表中开启 Night 计算器监听", Toast.LENGTH_LONG).show()
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
             }, 500L)
         }
     }
