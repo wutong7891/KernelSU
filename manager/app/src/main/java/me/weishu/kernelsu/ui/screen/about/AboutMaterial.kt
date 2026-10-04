@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.FixedScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -79,9 +79,9 @@ fun AboutScreenMaterial(
                             .background(Color.White)
                     ) {
                         Image(
-                            painter = painterResource(id = R.drawable.night_launcher_icon),
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
                             contentDescription = null,
-                            contentScale = ContentScale.Crop
+                            contentScale = FixedScale(1f)
                         )
                     }
                     Text(

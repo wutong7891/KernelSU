@@ -35,10 +35,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -53,8 +53,6 @@ import java.util.concurrent.TimeUnit
 object NightActivation {
     private const val PREFS = "night_activation"
     private const val KEY_CODE = "night_license_code"
-    private const val KEY_OFFLINE_DEVICE = "night_offline_device"
-    private const val KEY_OFFLINE_VERIFIED = "night_offline_verified"
     private val ENDPOINTS = listOf(
         "https://wtlyf-license-center.wtlyf-night.workers.dev/api/v1/night",
         "https://wtlyf-night-license.pages.dev/api/v1/night",
@@ -64,12 +62,13 @@ object NightActivation {
         .readTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
         .build()
-    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    data class Result(
-        val ok: Boolean,
-        val message: String,
+    data class Result(val ok: Boolean, val message: String)
+
+    private data class EndpointReply(
+        val result: Result? = null,
         val authoritative: Boolean = false,
+        val clearSavedCode: Boolean = false,
     )
 
     fun androidId(context: Context): String = Settings.Secure.getString(
@@ -88,92 +87,78 @@ object NightActivation {
         .getString(KEY_CODE, "")
         .orEmpty()
 
-    private fun hasOfflineCredential(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return savedCode(context).isNotBlank() &&
-            prefs.getBoolean(KEY_OFFLINE_VERIFIED, false) &&
-            prefs.getString(KEY_OFFLINE_DEVICE, "") == deviceHash(context)
-    }
+    private fun requestEndpoint(endpoint: String, action: String, payload: String): EndpointReply =
+        runCatching {
+            val body = payload.toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url("$endpoint/$action")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                if (response.code >= 500 || raw.isBlank()) {
+                    return@use EndpointReply()
+                }
 
-    private fun saveOfflineCredential(context: Context, code: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_CODE, code)
-            .putString(KEY_OFFLINE_DEVICE, deviceHash(context))
-            .putBoolean(KEY_OFFLINE_VERIFIED, true)
-            .apply()
-    }
+                val authoritative = response.isSuccessful || response.code in 400..499
+                if (!authoritative) {
+                    return@use EndpointReply()
+                }
 
-    private fun clearOfflineCredential(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .remove(KEY_CODE)
-            .remove(KEY_OFFLINE_DEVICE)
-            .remove(KEY_OFFLINE_VERIFIED)
-            .apply()
-    }
+                val data = JSONObject(raw)
+                val ok = response.isSuccessful && data.optBoolean("ok")
+                val message = data.optString(
+                    "message",
+                    if (ok) "验证成功" else "验证失败",
+                )
+                EndpointReply(
+                    result = Result(ok, message),
+                    authoritative = true,
+                    clearSavedCode = response.code == 403 &&
+                        data.optString("error") == "expired_code",
+                )
+            }
+        }.getOrElse { EndpointReply() }
 
     private suspend fun request(context: Context, action: String, code: String): Result =
         withContext(Dispatchers.IO) {
             val normalized = code.trim().replace(Regex("\\s+"), "")
-            val json = JSONObject()
+            val payload = JSONObject()
                 .put("code", normalized)
                 .put("deviceHash", deviceHash(context))
-            val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                .toString()
+            var lastAuthoritativeFailure: Result? = null
+            var shouldClearSavedCode = false
 
-            coroutineScope {
-                val results = Channel<Result?>(ENDPOINTS.size)
-                val jobs = ENDPOINTS.map { endpoint ->
-                    launch {
-                        val attempt = runCatching {
-                            val request = Request.Builder()
-                                .url("$endpoint/$action")
-                                .post(body)
-                                .build()
-                            client.newCall(request).execute().use { response ->
-                                val raw = response.body?.string().orEmpty()
-                                val data = JSONObject(raw.ifBlank { "{}" })
-                                if (response.code >= 500) error("Night server returned ${response.code}")
-                                val message = data.optString("message", if (response.isSuccessful) "验证成功" else "验证失败")
-                                if (response.isSuccessful && data.optBoolean("ok")) {
-                                    saveOfflineCredential(context, normalized)
-                                    Result(true, message, authoritative = true)
-                                } else {
-                                    // A 4xx response is an authoritative rejection (deleted, unbound,
-                                    // disabled or expired). Network/edge failures never erase the offline
-                                    // credential, so an activated device remains usable without a network.
-                                    val authoritative = response.code in 400..499
-                                    Result(false, message, authoritative)
-                                }
-                            }
+            repeat(2) { round ->
+                val replies = coroutineScope {
+                    ENDPOINTS.map { endpoint ->
+                        async {
+                            requestEndpoint(endpoint, action, payload)
                         }
-                        results.send(attempt.getOrNull())
+                    }.awaitAll()
+                }
+
+                replies.firstOrNull { it.result?.ok == true }?.result?.let {
+                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .edit().putString(KEY_CODE, normalized).apply()
+                    return@withContext it
+                }
+                replies.firstOrNull { it.authoritative && it.result != null }?.let {
+                    lastAuthoritativeFailure = it.result
+                    shouldClearSavedCode = shouldClearSavedCode || it.clearSavedCode
+                }
+                if (lastAuthoritativeFailure != null) {
+                    if (shouldClearSavedCode) {
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().remove(KEY_CODE).apply()
                     }
+                    return@withContext lastAuthoritativeFailure!!
                 }
-                var authoritativeFailure: Result? = null
-                var transientFailure: Result? = null
-                repeat(ENDPOINTS.size) {
-                    results.receive()?.let { result ->
-                        if (result.ok) {
-                            jobs.forEach { job -> job.cancel() }
-                            results.close()
-                            return@coroutineScope result
-                        }
-                        if (result.authoritative) {
-                            authoritativeFailure = authoritativeFailure ?: result
-                        } else {
-                            transientFailure = transientFailure ?: result
-                        }
-                    }
-                }
-                results.close()
-                authoritativeFailure?.let {
-                    clearOfflineCredential(context)
-                    return@coroutineScope it
-                }
-                transientFailure
-                    ?: Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
+                if (round == 0) delay(350)
             }
+
+            Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
         }
 
     suspend fun activate(context: Context, code: String): Result = request(context, "activate", code)
@@ -181,16 +166,7 @@ object NightActivation {
     suspend fun isActivated(context: Context): Boolean {
         val code = savedCode(context)
         if (code.isBlank()) return false
-        if (!hasOfflineCredential(context)) {
-            return request(context, "check", code).ok
-        }
-
-        // Do not block startup on a server connection. Reconcile deletion/unbind state in
-        // the background; an authoritative rejection clears the credential for next entry.
-        syncScope.launch {
-            request(context.applicationContext, "check", code)
-        }
-        return true
+        return request(context, "check", code).ok
     }
 }
 

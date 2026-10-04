@@ -39,12 +39,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -298,7 +297,6 @@ private fun AboutContent(
                 Image(
                     modifier = Modifier
                         .requiredSize(245.dp)
-                        .clip(RoundedCornerShape(48.dp))
                         .then(
                             if (enableBlur) {
                                 Modifier.textureBlur(
@@ -311,8 +309,8 @@ private fun AboutContent(
                                 )
                             } else Modifier
                         ),
-                    painter = painterResource(id = R.drawable.night_launcher_icon),
-                    contentScale = ContentScale.Crop,
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    colorFilter = ColorFilter.tint(colorScheme.onBackground),
                     contentDescription = null,
                 )
             }
