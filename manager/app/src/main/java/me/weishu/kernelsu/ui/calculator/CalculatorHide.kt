@@ -31,6 +31,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import java.io.File
 import java.math.BigDecimal
 import java.util.Locale
 import me.weishu.kernelsu.R
@@ -47,13 +48,24 @@ object CalculatorHide {
     private const val KEY_TARGET_PACKAGE = "target_package"
     private const val KEY_STATUS = "status"
     private const val KEY_PROMPTED = "accessibility_prompted"
+    private const val KEY_LAUNCHER_HIDDEN = "launcher_hidden"
     private const val DEFAULT_TARGET = "100"
+    private const val RUNTIME_CONFIG = "night_calculator_accessibility.conf"
+    @Volatile private var backgroundProtectionRunning = false
+
+    data class RuntimeConfig(
+        val enabled: Boolean,
+        val target: BigDecimal,
+        val targetPackage: String,
+    )
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, true)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
+        writeRuntimeConfig(context, enabled, target(context), targetPackage(context))
+        if (enabled) applyRootBackgroundProtection(context)
         updateStatus(context, if (enabled) "等待计算器界面变化" else "监听已停止")
     }
 
@@ -72,6 +84,47 @@ object CalculatorHide {
             .putString(KEY_TARGET, target.stripTrailingZeros().toPlainString())
             .putString(KEY_TARGET_PACKAGE, targetPackage)
             .apply()
+        writeRuntimeConfig(context, enabled, target, targetPackage)
+        if (enabled) applyRootBackgroundProtection(context)
+    }
+
+    fun applyRootBackgroundProtection(context: Context) {
+        if (backgroundProtectionRunning) return
+        backgroundProtectionRunning = true
+        val appContext = context.applicationContext
+        Thread({
+            try {
+                val shell = getRootShell()
+                if (!shell.isRoot) return@Thread
+                val packageName = appContext.packageName
+                shell.newJob().add(
+                    "user=\$(cmd activity get-current-user 2>/dev/null); " +
+                        "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
+                        "dumpsys deviceidle whitelist +$packageName >/dev/null 2>&1; " +
+                        "cmd appops set --user \"\$user\" $packageName RUN_IN_BACKGROUND allow >/dev/null 2>&1; " +
+                        "cmd appops set --user \"\$user\" $packageName RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1; " +
+                        "cmd activity set-standby-bucket $packageName active >/dev/null 2>&1; true",
+                ).exec()
+            } finally {
+                backgroundProtectionRunning = false
+            }
+        }, "NightAccessibilityProtection").start()
+    }
+
+    fun runtimeConfig(context: Context): RuntimeConfig {
+        val fallback = RuntimeConfig(isEnabled(context), target(context), targetPackage(context))
+        val lines = runCatching {
+            File(context.filesDir, RUNTIME_CONFIG).readLines(Charsets.UTF_8)
+        }.getOrNull() ?: return fallback
+        val values = lines.mapNotNull { line ->
+            val split = line.indexOf('=')
+            if (split <= 0) null else line.substring(0, split) to line.substring(split + 1)
+        }.toMap()
+        return RuntimeConfig(
+            enabled = values["enabled"]?.toBooleanStrictOrNull() ?: fallback.enabled,
+            target = values["target"]?.toBigDecimalOrNull() ?: fallback.target,
+            targetPackage = values["package"] ?: fallback.targetPackage,
+        )
     }
 
     fun status(context: Context): String =
@@ -117,26 +170,36 @@ object CalculatorHide {
 
     fun isLauncherVisible(context: Context): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
-        return context.packageManager.getComponentEnabledSetting(component) !in setOf(
+        val disabledByPackageManager = context.packageManager.getComponentEnabledSetting(component) in setOf(
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED,
         )
+        return !disabledByPackageManager && !prefs(context).getBoolean(KEY_LAUNCHER_HIDDEN, false)
     }
 
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
         val shellComponent = "${context.packageName}/.NightLauncher"
-        val action = if (visible) "enable" else "disable-user"
-        val result = runCatching {
-            getRootShell().newJob().add(
-                "user=\$(cmd activity get-current-user 2>/dev/null); " +
-                    "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
-                    "cmd package $action --user \"\$user\" '$shellComponent'",
-            ).exec()
-        }.getOrNull()
+        val desiredState = if (visible) "enabled" else "disabled-user"
+        val pmAction = if (visible) "enable" else "disable-user"
+        val rootShell = runCatching { getRootShell() }.getOrNull()
+        val rootConfirmed = rootShell?.isRoot == true
+        val rootChanged = if (rootConfirmed) {
+            runCatching {
+                rootShell.newJob().add(
+                    "user=\$(cmd activity get-current-user 2>/dev/null); " +
+                        "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
+                        "cmd package set-enabled-setting --user \"\$user\" " +
+                        "'$shellComponent' '$desiredState' DONT_KILL_APP >/dev/null 2>&1 || " +
+                        "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1",
+                ).exec().isSuccess
+            }.getOrDefault(false)
+        } else {
+            false
+        }
 
-        if (result?.isSuccess != true) {
+        val localChanged = if (!rootChanged) {
             runCatching {
                 context.packageManager.setComponentEnabledSetting(
                     component,
@@ -144,19 +207,47 @@ object CalculatorHide {
                     else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     PackageManager.DONT_KILL_APP,
                 )
-            }
+                true
+            }.getOrDefault(false)
+        } else {
+            false
         }
 
-        val changed = isLauncherVisible(context) == visible
+        val changed = rootChanged || localChanged
+        if (changed) {
+            prefs(context).edit().putBoolean(KEY_LAUNCHER_HIDDEN, !visible).apply()
+        }
         updateStatus(
             context,
             when {
-                changed && visible -> "已通过 Root/ADB 恢复桌面入口"
-                changed -> "已通过 Root/ADB 隐藏桌面入口，无障碍服务保持运行"
+                rootChanged && visible -> "Root 已确认，已通过 ADB 命令恢复桌面入口"
+                rootChanged -> "Root 已确认，已通过 ADB 命令隐藏桌面入口"
+                localChanged && visible -> "已通过组件兼容接口恢复桌面入口"
+                localChanged -> "已通过组件兼容接口隐藏桌面入口"
+                !rootConfirmed -> "Root 权限确认失败，桌面入口未修改"
                 else -> "桌面入口状态修改失败"
             },
         )
         return changed
+    }
+
+    private fun writeRuntimeConfig(
+        context: Context,
+        enabled: Boolean,
+        target: BigDecimal,
+        targetPackage: String,
+    ) {
+        val file = File(context.filesDir, RUNTIME_CONFIG)
+        val temp = File(context.filesDir, "$RUNTIME_CONFIG.tmp")
+        val content = buildString {
+            append("enabled=").append(enabled).append('\n')
+            append("target=").append(target.stripTrailingZeros().toPlainString()).append('\n')
+            append("package=").append(targetPackage.replace("\n", "")).append('\n')
+        }
+        runCatching {
+            temp.writeText(content, Charsets.UTF_8)
+            if (!temp.renameTo(file)) file.writeText(content, Charsets.UTF_8)
+        }
     }
 
     private fun prefs(context: Context) =
@@ -424,14 +515,17 @@ class CalculatorAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         CalculatorHide.updateStatus(this, "无障碍服务已连接，等待计算器")
+        CalculatorHide.applyRootBackgroundProtection(this)
         createNotificationChannel()
-        if (CalculatorHide.isEnabled(this)) showStatusNotification()
+        if (CalculatorHide.runtimeConfig(this).enabled) showStatusNotification()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (!CalculatorHide.isEnabled(this) || event == null) return
+        if (event == null) return
+        val config = CalculatorHide.runtimeConfig(this)
+        if (!config.enabled) return
         val packageName = event.packageName?.toString().orEmpty()
-        if (!isTargetCalculator(packageName)) return
+        if (!isTargetCalculator(packageName, config.targetPackage)) return
         if (lastPackage != packageName) {
             lastPackage = packageName
             CalculatorHide.updateStatus(this, "已识别计算器：$packageName")
@@ -440,7 +534,7 @@ class CalculatorAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastTriggerAt < 3000L) return
         val root = rootInActiveWindow ?: event.source ?: return
-        val target = CalculatorHide.target(this)
+        val target = config.target
         if (!containsTarget(root, target)) return
 
         lastTriggerAt = now
@@ -455,6 +549,7 @@ class CalculatorAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        runCatching { stopForeground(true) }
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
@@ -475,10 +570,9 @@ class CalculatorAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun isTargetCalculator(packageName: String): Boolean {
+    private fun isTargetCalculator(packageName: String, selectedPackage: String): Boolean {
         if (packageName.isBlank() || packageName == this.packageName) return false
-        val selected = CalculatorHide.targetPackage(this)
-        if (selected.isNotBlank()) return packageName == selected
+        if (selectedPackage.isNotBlank()) return packageName == selectedPackage
         return runCatching {
             val label = packageManager.getApplicationLabel(
                 packageManager.getApplicationInfo(packageName, 0),
@@ -529,7 +623,11 @@ class CalculatorAccessibilityService : AccessibilityService() {
             .addAction(0, "停止监听", stop)
             .addAction(0, "恢复图标", restore)
             .build()
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        runCatching {
+            startForeground(NOTIFICATION_ID, notification)
+        }.onFailure {
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        }
     }
 
     companion object {
