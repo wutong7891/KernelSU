@@ -35,6 +35,7 @@ import java.math.BigDecimal
 import java.util.Locale
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
+import me.weishu.kernelsu.ui.util.getRootShell
 
 object CalculatorHide {
     const val ACTION_STOP = "me.weishu.kernelsu.calculator.STOP_ACCESSIBILITY"
@@ -116,18 +117,46 @@ object CalculatorHide {
 
     fun isLauncherVisible(context: Context): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
-        return context.packageManager.getComponentEnabledSetting(component) !=
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        return context.packageManager.getComponentEnabledSetting(component) !in setOf(
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED,
+        )
     }
 
-    fun setLauncherVisible(context: Context, visible: Boolean) {
+    fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
-        context.packageManager.setComponentEnabledSetting(
-            component,
-            if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-            else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP,
+        val shellComponent = "${context.packageName}/.NightLauncher"
+        val action = if (visible) "enable" else "disable-user"
+        val result = runCatching {
+            getRootShell().newJob().add(
+                "user=\$(cmd activity get-current-user 2>/dev/null); " +
+                    "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
+                    "cmd package $action --user \"\$user\" '$shellComponent'",
+            ).exec()
+        }.getOrNull()
+
+        if (result?.isSuccess != true) {
+            runCatching {
+                context.packageManager.setComponentEnabledSetting(
+                    component,
+                    if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP,
+                )
+            }
+        }
+
+        val changed = isLauncherVisible(context) == visible
+        updateStatus(
+            context,
+            when {
+                changed && visible -> "已通过 Root/ADB 恢复桌面入口"
+                changed -> "已通过 Root/ADB 隐藏桌面入口，无障碍服务保持运行"
+                else -> "桌面入口状态修改失败"
+            },
         )
+        return changed
     }
 
     private fun prefs(context: Context) =
@@ -310,9 +339,13 @@ class CalculatorHideSettingsActivity : Activity() {
 
     private fun toggleLauncherVisibility() {
         if (!CalculatorHide.isLauncherVisible(this)) {
-            CalculatorHide.setLauncherVisible(this, true)
+            val restored = CalculatorHide.setLauncherVisible(this, true)
             refreshStatus()
-            Toast.makeText(this, "Night 桌面图标已恢复", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                if (restored) "Night 桌面图标已恢复" else "恢复失败，请确认 Root 可用",
+                Toast.LENGTH_SHORT,
+            ).show()
             return
         }
         AlertDialog.Builder(this)
@@ -320,9 +353,14 @@ class CalculatorHideSettingsActivity : Activity() {
             .setMessage("Night 不会被卸载。隐藏前请确认无障碍监听通知可见，以便随时恢复图标。")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认隐藏") { _, _ ->
-                CalculatorHide.setLauncherVisible(this, false)
+                val hidden = CalculatorHide.setLauncherVisible(this, false)
                 refreshStatus()
-                Toast.makeText(this, "桌面图标已隐藏，可从通知恢复", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    if (hidden) "桌面图标已通过 Root/ADB 隐藏，可从通知恢复"
+                    else "隐藏失败，请确认 Root 可用",
+                    Toast.LENGTH_LONG,
+                ).show()
             }
             .show()
     }
@@ -506,8 +544,12 @@ class CalculatorAccessibilityControlReceiver : BroadcastReceiver() {
                 Toast.makeText(context, "计算器监听已停止", Toast.LENGTH_SHORT).show()
             }
             CalculatorHide.ACTION_RESTORE_LAUNCHER -> {
-                CalculatorHide.setLauncherVisible(context, true)
-                Toast.makeText(context, "Night 桌面图标已恢复", Toast.LENGTH_SHORT).show()
+                val restored = CalculatorHide.setLauncherVisible(context, true)
+                Toast.makeText(
+                    context,
+                    if (restored) "Night 桌面图标已恢复" else "恢复失败，请确认 Root 可用",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
