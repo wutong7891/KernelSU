@@ -1,13 +1,16 @@
 package me.weishu.kernelsu.ui.calculator
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -46,6 +49,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 object CalculatorHide {
+    const val ACTION_RESTORE_LAUNCHER = "me.weishu.kernelsu.calculator.RESTORE_LAUNCHER"
     private const val PREFS = "night_calculator_hide"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_TARGET = "target"
@@ -94,6 +98,22 @@ object CalculatorHide {
 
     fun updateStatus(context: Context, status: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_STATUS, status).apply()
+    }
+
+    fun isLauncherVisible(context: Context): Boolean {
+        val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
+        return context.packageManager.getComponentEnabledSetting(component) !=
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+    }
+
+    fun setLauncherVisible(context: Context, visible: Boolean) {
+        val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
+        context.packageManager.setComponentEnabledSetting(
+            component,
+            if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP,
+        )
     }
 
     @Synchronized
@@ -182,6 +202,7 @@ class CalculatorHideSettingsActivity : Activity() {
     private lateinit var target: EditText
     private lateinit var monitorStatus: TextView
     private lateinit var appSpinner: Spinner
+    private lateinit var launcherButton: Button
     private var appPackages = emptyList<String>()
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusUpdater = object : Runnable {
@@ -299,6 +320,18 @@ class CalculatorHideSettingsActivity : Activity() {
         root.addView(label("建议直接选择你的系统计算器；“自动识别”才会按应用名称判断。无后台模式由 Root 守护，只在计算器前台时临时启动识别。", 13f, Color.rgb(145, 158, 183)).apply {
             setPadding(0, dp(18), 0, 0)
         })
+        root.addView(label("桌面图标", 20f, Color.WHITE, true).apply {
+            setPadding(0, dp(28), 0, dp(8))
+        })
+        root.addView(label(
+            "只隐藏桌面启动图标，不会卸载 Night 或停止监听。可从监听通知恢复；紧急恢复命令：adb shell pm enable ${packageName}/.NightLauncher",
+            13f,
+            Color.rgb(145, 158, 183)
+        ))
+        launcherButton = button("") { toggleLauncherVisibility() }
+        root.addView(launcherButton, wide(dp(58)).apply { topMargin = dp(12) })
+        updateLauncherButton()
+
         return ScrollView(this).apply {
             setBackgroundColor(Color.rgb(7, 11, 20))
             isFillViewport = true
@@ -324,6 +357,34 @@ class CalculatorHideSettingsActivity : Activity() {
         val active = CalculatorHide.isEnabled(this)
         monitorStatus.text = if (active) CalculatorHide.status(this) else "Root 监听：未启用"
         monitorStatus.setTextColor(if (active) Color.rgb(111, 224, 174) else Color.rgb(255, 194, 103))
+        if (::launcherButton.isInitialized) updateLauncherButton()
+    }
+
+    private fun updateLauncherButton() {
+        launcherButton.text = if (CalculatorHide.isLauncherVisible(this)) {
+            "隐藏桌面图标"
+        } else {
+            "恢复桌面图标"
+        }
+    }
+
+    private fun toggleLauncherVisibility() {
+        if (!CalculatorHide.isLauncherVisible(this)) {
+            CalculatorHide.setLauncherVisible(this, true)
+            updateLauncherButton()
+            Toast.makeText(this, "Night 桌面图标已恢复", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("隐藏桌面图标")
+            .setMessage("Night 不会被卸载，监听也不会停止。隐藏前请确认监听通知可见，以便随时恢复图标。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认隐藏") { _, _ ->
+                CalculatorHide.setLauncherVisible(this, false)
+                updateLauncherButton()
+                Toast.makeText(this, "桌面图标已隐藏，可从通知恢复", Toast.LENGTH_LONG).show()
+            }
+            .show()
     }
 
     private fun label(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
@@ -681,6 +742,17 @@ class CalculatorRootMonitorService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         )
+        .addAction(
+            0,
+            "恢复图标",
+            PendingIntent.getBroadcast(
+                this,
+                1,
+                Intent(this, CalculatorMonitorBootReceiver::class.java)
+                    .setAction(CalculatorHide.ACTION_RESTORE_LAUNCHER),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        )
         .build()
 
     companion object {
@@ -691,6 +763,11 @@ class CalculatorRootMonitorService : Service() {
 
 class CalculatorMonitorBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == CalculatorHide.ACTION_RESTORE_LAUNCHER) {
+            CalculatorHide.setLauncherVisible(context, true)
+            Toast.makeText(context, "Night 桌面图标已恢复", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (intent?.action !in setOf(
                 Intent.ACTION_BOOT_COMPLETED,
                 Intent.ACTION_USER_UNLOCKED,
