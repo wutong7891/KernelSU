@@ -289,7 +289,11 @@ object CalculatorHide {
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
         val shellComponent = "${context.packageName}/.NightLauncher"
-        val pmAction = if (visible) "enable" else "disable-user"
+        // Use the component-level state.  `disable-user` is accepted by some
+        // Android builds but is treated as a package-user operation by several
+        // ColorOS releases, so the launcher alias remains visible even though
+        // the shell command exits successfully.
+        val pmAction = if (visible) "enable" else "disable"
         val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
         val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
         val rootChanged = if (rootConfirmed && rootShell != null) {
@@ -297,7 +301,8 @@ object CalculatorHide {
                 val result = rootShell.newJob().add(
                     "user=\$(cmd activity get-current-user 2>/dev/null); " +
                         "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
-                        "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1 || exit 1; " +
+                        "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1 || " +
+                        "cmd package $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1 || exit 1; " +
                         "sleep 1",
                 ).exec()
                 if (!result.isSuccess) return@runCatching false
@@ -322,7 +327,7 @@ object CalculatorHide {
             context.packageManager.setComponentEnabledSetting(
                 component,
                 if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP,
             )
             val state = context.packageManager.getComponentEnabledSetting(component)
@@ -330,8 +335,8 @@ object CalculatorHide {
                 state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
                     state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
             } else {
-                state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
-                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
             }
         }.getOrDefault(false) else false
 
