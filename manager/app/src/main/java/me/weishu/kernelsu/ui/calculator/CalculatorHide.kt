@@ -238,7 +238,7 @@ object CalculatorHide {
         val pmAction = if (visible) "enable" else "disable-user"
         val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
         val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
-        val rootChanged = if (rootConfirmed) {
+        val rootChanged = if (rootConfirmed && rootShell != null) {
             runCatching {
                 rootShell.newJob().add(
                     "user=\$(cmd activity get-current-user 2>/dev/null); " +
