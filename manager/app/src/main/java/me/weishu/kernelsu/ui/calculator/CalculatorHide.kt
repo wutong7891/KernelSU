@@ -114,37 +114,51 @@ object CalculatorHide {
         val appContext = context.applicationContext
         Thread({
             try {
-                if (!rootAvailable()) {
-                    updateStatus(appContext, "Root 权限确认失败，无法启动无障碍守护")
-                    return@Thread
+                var lastFailure = "Root 权限确认失败"
+                repeat(8) { attempt ->
+                    if (!rootAvailable()) {
+                        lastFailure = "Root 权限尚未就绪"
+                        if (attempt < 7) Thread.sleep(1_000L)
+                        return@repeat
+                    }
+                    val shell = getRootShell()
+                    if (!shell.isRoot) {
+                        lastFailure = "Root Shell 不可用"
+                        if (attempt < 7) Thread.sleep(1_000L)
+                        return@repeat
+                    }
+                    val command = if (enabled) {
+                        val script = appContext.assets.open(WATCHDOG_ASSET).bufferedReader().use { it.readText() }
+                        val encoded = Base64.encodeToString(script.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                        "mkdir -p /data/adb/service.d; " +
+                            "echo '$encoded' | /system/bin/toybox base64 -d > '$WATCHDOG_SCRIPT'; " +
+                            "chmod 0700 '$WATCHDOG_SCRIPT'; " +
+                            "touch '$WATCHDOG_MARKER'; " +
+                            "if [ -f '$WATCHDOG_PID' ]; then " +
+                            "old_pid=\$(cat '$WATCHDOG_PID' 2>/dev/null); " +
+                            "if [ -n \"\$old_pid\" ]; then kill \"\$old_pid\" 2>/dev/null; fi; " +
+                            "sleep 1; rm -f '$WATCHDOG_PID'; fi; " +
+                            "/system/bin/sh '$WATCHDOG_SCRIPT'; sleep 1; " +
+                            "watchdog_pid=\$(cat '$WATCHDOG_PID' 2>/dev/null); " +
+                            "[ -n \"\$watchdog_pid\" ] && kill -0 \"\$watchdog_pid\" 2>/dev/null"
+                    } else {
+                        "rm -f '$WATCHDOG_MARKER'; " +
+                            "if [ -f '$WATCHDOG_PID' ]; then " +
+                            "kill \$(cat '$WATCHDOG_PID') 2>/dev/null; fi; " +
+                            "rm -f '$WATCHDOG_PID'"
+                    }
+                    val result = shell.newJob().add(command).exec()
+                    if (result.isSuccess) {
+                        updateStatus(
+                            appContext,
+                            if (enabled) "Root 无后台守护已运行" else "监听已停止",
+                        )
+                        return@Thread
+                    }
+                    lastFailure = "Root 守护启动后验证失败"
+                    if (attempt < 7) Thread.sleep(1_000L)
                 }
-                val shell = getRootShell()
-                if (!shell.isRoot) {
-                    updateStatus(appContext, "Root 权限确认失败，无法启动无障碍守护")
-                    return@Thread
-                }
-                val command = if (enabled) {
-                    val script = appContext.assets.open(WATCHDOG_ASSET).bufferedReader().use { it.readText() }
-                    val encoded = Base64.encodeToString(script.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                    "mkdir -p /data/adb/service.d; " +
-                        "echo '$encoded' | /system/bin/toybox base64 -d > '$WATCHDOG_SCRIPT'; " +
-                        "chmod 0700 '$WATCHDOG_SCRIPT'; " +
-                        "touch '$WATCHDOG_MARKER'; " +
-                        "if [ -f '$WATCHDOG_PID' ]; then " +
-                        "old_pid=\$(cat '$WATCHDOG_PID' 2>/dev/null); " +
-                        "if [ -n \"\$old_pid\" ]; then kill \"\$old_pid\" 2>/dev/null; fi; " +
-                        "sleep 1; rm -f '$WATCHDOG_PID'; fi; " +
-                        "/system/bin/sh '$WATCHDOG_SCRIPT'"
-                } else {
-                    "rm -f '$WATCHDOG_MARKER'; " +
-                        "if [ -f '$WATCHDOG_PID' ]; then " +
-                        "kill \$(cat '$WATCHDOG_PID') 2>/dev/null; fi; " +
-                        "rm -f '$WATCHDOG_PID'"
-                }
-                val result = shell.newJob().add(command).exec()
-                if (!result.isSuccess) {
-                    updateStatus(appContext, "Root 无障碍守护配置失败")
-                }
+                updateStatus(appContext, "$lastFailure，无法启动无障碍守护")
             } finally {
                 watchdogConfigRunning = false
             }

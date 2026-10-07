@@ -101,6 +101,24 @@ fi
 echo $$ > "$PIDFILE"
 trap 'rm -f "$PIDFILE"' EXIT INT TERM
 
+# A daemon forked by an app-owned root shell can inherit the app's freezer/cpu
+# cgroups.  ColorOS freezes or kills those groups when the recent task is
+# cleared, even though this process runs as uid 0.  Move the detached watchdog
+# into system/thawed groups before entering the loop so it remains independent
+# of the Night application lifecycle.
+for tasks_file in \
+    /sys/fs/cgroup/system/cgroup.procs \
+    /dev/freezer/thaw/tasks \
+    /dev/cpuset/system-background/tasks \
+    /dev/cpuctl/background/tasks; do
+    [ -w "$tasks_file" ] && echo $$ > "$tasks_file" 2>/dev/null
+done
+
+# Keep the watchdog cheap and avoid it being selected before ordinary apps
+# under memory pressure.
+renice 10 $$ >/dev/null 2>&1 || true
+echo -900 > "/proc/$$/oom_score_adj" 2>/dev/null || true
+
 while [ -f "$MARKER" ]; do
     if ! pm path "$PACKAGE" >/dev/null 2>&1; then
         rm -f "$MARKER"
