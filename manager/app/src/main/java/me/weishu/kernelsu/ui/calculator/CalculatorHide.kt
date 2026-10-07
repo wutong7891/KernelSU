@@ -294,23 +294,22 @@ object CalculatorHide {
         val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
         val rootChanged = if (rootConfirmed && rootShell != null) {
             runCatching {
-                val verifyState = if (visible) {
-                    "case \"\$state\" in enabled|default|*': enabled'|*': default') exit 0;; *) exit 1;; esac"
-                } else {
-                    "case \"\$state\" in disabled|disabled-user|disabled-until-used|*': disabled'|*': disabled-user'|*': disabled-until-used') exit 0;; *) exit 1;; esac"
-                }
                 val result = rootShell.newJob().add(
                     "user=\$(cmd activity get-current-user 2>/dev/null); " +
                         "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
                         "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1 || exit 1; " +
-                        "sleep 1; " +
-                        "state=\$(cmd package get-component-enabled-setting --user \"\$user\" " +
-                        "'$shellComponent' 2>/dev/null || " +
-                        "cmd package get-component-enabled-setting '$shellComponent' 2>/dev/null); " +
-                        "state=\$(printf '%s' \"\$state\" | tr -d '\\r' | tail -n 1); " +
-                        verifyState,
+                        "sleep 1",
                 ).exec()
-                result.isSuccess
+                if (!result.isSuccess) return@runCatching false
+                val state = context.packageManager.getComponentEnabledSetting(component)
+                if (visible) {
+                    state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+                        state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                } else {
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
+                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED
+                }
             }.getOrDefault(false)
         } else {
             false
