@@ -2,7 +2,6 @@ package me.weishu.kernelsu.ui.calculator
 
 import android.accessibilityservice.AccessibilityService
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -38,6 +37,7 @@ import androidx.core.content.ContextCompat
 import java.io.File
 import java.math.BigDecimal
 import java.util.Locale
+import java.util.concurrent.Executors
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
 import me.weishu.kernelsu.ui.util.getRootShell
@@ -55,6 +55,7 @@ object CalculatorHide {
     private const val KEY_STATUS = "status"
     private const val KEY_PROMPTED = "accessibility_prompted"
     private const val KEY_LAUNCHER_HIDDEN = "launcher_hidden"
+    private const val KEY_AUTO_HIDE_LAUNCHER = "auto_hide_launcher"
     private const val DEFAULT_TARGET = "100"
     private const val RUNTIME_CONFIG = "night_calculator_accessibility.conf"
     private const val WATCHDOG_ASSET = "night-accessibility-watchdog.sh"
@@ -63,6 +64,7 @@ object CalculatorHide {
     private const val WATCHDOG_PID = "/data/adb/night_accessibility_watchdog.pid"
     @Volatile private var backgroundProtectionRunning = false
     @Volatile private var watchdogConfigRunning = false
+    private val launcherVisibilityExecutor = Executors.newSingleThreadExecutor()
 
     data class RuntimeConfig(
         val enabled: Boolean,
@@ -265,6 +267,25 @@ object CalculatorHide {
         return !disabledByPackageManager && !prefs(context).getBoolean(KEY_LAUNCHER_HIDDEN, false)
     }
 
+    fun isAutoHideLauncherEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+
+    fun setAutoHideLauncherEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_AUTO_HIDE_LAUNCHER, enabled).apply()
+        if (!enabled) {
+            launcherVisibilityExecutor.execute {
+                setLauncherVisible(context.applicationContext, true)
+            }
+        }
+    }
+
+    fun applyLauncherVisibilityForAppState(context: Context, appInForeground: Boolean) {
+        if (!isAutoHideLauncherEnabled(context)) return
+        launcherVisibilityExecutor.execute {
+            setLauncherVisible(context.applicationContext, appInForeground)
+        }
+    }
+
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
         val shellComponent = "${context.packageName}/.NightLauncher"
@@ -360,7 +381,7 @@ class CalculatorHideSettingsActivity : Activity() {
     private lateinit var appSpinner: Spinner
     private lateinit var targetInput: EditText
     private lateinit var statusView: TextView
-    private lateinit var launcherButton: Button
+    private lateinit var launcherSwitch: Switch
     private var appPackages = emptyList<String>()
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusUpdater = object : Runnable {
@@ -485,16 +506,32 @@ class CalculatorHideSettingsActivity : Activity() {
             refreshStatus()
         }, wide(dp(58)).apply { topMargin = dp(10) })
 
-        root.addView(label("桌面图标", 20f, Color.WHITE, true).apply {
+        root.addView(label("自动隐藏桌面图标", 20f, Color.WHITE, true).apply {
             setPadding(0, dp(28), 0, dp(8))
         })
         root.addView(label(
-            "只隐藏桌面启动图标，不卸载 Night。计算器命中后仍能打开；监听通知可恢复。紧急恢复命令：adb shell pm enable ${packageName}/.NightLauncher",
+            "打开后，进入 Night 时临时恢复桌面入口，退出 Night 时自动通过 Root/ADB 隐藏。只禁用桌面组件，不停用应用和监听。",
             13f,
             Color.rgb(145, 158, 183),
         ))
-        launcherButton = button("") { toggleLauncherVisibility() }
-        root.addView(launcherButton, wide(dp(58)).apply { topMargin = dp(12) })
+        launcherSwitch = Switch(this).apply {
+            text = "退出 Night 后自动隐藏"
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            isChecked = CalculatorHide.isAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = rounded(Color.rgb(17, 27, 48), 18f, Color.rgb(78, 101, 148))
+            setOnCheckedChangeListener { _, enabled ->
+                CalculatorHide.setAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity, enabled)
+                Toast.makeText(
+                    this@CalculatorHideSettingsActivity,
+                    if (enabled) "已开启，退出 Night 后自动隐藏" else "已关闭，正在恢复桌面入口",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                refreshStatus()
+            }
+        }
+        root.addView(launcherSwitch, wide(dp(58)).apply { topMargin = dp(12) })
         refreshStatus()
 
         return ScrollView(this).apply {
@@ -527,41 +564,10 @@ class CalculatorHideSettingsActivity : Activity() {
             if (CalculatorHide.isAccessibilityEnabled(this)) Color.rgb(111, 224, 174)
             else Color.rgb(255, 194, 103),
         )
-        if (::launcherButton.isInitialized) {
-            launcherButton.text = if (CalculatorHide.isLauncherVisible(this)) {
-                "ADB 隐藏桌面图标"
-            } else {
-                "ADB 恢复桌面图标"
-            }
+        if (::launcherSwitch.isInitialized) {
+            val state = if (CalculatorHide.isLauncherVisible(this)) "当前可见" else "当前已隐藏"
+            launcherSwitch.text = "退出 Night 后自动隐藏（$state）"
         }
-    }
-
-    private fun toggleLauncherVisibility() {
-        if (!CalculatorHide.isLauncherVisible(this)) {
-            val restored = CalculatorHide.setLauncherVisible(this, true)
-            refreshStatus()
-            Toast.makeText(
-                this,
-                if (restored) "Night 桌面图标已恢复" else "桌面图标恢复失败",
-                Toast.LENGTH_SHORT,
-            ).show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("ADB 隐藏桌面图标")
-            .setMessage("仅禁用 NightLauncher 桌面组件，不停用 Night 应用或无障碍服务。可从监听通知恢复图标。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确认隐藏") { _, _ ->
-                val hidden = CalculatorHide.setLauncherVisible(this, false)
-                refreshStatus()
-                Toast.makeText(
-                    this,
-                    if (hidden) "桌面图标已隐藏，可从通知恢复"
-                    else "桌面图标隐藏失败",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
-            .show()
     }
 
     private fun loadAppChoices(): List<Pair<String, String>> {

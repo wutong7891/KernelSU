@@ -123,7 +123,6 @@ class MainActivity : ComponentActivity() {
     private var splashStartedAt = 0L
     private val splashAnimationDurationMs = 500L
 
-
     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
