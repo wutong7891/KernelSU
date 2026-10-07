@@ -62,6 +62,7 @@ object CalculatorHide {
     private const val WATCHDOG_SCRIPT = "/data/adb/service.d/99-night-accessibility-watchdog.sh"
     private const val WATCHDOG_MARKER = "/data/adb/night_accessibility_watchdog.enabled"
     private const val WATCHDOG_PID = "/data/adb/night_accessibility_watchdog.pid"
+    private const val WATCHDOG_LOCK = "/data/adb/night_accessibility_watchdog.lock"
     @Volatile private var backgroundProtectionRunning = false
     @Volatile private var watchdogConfigRunning = false
     private val launcherVisibilityExecutor = Executors.newSingleThreadExecutor()
@@ -136,6 +137,10 @@ object CalculatorHide {
                             "echo '$encoded' | /system/bin/toybox base64 -d > '$WATCHDOG_SCRIPT'; " +
                             "chmod 0700 '$WATCHDOG_SCRIPT'; " +
                             "touch '$WATCHDOG_MARKER'; " +
+                            // Clean up daemons left by older builds before
+                            // starting the single-instance watchdog.
+                            "for pid in \$(ps -A -o PID,ARGS 2>/dev/null | /system/bin/toybox grep -F '$WATCHDOG_SCRIPT' | /system/bin/toybox grep -Fv grep | /system/bin/toybox sed 's/^ *//' | /system/bin/toybox sed 's/ .*//'); do [ -n \"\$pid\" ] && kill \"\$pid\" 2>/dev/null; done; " +
+                            "rmdir '$WATCHDOG_LOCK' 2>/dev/null; rm -f '$WATCHDOG_LOCK/pid'; " +
                             "if [ -f '$WATCHDOG_PID' ]; then " +
                             "old_pid=\$(cat '$WATCHDOG_PID' 2>/dev/null); " +
                             "if [ -n \"\$old_pid\" ]; then kill \"\$old_pid\" 2>/dev/null; fi; " +
@@ -145,9 +150,10 @@ object CalculatorHide {
                             "[ -n \"\$watchdog_pid\" ] && kill -0 \"\$watchdog_pid\" 2>/dev/null"
                     } else {
                         "rm -f '$WATCHDOG_MARKER'; " +
+                            "for pid in \$(ps -A -o PID,ARGS 2>/dev/null | /system/bin/toybox grep -F '$WATCHDOG_SCRIPT' | /system/bin/toybox grep -Fv grep | /system/bin/toybox sed 's/^ *//' | /system/bin/toybox sed 's/ .*//'); do [ -n \"\$pid\" ] && kill \"\$pid\" 2>/dev/null; done; " +
                             "if [ -f '$WATCHDOG_PID' ]; then " +
                             "kill \$(cat '$WATCHDOG_PID') 2>/dev/null; fi; " +
-                            "rm -f '$WATCHDOG_PID'"
+                            "rm -f '$WATCHDOG_PID'; rmdir '$WATCHDOG_LOCK' 2>/dev/null; rm -f '$WATCHDOG_LOCK/pid'"
                     }
                     val result = shell.newJob().add(command).exec()
                     if (result.isSuccess) {
@@ -289,10 +295,8 @@ object CalculatorHide {
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
         val shellComponent = "${context.packageName}/.NightLauncher"
-        // Use the component-level state.  `disable-user` is accepted by some
-        // Android builds but is treated as a package-user operation by several
-        // ColorOS releases, so the launcher alias remains visible even though
-        // the shell command exits successfully.
+        // Change only the launcher alias. Hiding the complete package also
+        // disables its accessibility service on Android/ColorOS.
         val pmAction = if (visible) "enable" else "disable"
         val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
         val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
@@ -311,8 +315,8 @@ object CalculatorHide {
                     state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
                         state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
                 } else {
-                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
-                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
                         state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED
                 }
             }.getOrDefault(false)
@@ -335,8 +339,8 @@ object CalculatorHide {
                 state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
                     state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
             } else {
-                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
-                        state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
             }
         }.getOrDefault(false) else false
 
@@ -347,11 +351,11 @@ object CalculatorHide {
         updateStatus(
             context,
             when {
-                rootChanged && visible -> "已通过 ADB 命令恢复桌面入口"
-                rootChanged -> "已通过 ADB 命令隐藏桌面入口"
+                rootChanged && visible -> "已通过 Root 恢复桌面入口"
+                rootChanged -> "已通过 Root 隐藏桌面入口"
                 localChanged && visible -> "已通过兼容方式恢复桌面入口"
                 localChanged -> "已通过兼容方式隐藏桌面入口"
-                else -> "桌面入口状态修改失败"
+                else -> "桌面入口状态修改失败，请确认 Root 已授权"
             },
         )
         return changed
@@ -514,7 +518,7 @@ class CalculatorHideSettingsActivity : Activity() {
             setPadding(0, dp(28), 0, dp(8))
         })
         root.addView(label(
-            "打开后，进入 Night 时临时恢复桌面入口，退出 Night 时自动通过 Root/ADB 隐藏。只禁用桌面组件，不停用应用和监听。",
+            "打开后，进入 Night 时临时恢复桌面入口，退出 Night 时自动通过 Root/ADB 隐藏。不会停用应用和无障碍监听。",
             13f,
             Color.rgb(145, 158, 183),
         ))

@@ -4,6 +4,7 @@ SERVICE='com.Night.night/me.weishu.kernelsu.ui.calculator.CalculatorAccessibilit
 PACKAGE='com.Night.night'
 MARKER='/data/adb/night_accessibility_watchdog.enabled'
 PIDFILE='/data/adb/night_accessibility_watchdog.pid'
+LOCKDIR='/data/adb/night_accessibility_watchdog.lock'
 SCRIPT='/data/adb/service.d/99-night-accessibility-watchdog.sh'
 PROCESS="$PACKAGE:night_accessibility"
 BOOTSTRAP_ACTION='com.Night.night.action.START_ACCESSIBILITY_KEEPALIVE'
@@ -54,7 +55,11 @@ enable_service() {
     if [ "$next" != "$current" ]; then
         settings --user "$user_id" put secure enabled_accessibility_services "$next"
     fi
-    settings --user "$user_id" put secure accessibility_enabled 1
+    # Do not rewrite the secure setting on every poll.  ColorOS emits a
+    # settings event for every write, and a tight loop here can flood the
+    # system server and make other Night pages (notably Superuser) stall.
+    enabled_state="$(settings --user "$user_id" get secure accessibility_enabled 2>/dev/null)"
+    [ "$enabled_state" = '1' ] || settings --user "$user_id" put secure accessibility_enabled 1
 }
 
 rebind_service() {
@@ -98,8 +103,20 @@ if [ "$1" != '--daemon' ]; then
     exit 0
 fi
 
+# Only one detached watchdog may exist.  A process-level flag is not enough:
+# the app and its accessibility process can both configure the watchdog at
+# the same time.  mkdir is atomic on Android and works without an extra tool.
+if [ -d "$LOCKDIR" ]; then
+    old_pid="$(cat "$LOCKDIR/pid" 2>/dev/null)"
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+        exit 0
+    fi
+    rmdir "$LOCKDIR" 2>/dev/null || rm -rf "$LOCKDIR"
+fi
+mkdir "$LOCKDIR" 2>/dev/null || exit 0
+echo $$ > "$LOCKDIR/pid"
 echo $$ > "$PIDFILE"
-trap 'rm -f "$PIDFILE"' EXIT INT TERM
+trap 'rmdir "$LOCKDIR" 2>/dev/null; rm -f "$PIDFILE"' EXIT INT TERM
 
 # A daemon forked by an app-owned root shell can inherit the app's freezer/cpu
 # cgroups.  ColorOS freezes or kills those groups when the recent task is
@@ -141,5 +158,5 @@ while [ -f "$MARKER" ]; do
         sleep 1
         rebind_service "$user_id"
     fi
-    sleep 2
+    sleep 3
 done
