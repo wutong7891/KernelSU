@@ -270,9 +270,30 @@ object CalculatorHide {
         val shellComponent = "${context.packageName}/.NightLauncher"
         val desiredState = if (visible) "enabled" else "disabled-user"
         val pmAction = if (visible) "enable" else "disable-user"
-        val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
+        // An application is allowed to change the enabled state of its own
+        // launcher alias.  Do this first so hiding/restoring the desktop entry
+        // never depends on Root being ready.  DISABLED_USER mirrors
+        // `adb shell pm disable-user` while DONT_KILL_APP keeps the listener.
+        val localChanged = runCatching {
+            context.packageManager.setComponentEnabledSetting(
+                component,
+                if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+                PackageManager.DONT_KILL_APP,
+            )
+            val state = context.packageManager.getComponentEnabledSetting(component)
+            if (visible) {
+                state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            } else {
+                state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+        }.getOrDefault(false)
+
+        val rootConfirmed = if (localChanged) false else runCatching { rootAvailable() }.getOrDefault(false)
         val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
-        val rootChanged = if (rootConfirmed && rootShell != null) {
+        val rootChanged = if (!localChanged && rootConfirmed && rootShell != null) {
             runCatching {
                 rootShell.newJob().add(
                     "user=\$(cmd activity get-current-user 2>/dev/null); " +
@@ -286,20 +307,6 @@ object CalculatorHide {
             false
         }
 
-        val localChanged = if (!rootChanged) {
-            runCatching {
-                context.packageManager.setComponentEnabledSetting(
-                    component,
-                    if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                    else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    PackageManager.DONT_KILL_APP,
-                )
-                true
-            }.getOrDefault(false)
-        } else {
-            false
-        }
-
         val changed = rootChanged || localChanged
         if (changed) {
             prefs(context).edit().putBoolean(KEY_LAUNCHER_HIDDEN, !visible).apply()
@@ -307,11 +314,10 @@ object CalculatorHide {
         updateStatus(
             context,
             when {
-                rootChanged && visible -> "Root 已确认，已通过 ADB 命令恢复桌面入口"
-                rootChanged -> "Root 已确认，已通过 ADB 命令隐藏桌面入口"
-                localChanged && visible -> "已通过组件兼容接口恢复桌面入口"
-                localChanged -> "已通过组件兼容接口隐藏桌面入口"
-                !rootConfirmed -> "Root 权限确认失败，桌面入口未修改"
+                localChanged && visible -> "已恢复桌面入口"
+                localChanged -> "已按 ADB 隐藏方式禁用桌面入口"
+                rootChanged && visible -> "已通过 ADB 命令恢复桌面入口"
+                rootChanged -> "已通过 ADB 命令隐藏桌面入口"
                 else -> "桌面入口状态修改失败"
             },
         )
@@ -515,9 +521,9 @@ class CalculatorHideSettingsActivity : Activity() {
         )
         if (::launcherButton.isInitialized) {
             launcherButton.text = if (CalculatorHide.isLauncherVisible(this)) {
-                "Root/ADB 隐藏桌面图标"
+                "ADB 隐藏桌面图标"
             } else {
-                "Root/ADB 恢复桌面图标"
+                "ADB 恢复桌面图标"
             }
         }
     }
@@ -528,13 +534,13 @@ class CalculatorHideSettingsActivity : Activity() {
             refreshStatus()
             Toast.makeText(
                 this,
-                if (restored) "Night 桌面图标已恢复" else "恢复失败，请确认 Root 可用",
+                if (restored) "Night 桌面图标已恢复" else "桌面图标恢复失败",
                 Toast.LENGTH_SHORT,
             ).show()
             return
         }
         AlertDialog.Builder(this)
-            .setTitle("Root/ADB 隐藏桌面图标")
+            .setTitle("ADB 隐藏桌面图标")
             .setMessage("仅禁用 NightLauncher 桌面组件，不停用 Night 应用或无障碍服务。可从监听通知恢复图标。")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认隐藏") { _, _ ->
@@ -542,8 +548,8 @@ class CalculatorHideSettingsActivity : Activity() {
                 refreshStatus()
                 Toast.makeText(
                     this,
-                    if (hidden) "桌面图标已通过 Root/ADB 隐藏，可从通知恢复"
-                    else "隐藏失败，请确认 Root 可用",
+                    if (hidden) "桌面图标已隐藏，可从通知恢复"
+                    else "桌面图标隐藏失败",
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -803,7 +809,7 @@ class CalculatorAccessibilityControlReceiver : BroadcastReceiver() {
                 val restored = CalculatorHide.setLauncherVisible(context, true)
                 Toast.makeText(
                     context,
-                    if (restored) "Night 桌面图标已恢复" else "恢复失败，请确认 Root 可用",
+                    if (restored) "Night 桌面图标已恢复" else "桌面图标恢复失败",
                     Toast.LENGTH_SHORT,
                 ).show()
             }
