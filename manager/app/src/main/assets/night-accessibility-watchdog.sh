@@ -5,6 +5,73 @@ PACKAGE='com.Night.night'
 MARKER='/data/adb/night_accessibility_watchdog.enabled'
 PIDFILE='/data/adb/night_accessibility_watchdog.pid'
 SCRIPT='/data/adb/service.d/99-night-accessibility-watchdog.sh'
+PROCESS="$PACKAGE:night_accessibility"
+
+contains_service() {
+    case ":$1:" in
+        *":$SERVICE:"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+without_night_service() {
+    value="$1"
+    filtered=''
+    old_ifs="$IFS"
+    IFS=':'
+    for item in $value; do
+        [ -z "$item" ] && continue
+        [ "$item" = "$SERVICE" ] && continue
+        if [ -z "$filtered" ]; then
+            filtered="$item"
+        else
+            filtered="$filtered:$item"
+        fi
+    done
+    IFS="$old_ifs"
+    printf '%s' "$filtered"
+}
+
+accessibility_process_alive() {
+    pidof "$PROCESS" >/dev/null 2>&1 && return 0
+    ps -A -o ARGS 2>/dev/null | /system/bin/toybox grep -F "$PROCESS" | /system/bin/toybox grep -Fv grep >/dev/null 2>&1
+}
+
+enable_service() {
+    user_id="$1"
+    current="$(settings --user "$user_id" get secure enabled_accessibility_services 2>/dev/null)"
+    [ "$current" = 'null' ] && current=''
+    if contains_service "$current"; then
+        next="$current"
+    elif [ -z "$current" ]; then
+        next="$SERVICE"
+    else
+        next="$current:$SERVICE"
+    fi
+    if [ "$next" != "$current" ]; then
+        settings --user "$user_id" put secure enabled_accessibility_services "$next"
+    fi
+    settings --user "$user_id" put secure accessibility_enabled 1
+}
+
+rebind_service() {
+    user_id="$1"
+    current="$(settings --user "$user_id" get secure enabled_accessibility_services 2>/dev/null)"
+    [ "$current" = 'null' ] && current=''
+    filtered="$(without_night_service "$current")"
+    if [ -n "$filtered" ]; then
+        settings --user "$user_id" put secure enabled_accessibility_services "$filtered"
+    else
+        settings --user "$user_id" delete secure enabled_accessibility_services >/dev/null 2>&1
+    fi
+    sleep 1
+    if [ -n "$filtered" ]; then
+        settings --user "$user_id" put secure enabled_accessibility_services "$filtered:$SERVICE"
+    else
+        settings --user "$user_id" put secure enabled_accessibility_services "$SERVICE"
+    fi
+    settings --user "$user_id" put secure accessibility_enabled 1
+}
 
 if [ "$1" != '--daemon' ]; then
     [ -f "$MARKER" ] || exit 0
@@ -34,19 +101,14 @@ while [ -f "$MARKER" ]; do
         ''|*[!0-9]*) user_id=0 ;;
     esac
 
-    current="$(settings --user "$user_id" get secure enabled_accessibility_services 2>/dev/null)"
-    [ "$current" = 'null' ] && current=''
-    case ":$current:" in
-        *":$SERVICE:"*) next="$current" ;;
-        '') next="$SERVICE" ;;
-        *) next="$current:$SERVICE" ;;
-    esac
+    dumpsys deviceidle whitelist +"$PACKAGE" >/dev/null 2>&1
+    cmd appops set --user "$user_id" "$PACKAGE" RUN_IN_BACKGROUND allow >/dev/null 2>&1
+    cmd appops set --user "$user_id" "$PACKAGE" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1
+    cmd activity set-standby-bucket "$PACKAGE" active >/dev/null 2>&1
 
-    if [ "$next" != "$current" ]; then
-        settings --user "$user_id" put secure enabled_accessibility_services "$next"
+    enable_service "$user_id"
+    if ! accessibility_process_alive; then
+        rebind_service "$user_id"
     fi
-    if [ "$(settings --user "$user_id" get secure accessibility_enabled 2>/dev/null)" != '1' ]; then
-        settings --user "$user_id" put secure accessibility_enabled 1
-    fi
-    sleep 5
+    sleep 2
 done

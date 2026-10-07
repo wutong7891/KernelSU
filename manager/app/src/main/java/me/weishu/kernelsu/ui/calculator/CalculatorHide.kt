@@ -38,6 +38,7 @@ import java.util.Locale
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.MainActivity
 import me.weishu.kernelsu.ui.util.getRootShell
+import me.weishu.kernelsu.ui.util.rootAvailable
 
 object CalculatorHide {
     const val ACTION_STOP = "me.weishu.kernelsu.calculator.STOP_ACCESSIBILITY"
@@ -102,6 +103,10 @@ object CalculatorHide {
         val appContext = context.applicationContext
         Thread({
             try {
+                if (!rootAvailable()) {
+                    updateStatus(appContext, "Root 权限确认失败，无法启动无障碍守护")
+                    return@Thread
+                }
                 val shell = getRootShell()
                 if (!shell.isRoot) {
                     updateStatus(appContext, "Root 权限确认失败，无法启动无障碍守护")
@@ -114,6 +119,10 @@ object CalculatorHide {
                         "echo '$encoded' | /system/bin/toybox base64 -d > '$WATCHDOG_SCRIPT'; " +
                         "chmod 0700 '$WATCHDOG_SCRIPT'; " +
                         "touch '$WATCHDOG_MARKER'; " +
+                        "if [ -f '$WATCHDOG_PID' ]; then " +
+                        "old_pid=\$(cat '$WATCHDOG_PID' 2>/dev/null); " +
+                        "if [ -n \"\$old_pid\" ]; then kill \"\$old_pid\" 2>/dev/null; fi; " +
+                        "sleep 1; rm -f '$WATCHDOG_PID'; fi; " +
                         "/system/bin/sh '$WATCHDOG_SCRIPT'"
                 } else {
                     "rm -f '$WATCHDOG_MARKER'; " +
@@ -137,6 +146,7 @@ object CalculatorHide {
         val appContext = context.applicationContext
         Thread({
             try {
+                if (!rootAvailable()) return@Thread
                 val shell = getRootShell()
                 if (!shell.isRoot) return@Thread
                 val packageName = appContext.packageName
@@ -226,8 +236,8 @@ object CalculatorHide {
         val shellComponent = "${context.packageName}/.NightLauncher"
         val desiredState = if (visible) "enabled" else "disabled-user"
         val pmAction = if (visible) "enable" else "disable-user"
-        val rootShell = runCatching { getRootShell() }.getOrNull()
-        val rootConfirmed = rootShell?.isRoot == true
+        val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
+        val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
         val rootChanged = if (rootConfirmed) {
             runCatching {
                 rootShell.newJob().add(
