@@ -268,13 +268,37 @@ object CalculatorHide {
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
         val shellComponent = "${context.packageName}/.NightLauncher"
-        val desiredState = if (visible) "enabled" else "disabled-user"
         val pmAction = if (visible) "enable" else "disable-user"
-        // An application is allowed to change the enabled state of its own
-        // launcher alias.  Do this first so hiding/restoring the desktop entry
-        // never depends on Root being ready.  DISABLED_USER mirrors
-        // `adb shell pm disable-user` while DONT_KILL_APP keeps the listener.
-        val localChanged = runCatching {
+        val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
+        val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
+        val rootChanged = if (rootConfirmed && rootShell != null) {
+            runCatching {
+                val verifyState = if (visible) {
+                    "case \"\$state\" in enabled|default|*': enabled'|*': default') exit 0;; *) exit 1;; esac"
+                } else {
+                    "case \"\$state\" in disabled|disabled-user|disabled-until-used|*': disabled'|*': disabled-user'|*': disabled-until-used') exit 0;; *) exit 1;; esac"
+                }
+                val result = rootShell.newJob().add(
+                    "user=\$(cmd activity get-current-user 2>/dev/null); " +
+                        "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
+                        "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1 || exit 1; " +
+                        "sleep 1; " +
+                        "state=\$(cmd package get-component-enabled-setting --user \"\$user\" " +
+                        "'$shellComponent' 2>/dev/null || " +
+                        "cmd package get-component-enabled-setting '$shellComponent' 2>/dev/null); " +
+                        "state=\$(printf '%s' \"\$state\" | tr -d '\\r' | tail -n 1); " +
+                        verifyState,
+                ).exec()
+                result.isSuccess
+            }.getOrDefault(false)
+        } else {
+            false
+        }
+
+        // Compatibility fallback for systems where the manager root channel is
+        // temporarily unavailable.  Unlike the previous implementation, this
+        // path is accepted only after reading the component state back.
+        val localChanged = if (!rootChanged) runCatching {
             context.packageManager.setComponentEnabledSetting(
                 component,
                 if (visible) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
@@ -289,23 +313,7 @@ object CalculatorHide {
                 state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
                     state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
             }
-        }.getOrDefault(false)
-
-        val rootConfirmed = if (localChanged) false else runCatching { rootAvailable() }.getOrDefault(false)
-        val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
-        val rootChanged = if (!localChanged && rootConfirmed && rootShell != null) {
-            runCatching {
-                rootShell.newJob().add(
-                    "user=\$(cmd activity get-current-user 2>/dev/null); " +
-                        "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
-                        "cmd package set-enabled-setting --user \"\$user\" " +
-                        "'$shellComponent' '$desiredState' DONT_KILL_APP >/dev/null 2>&1 || " +
-                        "pm $pmAction --user \"\$user\" '$shellComponent' >/dev/null 2>&1",
-                ).exec().isSuccess
-            }.getOrDefault(false)
-        } else {
-            false
-        }
+        }.getOrDefault(false) else false
 
         val changed = rootChanged || localChanged
         if (changed) {
@@ -314,10 +322,10 @@ object CalculatorHide {
         updateStatus(
             context,
             when {
-                localChanged && visible -> "已恢复桌面入口"
-                localChanged -> "已按 ADB 隐藏方式禁用桌面入口"
                 rootChanged && visible -> "已通过 ADB 命令恢复桌面入口"
                 rootChanged -> "已通过 ADB 命令隐藏桌面入口"
+                localChanged && visible -> "已通过兼容方式恢复桌面入口"
+                localChanged -> "已通过兼容方式隐藏桌面入口"
                 else -> "桌面入口状态修改失败"
             },
         )
