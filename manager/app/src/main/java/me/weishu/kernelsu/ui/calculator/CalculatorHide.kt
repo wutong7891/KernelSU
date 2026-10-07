@@ -63,6 +63,10 @@ object CalculatorHide {
     private const val WATCHDOG_MARKER = "/data/adb/night_accessibility_watchdog.enabled"
     private const val WATCHDOG_PID = "/data/adb/night_accessibility_watchdog.pid"
     private const val WATCHDOG_LOCK = "/data/adb/night_accessibility_watchdog.lock"
+    // The manager applicationId is com.Night.night, while the manifest
+    // namespace remains me.weishu.kernelsu.  Android therefore registers the
+    // launcher alias under the namespace-qualified class name.
+    private const val LAUNCHER_ALIAS = "me.weishu.kernelsu.NightLauncher"
     @Volatile private var backgroundProtectionRunning = false
     @Volatile private var watchdogConfigRunning = false
     private val launcherVisibilityExecutor = Executors.newSingleThreadExecutor()
@@ -264,7 +268,7 @@ object CalculatorHide {
     }
 
     fun isLauncherVisible(context: Context): Boolean {
-        val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
+        val component = ComponentName(context.packageName, LAUNCHER_ALIAS)
         val disabledByPackageManager = context.packageManager.getComponentEnabledSetting(component) in setOf(
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
@@ -293,8 +297,8 @@ object CalculatorHide {
     }
 
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
-        val component = ComponentName(context.packageName, "${context.packageName}.NightLauncher")
-        val shellComponent = "${context.packageName}/.NightLauncher"
+        val component = ComponentName(context.packageName, LAUNCHER_ALIAS)
+        val shellComponent = "${context.packageName}/$LAUNCHER_ALIAS"
         // Change only the launcher alias. Hiding the complete package also
         // disables its accessibility service on Android/ColorOS.
         val pmAction = if (visible) "enable" else "disable"
