@@ -6,6 +6,9 @@ MARKER='/data/adb/night_accessibility_watchdog.enabled'
 PIDFILE='/data/adb/night_accessibility_watchdog.pid'
 SCRIPT='/data/adb/service.d/99-night-accessibility-watchdog.sh'
 PROCESS="$PACKAGE:night_accessibility"
+BOOTSTRAP_ACTION='com.Night.night.action.START_ACCESSIBILITY_KEEPALIVE'
+BOOTSTRAP_RECEIVER='com.Night.night/me.weishu.kernelsu.ui.calculator.CalculatorAccessibilityBootstrapReceiver'
+KEEPALIVE_SERVICE='com.Night.night/me.weishu.kernelsu.ui.calculator.CalculatorAccessibilityKeepAliveService'
 
 contains_service() {
     case ":$1:" in
@@ -73,6 +76,14 @@ rebind_service() {
     settings --user "$user_id" put secure accessibility_enabled 1
 }
 
+start_keepalive_process() {
+    user_id="$1"
+    cmd package set-stopped-state --user "$user_id" "$PACKAGE" false >/dev/null 2>&1 || true
+    am start-foreground-service --user "$user_id" -n "$KEEPALIVE_SERVICE" >/dev/null 2>&1 || \
+        am broadcast --user "$user_id" --include-stopped-packages \
+            -a "$BOOTSTRAP_ACTION" -n "$BOOTSTRAP_RECEIVER" >/dev/null 2>&1 || true
+}
+
 if [ "$1" != '--daemon' ]; then
     [ -f "$MARKER" ] || exit 0
     if [ -f "$PIDFILE" ]; then
@@ -108,6 +119,8 @@ while [ -f "$MARKER" ]; do
 
     enable_service "$user_id"
     if ! accessibility_process_alive; then
+        start_keepalive_process "$user_id"
+        sleep 1
         rebind_service "$user_id"
     fi
     sleep 2

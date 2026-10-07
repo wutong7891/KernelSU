@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -16,6 +17,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.IBinder
 import android.provider.Settings
 import android.text.InputType
 import android.util.Base64
@@ -32,6 +34,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.math.BigDecimal
 import java.util.Locale
@@ -43,6 +46,7 @@ import me.weishu.kernelsu.ui.util.rootAvailable
 object CalculatorHide {
     const val ACTION_STOP = "me.weishu.kernelsu.calculator.STOP_ACCESSIBILITY"
     const val ACTION_RESTORE_LAUNCHER = "me.weishu.kernelsu.calculator.RESTORE_LAUNCHER"
+    const val ACTION_START_KEEPALIVE = "com.Night.night.action.START_ACCESSIBILITY_KEEPALIVE"
 
     private const val PREFS = "night_calculator_accessibility"
     private const val KEY_ENABLED = "enabled"
@@ -98,6 +102,13 @@ object CalculatorHide {
     }
 
     fun configureRootWatchdog(context: Context, enabled: Boolean) {
+        if (enabled) {
+            startKeepAlive(context)
+        } else {
+            context.applicationContext.stopService(
+                Intent(context.applicationContext, CalculatorAccessibilityKeepAliveService::class.java),
+            )
+        }
         if (watchdogConfigRunning) return
         watchdogConfigRunning = true
         val appContext = context.applicationContext
@@ -138,6 +149,15 @@ object CalculatorHide {
                 watchdogConfigRunning = false
             }
         }, "NightAccessibilityWatchdogSetup").start()
+    }
+
+    fun startKeepAlive(context: Context) {
+        runCatching {
+            ContextCompat.startForegroundService(
+                context.applicationContext,
+                Intent(context.applicationContext, CalculatorAccessibilityKeepAliveService::class.java),
+            )
+        }
     }
 
     fun applyRootBackgroundProtection(context: Context) {
@@ -562,6 +582,70 @@ class CalculatorHideSettingsActivity : Activity() {
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+}
+
+class CalculatorAccessibilityKeepAliveService : Service() {
+    override fun onCreate() {
+        super.onCreate()
+        createChannel()
+        startForeground(NOTIFICATION_ID, buildNotification())
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!CalculatorHide.runtimeConfig(this).enabled) {
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (CalculatorHide.runtimeConfig(this).enabled) {
+            CalculatorHide.startKeepAlive(this)
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun createChannel() {
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Night 后台监听", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "保持已启用的计算器无障碍监听运行"
+                setShowBadge(false)
+            },
+        )
+    }
+
+    private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_logo_vector)
+        .setContentTitle("Night 计算器监听")
+        .setContentText("后台监听已运行")
+        .setContentIntent(
+            PendingIntent.getActivity(
+                this,
+                10,
+                Intent(this, CalculatorHideSettingsActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ),
+        )
+        .setOngoing(true)
+        .setSilent(true)
+        .build()
+
+    companion object {
+        private const val NOTIFICATION_ID = 4101
+        private const val CHANNEL_ID = "night_calculator_keepalive"
+    }
+}
+
+class CalculatorAccessibilityBootstrapReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == CalculatorHide.ACTION_START_KEEPALIVE) {
+            CalculatorHide.startKeepAlive(context)
+        }
+    }
 }
 
 class CalculatorAccessibilityService : AccessibilityService() {
