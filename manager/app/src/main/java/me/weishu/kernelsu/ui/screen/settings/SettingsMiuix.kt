@@ -52,6 +52,7 @@ import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
 import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
+import me.weishu.kernelsu.ui.ModuleStorageSettingsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
@@ -198,6 +199,14 @@ fun SettingPagerMiuix(
                                 Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "Root 应用监听", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
+                        )
+                        ArrowPreference(
+                            title = "独家模块存储目录",
+                            summary = "将模块实际文件迁移到 /data 下的自定义目录",
+                            startAction = {
+                                Icon(Icons.Rounded.Description, modifier = Modifier.padding(end = 6.dp), contentDescription = "模块存储目录", tint = colorScheme.onBackground)
+                            },
+                            onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) }
                         )
                         ArrowPreference(
                             title = "Night 部署与分区工具",

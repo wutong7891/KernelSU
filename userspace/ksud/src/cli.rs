@@ -321,6 +321,12 @@ enum Module {
     /// list all modules
     List,
 
+    /// manage the physical module storage directory
+    Storage {
+        #[command(subcommand)]
+        command: ModuleStorageCmd,
+    },
+
     /// manage module configuration
     Config {
         /// target internal module name (resolved as internal.<name>)
@@ -329,6 +335,14 @@ enum Module {
         #[command(subcommand)]
         command: ModuleConfigCmd,
     },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum ModuleStorageCmd {
+    /// print the configured physical module storage directory
+    Get,
+    /// select an empty directory under /data; use "default" to restore the original path
+    Set { path: String },
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -534,6 +548,17 @@ pub fn run() -> Result<()> {
                 Module::Disable { id } => module::disable_module(&id),
                 Module::Action { id } => module::run_action(&id),
                 Module::List => module::list_modules(),
+                Module::Storage { command } => match command {
+                    ModuleStorageCmd::Get => {
+                        println!("{}", crate::module_storage::desired_path().display());
+                        Ok(())
+                    }
+                    ModuleStorageCmd::Set { path } => {
+                        let selected = crate::module_storage::set_desired_path(&path)?;
+                        println!("module storage set to {}; reboot required", selected.display());
+                        Ok(())
+                    }
+                },
                 Module::Config { internal, command } => {
                     let module_id = match internal {
                         Some(internal_name) => format!("internal.{internal_name}"),

@@ -85,6 +85,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.KernelSU" />
         <activity
+            android:name=".ui.ModuleStorageSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.KernelSU" />
+        <activity
             android:name=".ui.calculator.CalculatorHideSettingsActivity"
             android:exported="false"
             android:screenOrientation="portrait"
