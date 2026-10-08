@@ -41,6 +41,8 @@ mod module_config;
 #[cfg(target_os = "android")]
 mod module_storage;
 #[cfg(target_os = "android")]
+mod night_runtime;
+#[cfg(target_os = "android")]
 mod profile;
 #[cfg(target_os = "android")]
 mod resetprop;

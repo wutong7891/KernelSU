@@ -23,9 +23,17 @@ pub fn on_post_data_fs() -> Result<()> {
 
     utils::umask(0);
 
+    if let Err(e) = crate::night_runtime::record_phase("post-fs-data", "initializing") {
+        warn!("record Night runtime phase failed: {e:#}");
+    }
+
     if let Err(e) = crate::module_storage::prepare() {
+        let _ = crate::night_runtime::record_phase("degraded", "module-storage-error");
         error!("prepare custom module storage failed: {e:#}");
         return Ok(());
+    }
+    if let Err(e) = crate::night_runtime::record_phase("post-fs-data", "module-storage-ready") {
+        warn!("record Night runtime phase failed: {e:#}");
     }
 
     // Clear all temporary module configs early
@@ -167,6 +175,9 @@ pub fn on_services() {
     }
 
     info!("on_services triggered!");
+    if let Err(e) = crate::night_runtime::record_phase("service", "module-services-running") {
+        warn!("record Night runtime phase failed: {e:#}");
+    }
     run_stage("service", false);
 }
 
@@ -178,6 +189,10 @@ pub fn on_boot_completed() {
 
     ksucalls::report_boot_complete();
     info!("on_boot_completed triggered!");
+
+    if let Err(e) = crate::night_runtime::record_phase("boot-completed", "ready") {
+        warn!("record Night runtime phase failed: {e:#}");
+    }
 
     run_stage("boot-completed", false);
 }

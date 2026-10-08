@@ -14,12 +14,14 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import me.weishu.kernelsu.ui.util.getModuleStoragePath
+import me.weishu.kernelsu.ui.util.getNightRuntimeStatus
 import me.weishu.kernelsu.ui.util.rootAvailable
 import me.weishu.kernelsu.ui.util.setModuleStoragePath
 
 class ModuleStorageSettingsActivity : Activity() {
     private lateinit var pathInput: EditText
     private lateinit var statusView: TextView
+    private lateinit var runtimeStatusView: TextView
     private lateinit var saveButton: Button
     private lateinit var defaultButton: Button
 
@@ -35,7 +37,15 @@ class ModuleStorageSettingsActivity : Activity() {
             setPadding(32, 44, 32, 64)
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
-        root.addView(text("独家模块存储目录", 27f, Color.WHITE))
+        root.addView(text("Night 独家运行层", 27f, Color.WHITE))
+        root.addView(text("透明展示 Night 运行引擎、KernelSU 来源、当前启动阶段、Boot ID 与模块物理目录；不会隐藏或伪装 Root 状态。", 14f, Color.rgb(172, 184, 211)))
+        runtimeStatusView = text("正在读取 Night 运行状态…", 14f, Color.rgb(159, 217, 255)).apply {
+            setTextIsSelectable(true)
+            setPadding(20, 24, 20, 24)
+            setBackgroundColor(Color.rgb(13, 28, 49))
+        }
+        root.addView(runtimeStatusView, wide())
+        root.addView(text("独家模块存储目录", 22f, Color.WHITE))
         root.addView(text("模块仍通过 /data/adb/modules 兼容路径运行，但实际文件会在重启时迁移到你选择的目录。", 14f, Color.rgb(172, 184, 211)))
         root.addView(text("仅允许 /data 下的绝对路径。新目录必须为空；保存后必须重启。不要选择 /data/adb/ksu、/data/adb/modules 或其子目录。", 14f, Color.rgb(255, 194, 103)))
 
@@ -67,16 +77,23 @@ class ModuleStorageSettingsActivity : Activity() {
         Thread {
             val result = runCatching {
                 check(rootAvailable()) { "KernelSU Root 不可用" }
-                getModuleStoragePath().ifBlank { "/data/adb/modules" }
+                Pair(
+                    getModuleStoragePath().ifBlank { "/data/adb/modules" },
+                    getNightRuntimeStatus().ifBlank { "Night Runtime 状态暂不可用" },
+                )
             }
             runOnUiThread {
                 setBusy(false)
                 result.fold(
-                    onSuccess = {
-                        pathInput.setText(it)
-                        statusView.text = "当前配置：$it"
+                    onSuccess = { (path, runtime) ->
+                        pathInput.setText(path)
+                        statusView.text = "当前配置：$path"
+                        runtimeStatusView.text = runtime
                     },
-                    onFailure = { statusView.text = "读取失败：${it.message}" },
+                    onFailure = {
+                        statusView.text = "读取失败：${it.message}"
+                        runtimeStatusView.text = "Night Runtime 状态读取失败"
+                    },
                 )
             }
         }.start()

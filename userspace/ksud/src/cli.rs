@@ -23,6 +23,12 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
+    /// Inspect the transparent Night runtime identity and boot lifecycle
+    NightRuntime {
+        #[command(subcommand)]
+        command: NightRuntimeCmd,
+    },
+
     /// Manage KernelSU modules
     Module {
         #[command(subcommand)]
@@ -346,6 +352,12 @@ enum ModuleStorageCmd {
 }
 
 #[derive(clap::Subcommand, Debug)]
+enum NightRuntimeCmd {
+    /// print the Night runtime identity and current boot phase
+    Status,
+}
+
+#[derive(clap::Subcommand, Debug)]
 enum ModuleConfigCmd {
     /// Get a config value
     Get {
@@ -528,6 +540,12 @@ pub fn run() -> Result<()> {
     log::info!("command: {:?}", cli.command);
 
     let result = match cli.command {
+        Commands::NightRuntime { command } => match command {
+            NightRuntimeCmd::Status => {
+                print!("{}", crate::night_runtime::status());
+                Ok(())
+            }
+        },
         Commands::PostFsData => init_event::on_post_data_fs(),
         Commands::BootCompleted => {
             init_event::on_boot_completed();

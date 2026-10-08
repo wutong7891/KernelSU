@@ -126,6 +126,11 @@ fun getModuleStoragePath(): String {
     return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} module storage get").trim()
 }
 
+fun getNightRuntimeStatus(): String {
+    val shell = getRootShell(true)
+    return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} night-runtime status").trim()
+}
+
 fun setModuleStoragePath(path: String): String {
     val shell = getRootShell(true)
     val result = shell.newJob()
