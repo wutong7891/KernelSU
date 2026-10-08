@@ -192,10 +192,10 @@ fun SettingPagerMiuix(
                             onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) }
                         )
                         ArrowPreference(
-                            title = "前台脚本监听",
-                            summary = "应用进入前台时以 Root 执行脚本，支持预输入与控制台",
+                            title = "Root 应用监听",
+                            summary = "指定应用前后台切换时执行自选脚本",
                             startAction = {
-                                Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "前台脚本监听", tint = colorScheme.onBackground)
+                                Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "Root 应用监听", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
                         )
