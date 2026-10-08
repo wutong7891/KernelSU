@@ -373,7 +373,7 @@ jobs:
 
   publish-night-artifacts:
     needs: [repack-manager, build-lkm]
-    if: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/night')) && needs.repack-manager.result == 'success' && needs.build-lkm.result == 'success' }}
+    if: ${{ github.ref == 'refs/heads/night' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && needs.repack-manager.result == 'success' && needs.build-lkm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read

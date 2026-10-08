@@ -75,6 +75,8 @@ pub fn run(package_name: &String, kmi: Option<String>, allow_shell: bool) -> Res
 
     utils::umask(0);
 
+    crate::module_storage::prepare().context("Failed to prepare custom module storage")?;
+
     if let Err(e) = crate::module_config::clear_all_temp_configs() {
         warn!("clear temp configs failed: {e}");
     }

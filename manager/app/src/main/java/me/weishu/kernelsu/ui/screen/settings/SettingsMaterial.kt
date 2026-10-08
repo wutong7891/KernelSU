@@ -65,6 +65,7 @@ import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
 import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
 import me.weishu.kernelsu.ui.NightToolsActivity
+import me.weishu.kernelsu.ui.ModuleStorageSettingsActivity
 
 /**
  * @author weishu
@@ -137,6 +138,15 @@ fun SettingPagerMaterial(
                             items = UiMode.entries.map { it.name },
                             selectedIndex = if (uiState.uiMode == UiMode.Material.value) 1 else 0,
                             onItemSelected = actions.onSetUiModeIndex
+                        )
+                    }
+                    add {
+                        SegmentedListItem(
+                            onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) },
+                            headlineContent = { Text("独家模块存储目录") },
+                            supportingContent = { Text("将模块实际文件迁移到 /data 下的自定义目录") },
+                            leadingContent = { Icon(Icons.Filled.Description, "模块存储目录") },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }
                     add {

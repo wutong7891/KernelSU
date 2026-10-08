@@ -121,6 +121,22 @@ fun execKsud(args: String, newShell: Boolean = false, globalMnt: Boolean = false
     }
 }
 
+fun getModuleStoragePath(): String {
+    val shell = getRootShell(true)
+    return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} module storage get").trim()
+}
+
+fun setModuleStoragePath(path: String): String {
+    val shell = getRootShell(true)
+    val result = shell.newJob()
+        .add("${shellQuote(getKsuDaemonPath())} module storage set ${shellQuote(path)}")
+        .to(ArrayList<String>(), ArrayList<String>())
+        .exec()
+    val message = (result.out + result.err).joinToString("\n").trim()
+    check(result.isSuccess) { message.ifBlank { "Failed to set module storage directory" } }
+    return message
+}
+
 suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.IO) {
     val shell = getRootShell()
     val out = shell.newJob()
