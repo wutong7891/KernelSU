@@ -165,9 +165,9 @@ fun SettingPagerMaterial(
                     add {
                         SegmentedListItem(
                             onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) },
-                            headlineContent = { Text("Root 应用监听") },
-                            supportingContent = { Text("指定应用前后台切换时执行自选脚本") },
-                            leadingContent = { Icon(Icons.Filled.DeveloperMode, "Root 应用监听") },
+                            headlineContent = { Text("前台脚本监听") },
+                            supportingContent = { Text("应用进入前台时以 Root 执行脚本，支持预输入与控制台") },
+                            leadingContent = { Icon(Icons.Filled.DeveloperMode, "前台脚本监听") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }
