@@ -239,11 +239,8 @@ class RootAppMonitorSettingsActivity : Activity() {
     private fun applyThen(action: (() -> Result<String>)? = null) {
         val config = currentConfig()
         runAsync("正在应用 Root 配置…", {
-            runCatching {
-                RootAppMonitor.apply(this, config).getOrThrow()
-                action?.invoke()?.getOrThrow()
-                    ?: if (config.enabled) "设置已应用，服务正在运行" else "监听已关闭"
-            }
+            RootAppMonitor.apply(this, config).getOrThrow()
+            action?.invoke()?.getOrThrow() ?: if (config.enabled) "设置已应用，服务正在运行" else "监听已关闭"
         })
     }
 
@@ -300,7 +297,7 @@ class RootAppMonitorSettingsActivity : Activity() {
         root.addView(button("保存并启动服务") { applyThen() }, wide(dp(56)).apply { topMargin = dp(16) })
         root.addView(button("打开目标应用") { applyThen { RootAppMonitor.openApp(this) } })
         root.addView(button("立即执行一次（使用预输入）") { applyThen { RootAppMonitor.runScript(this) } })
-        root.addView(button("刷新服务状态") { runAsync("正在读取状态…", { RootAppMonitor.status(this) }) })
+        root.addView(button("刷新服务状态") { runAsync("正在读取状态…") { RootAppMonitor.status(this) } })
 
         val console = panel()
         console.addView(label("Root 控制台", 20f, Color.WHITE, true))
