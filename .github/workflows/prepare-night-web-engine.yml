@@ -8,11 +8,35 @@ permissions:
   contents: write
 
 jobs:
+  resolve-night-certificate:
+    runs-on: ubuntu-latest
+    outputs:
+      expected_size: ${{ steps.cert.outputs.expected_size }}
+      expected_hash: ${{ steps.cert.outputs.expected_hash }}
+    steps:
+      - name: Export Night signing certificate identity
+        id: cert
+        env:
+          NIGHT_KEYSTORE: ${{ secrets.NIGHT_KEYSTORE }}
+          NIGHT_KEYSTORE_PASSWORD: ${{ secrets.NIGHT_KEYSTORE_PASSWORD }}
+          NIGHT_KEY_ALIAS: ${{ secrets.NIGHT_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$NIGHT_KEYSTORE"
+          test -n "$NIGHT_KEYSTORE_PASSWORD"
+          test -n "$NIGHT_KEY_ALIAS"
+          echo "$NIGHT_KEYSTORE" | base64 -d > night-key.jks
+          keytool -exportcert -alias "$NIGHT_KEY_ALIAS" -keystore night-key.jks -storepass "$NIGHT_KEYSTORE_PASSWORD" -file night-cert.der
+          size_dec=$(stat -c%s night-cert.der)
+          echo "expected_size=$(printf '0x%04x' "$size_dec")" >> "$GITHUB_OUTPUT"
+          echo "expected_hash=$(sha256sum night-cert.der | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
   build-lkm:
+    needs: resolve-night-certificate
     uses: ./.github/workflows/build-lkm.yml
     with:
-      expected_size: '0x05c2'
-      expected_hash: '793c3f0a25aeb0da17bb08573e1aa37d91fa183ef56c7c68f6675e0fdc08f271'
+      expected_size: ${{ needs.resolve-night-certificate.outputs.expected_size }}
+      expected_hash: ${{ needs.resolve-night-certificate.outputs.expected_hash }}
       package_name: 'com.Night.night'
       build_identity: 'Night-KMI-v2'
       build_x86: false

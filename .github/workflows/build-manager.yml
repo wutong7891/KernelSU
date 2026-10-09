@@ -69,25 +69,47 @@ jobs:
 
           echo "keystore=$(base64 -w 0 pr-key.jks)" >> $GITHUB_OUTPUT
 
-      - name: Extract certificate hash and size
-        if: github.event_name == 'pull_request'
+      - name: Extract signing certificate hash and size
         id: extract
         env:
-          STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
+          PR_KEYSTORE: ${{ steps.gen.outputs.keystore }}
+          PR_STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
+          NIGHT_KEYSTORE: ${{ secrets.NIGHT_KEYSTORE }}
+          NIGHT_KEYSTORE_PASSWORD: ${{ secrets.NIGHT_KEYSTORE_PASSWORD }}
+          NIGHT_KEY_ALIAS: ${{ secrets.NIGHT_KEY_ALIAS }}
+          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
+          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          # Export DER certificate
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            KEYSTORE_DATA="$PR_KEYSTORE"
+            STORE_PASS="$PR_STORE_PASS"
+            KEY_ALIAS_VALUE='pr-key'
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.ref }}" = "refs/heads/night" ]; then
+            KEYSTORE_DATA="$NIGHT_KEYSTORE"
+            STORE_PASS="$NIGHT_KEYSTORE_PASSWORD"
+            KEY_ALIAS_VALUE="$NIGHT_KEY_ALIAS"
+          else
+            KEYSTORE_DATA="$PROD_KEYSTORE"
+            STORE_PASS="$PROD_KEYSTORE_PASSWORD"
+            KEY_ALIAS_VALUE="$PROD_KEY_ALIAS"
+          fi
+
+          test -n "$KEYSTORE_DATA"
+          test -n "$STORE_PASS"
+          test -n "$KEY_ALIAS_VALUE"
+          echo "$KEYSTORE_DATA" | base64 -d > signing-key.jks
+
           keytool -exportcert \
-            -alias pr-key \
-            -keystore pr-key.jks \
+            -alias "$KEY_ALIAS_VALUE" \
+            -keystore signing-key.jks \
             -storepass "$STORE_PASS" \
-            -file pr-cert.der
+            -file signing-cert.der
 
-          # Calculate size in hex
-          SIZE_DEC=$(stat -c%s pr-cert.der)
+          SIZE_DEC=$(stat -c%s signing-cert.der)
           SIZE_HEX=$(printf '0x%04x' "$SIZE_DEC")
-
-          # Calculate SHA256 hash
-          HASH=$(sha256sum pr-cert.der | awk '{print $1}')
+          HASH=$(sha256sum signing-cert.der | awk '{print $1}')
           echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
           echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
 
@@ -99,8 +121,8 @@ jobs:
     uses: ./.github/workflows/build-lkm.yml
     with:
       package_name: com.Night.night
-      expected_size: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_size || ((github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && '0x05c2' || '') }}
-      expected_hash: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_hash || ((github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && '793c3f0a25aeb0da17bb08573e1aa37d91fa183ef56c7c68f6675e0fdc08f271' || '') }}
+      expected_size: ${{ needs.generate-key.outputs.expected_size }}
+      expected_hash: ${{ needs.generate-key.outputs.expected_hash }}
       build_identity: Night-KMI-v2
       build_x86: false
     secrets: inherit
