@@ -99,6 +99,7 @@ jobs:
       expected_size2: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_size || '' }}
       expected_hash2: ${{ github.event_name == 'pull_request' && needs.generate-key.outputs.expected_hash || '' }}
       manager_package: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && 'com.Night.night' || '' }}
+      build_identity: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/night') && 'Night-KMI-v2' || '' }}
       build_x86: false
     secrets: inherit
 
