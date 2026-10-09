@@ -94,7 +94,8 @@ module_param_named(bundled, ksu_bundled, bool, 0);
 
 int __init kernelsu_init(void)
 {
-    pr_info("Night KMI identity: %s\n", KSU_NIGHT_KMI_ID);
+    pr_info("Night exclusive KMI identity: %s (personal hobby, KernelSU-derived)\n",
+            KSU_NIGHT_KMI_ID);
 
 #if defined(__x86_64__) && !defined(CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER)
     // If the kernel has the hardening patch, X86_FEATURE_INDIRECT_SAFE must be set
@@ -236,8 +237,9 @@ module_exit(kernelsu_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("无痛");
-MODULE_DESCRIPTION("Night exclusive KernelSU KMI");
+MODULE_DESCRIPTION("Night exclusive KMI - personal hobby derivative based on KernelSU");
 MODULE_INFO(night_kmi, KSU_NIGHT_KMI_ID);
+MODULE_INFO(night_origin, "Night exclusive; personal hobby; KernelSU-derived");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
 #else

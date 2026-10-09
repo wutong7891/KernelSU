@@ -28,7 +28,7 @@ pub fn record_phase(phase: &str, detail: &str) -> Result<()> {
         .context("protect Night runtime directory")?;
 
     let state = format!(
-        "engine=Night Runtime\nsource=KernelSU\nruntime_schema={SCHEMA_VERSION}\nphase={phase}\ndetail={detail}\nboot_id={}\nupdated_unix={}\n",
+        "engine=Night Exclusive Runtime\nsource=Night exclusive derivative (based on KernelSU)\npurpose=personal hobby development\nruntime_schema={SCHEMA_VERSION}\nphase={phase}\ndetail={detail}\nboot_id={}\nupdated_unix={}\n",
         read_boot_id(),
         unix_time(),
     );
@@ -42,7 +42,7 @@ pub fn record_phase(phase: &str, detail: &str) -> Result<()> {
 pub fn status() -> String {
     let mut state = fs::read_to_string(STATE_FILE).unwrap_or_else(|_| {
         format!(
-            "engine=Night Runtime\nsource=KernelSU\nruntime_schema={SCHEMA_VERSION}\nphase=not-started\ndetail=waiting for post-fs-data\nboot_id={}\nupdated_unix=0\n",
+            "engine=Night Exclusive Runtime\nsource=Night exclusive derivative (based on KernelSU)\npurpose=personal hobby development\nruntime_schema={SCHEMA_VERSION}\nphase=not-started\ndetail=waiting for post-fs-data\nboot_id={}\nupdated_unix=0\n",
             read_boot_id(),
         )
     });
