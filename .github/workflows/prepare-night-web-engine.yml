@@ -13,7 +13,8 @@ jobs:
     with:
       expected_size: '0x05c2'
       expected_hash: '793c3f0a25aeb0da17bb08573e1aa37d91fa183ef56c7c68f6675e0fdc08f271'
-      manager_package: 'com.Night.night'
+      package_name: 'com.Night.night'
+      build_identity: 'Night-KMI-v2'
       build_x86: false
     secrets: inherit
 
