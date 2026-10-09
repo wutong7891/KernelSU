@@ -4,8 +4,8 @@ Night KMI modules are built for the Night manager signing certificate only.
 
 Night is an exclusive derivative created by 无痛 for personal hobby development and remains transparently based on KernelSU. Upstream copyright and GPL licensing are retained.
 
-- Certificate DER size: `0x02ca`
-- Certificate SHA-256: `606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be`
+- Certificate DER size: `0x05c2`
+- Certificate SHA-256: `793c3f0a25aeb0da17bb08573e1aa37d91fa183ef56c7c68f6675e0fdc08f271`
 - Supported ARM64 KMI: eight Android 12–17 variants (`5.10`, `5.15`, `6.1`, `6.6`, `6.12`, `6.18`)
 - Night builds the certificate as the primary manager identity, so the kernel no longer reports PR mode.
 - Manager package binding: `com.Night.night`
