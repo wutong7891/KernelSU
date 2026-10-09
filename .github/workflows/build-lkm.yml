@@ -2,28 +2,18 @@ name: Build LKM for KernelSU
 on:
   workflow_call:
     inputs:
+      package_name:
+        description: 'package name of manager'
+        required: false
+        default: ''
+        type: string
       expected_size:
-        description: 'Primary expected manager certificate size'
+        description: 'expected signature size'
         required: false
         default: ''
         type: string
       expected_hash:
-        description: 'Primary expected manager certificate SHA-256'
-        required: false
-        default: ''
-        type: string
-      expected_size2:
-        description: 'Second expected signature size (for PR builds)'
-        required: false
-        default: ''
-        type: string
-      expected_hash2:
-        description: 'Second expected signature hash (for PR builds)'
-        required: false
-        default: ''
-        type: string
-      manager_package:
-        description: 'Exclusive manager package name'
+        description: 'expected signature hash'
         required: false
         default: ''
         type: string
@@ -54,10 +44,8 @@ jobs:
     uses: ./.github/workflows/ddk-lkm.yml
     with:
       kmi: ${{ matrix.kmi }}
+      package_name: ${{ inputs.package_name || '' }}
       expected_size: ${{ inputs.expected_size || '' }}
       expected_hash: ${{ inputs.expected_hash || '' }}
-      expected_size2: ${{ inputs.expected_size2 || '' }}
-      expected_hash2: ${{ inputs.expected_hash2 || '' }}
-      manager_package: ${{ inputs.manager_package || '' }}
       build_identity: ${{ inputs.build_identity || '' }}
       build_x86: ${{ inputs.build_x86 }}
