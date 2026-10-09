@@ -1,0 +1,46 @@
+name: Build Night Exclusive KMI v2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-night-kmi:
+    uses: ./.github/workflows/build-lkm.yml
+    with:
+      expected_size: '0x02ca'
+      expected_hash: '606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
+      manager_package: 'com.Night.night'
+      build_identity: 'Night-KMI-v2'
+      build_x86: false
+
+  package-night-kmi:
+    needs: build-night-kmi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all ARM64 KMI modules
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-*-lkm
+          path: Night-exclusive-KMI-v2
+          merge-multiple: true
+
+      - name: Create verification manifest
+        working-directory: Night-exclusive-KMI-v2
+        run: |
+          {
+            echo 'Night Exclusive KMI v2'
+            echo 'Author: 无痛'
+            echo 'Manager package: com.Night.night'
+            echo 'Manager certificate SHA-256: 606f3dc77238f37243cf57d2ecb6a6383cadfa48bb2f69dcd501435167c631be'
+            echo 'Architecture: arm64'
+            echo
+            echo 'Each .ko is KMI-specific. Do not flash a module for a different Android/kernel KMI.'
+            echo
+            sha256sum *.ko
+          } > MANIFEST.txt
+
+      - name: Upload complete Night KMI suite
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-exclusive-KMI-v2
+          path: Night-exclusive-KMI-v2/*

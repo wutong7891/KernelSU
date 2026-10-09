@@ -3,6 +3,10 @@ MDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 ODIR := $(MDIR)
 KMI := $(notdir $(patsubst %/,%,$(KDIR)))
 
+ifdef KSU_NIGHT_KMI_ID
+ccflags-y += -DKSU_NIGHT_KMI_ID=\"$(KSU_NIGHT_KMI_ID)\"
+endif
+
 ifeq ($(KMI),android17-6.18)
 KBUILD_ARGS := M=$(MDIR) MO=$(ODIR)
 else

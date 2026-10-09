@@ -27,6 +27,11 @@ on:
         required: false
         default: ''
         type: string
+      build_identity:
+        description: 'Visible identity embedded in Night KMI modules'
+        required: false
+        default: ''
+        type: string
       build_x86:
         description: 'Also build x86_64 modules'
         required: false
@@ -54,4 +59,5 @@ jobs:
       expected_size2: ${{ inputs.expected_size2 || '' }}
       expected_hash2: ${{ inputs.expected_hash2 || '' }}
       manager_package: ${{ inputs.manager_package || '' }}
+      build_identity: ${{ inputs.build_identity || '' }}
       build_x86: ${{ inputs.build_x86 }}

@@ -37,6 +37,11 @@ on:
         required: false
         default: ''
         type: string
+      build_identity:
+        description: 'Visible identity embedded in Night KMI modules'
+        required: false
+        default: ''
+        type: string
       build_x86:
         description: 'Also build x86_64 modules'
         required: false
@@ -62,6 +67,7 @@ jobs:
         EXPECTED_SIZE2: ${{ inputs.expected_size2 }}
         EXPECTED_HASH2: ${{ inputs.expected_hash2 }}
         MANAGER_PACKAGE: ${{ inputs.manager_package }}
+        BUILD_IDENTITY: ${{ inputs.build_identity }}
       run: |
         git config --global --add safe.directory /__w/KernelSU/KernelSU
 
@@ -95,6 +101,10 @@ jobs:
         if [ -n "$MANAGER_PACKAGE" ]; then
           EXTRA_ARGS="$EXTRA_ARGS KSU_MANAGER_PACKAGE=$MANAGER_PACKAGE"
         fi
+        if [ -n "$BUILD_IDENTITY" ]; then
+          NIGHT_KMI_ID="$BUILD_IDENTITY-${{ inputs.kmi }}"
+          EXTRA_ARGS="$EXTRA_ARGS KSU_NIGHT_KMI_ID=$NIGHT_KMI_ID"
+        fi
         CONFIG_KSU=m CC=clang make $EXTRA_ARGS
         
         echo "=== Build completed ==="
@@ -127,6 +137,7 @@ jobs:
         EXPECTED_SIZE2: ${{ inputs.expected_size2 }}
         EXPECTED_HASH2: ${{ inputs.expected_hash2 }}
         MANAGER_PACKAGE: ${{ inputs.manager_package }}
+        BUILD_IDENTITY: ${{ inputs.build_identity }}
       run: |
         cd kernel
         make clean
@@ -187,6 +198,10 @@ jobs:
         fi
         if [ -n "$MANAGER_PACKAGE" ]; then
           EXTRA_ARGS="$EXTRA_ARGS KSU_MANAGER_PACKAGE=$MANAGER_PACKAGE"
+        fi
+        if [ -n "$BUILD_IDENTITY" ]; then
+          NIGHT_KMI_ID="$BUILD_IDENTITY-${{ inputs.kmi }}"
+          EXTRA_ARGS="$EXTRA_ARGS KSU_NIGHT_KMI_ID=$NIGHT_KMI_ID"
         fi
         
         MDIR=$(realpath .)
