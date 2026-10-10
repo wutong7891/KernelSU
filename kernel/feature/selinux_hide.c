@@ -87,7 +87,7 @@ static ssize_t my_write_context(struct file *file, char *buf, size_t size)
         return orig_context_write(file, buf, size);
     }
     char *canon = NULL;
-    u32 sid, len, tmp;
+    u32 sid, len;
     ssize_t length;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
@@ -95,12 +95,8 @@ static ssize_t my_write_context(struct file *file, char *buf, size_t size)
     if (length)
         goto out;
     length = security_context_to_sid_with_policy(backup_sepolicy, buf, size, &sid, SECSID_NULL, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(buf, size, &tmp, GFP_KERNEL);
-    }
 
     length = security_sid_to_context_with_policy(backup_sepolicy, sid, &canon, &len);
     if (length)
@@ -120,12 +116,8 @@ static ssize_t my_write_context(struct file *file, char *buf, size_t size)
         goto out;
 
     length = security_context_to_sid(&fake_state, buf, size, &sid, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(&selinux_state, buf, size, &tmp, GFP_KERNEL);
-    }
 
     length = security_sid_to_context(&fake_state, sid, &canon, &len);
     if (length)
@@ -146,7 +138,7 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
         return orig_access_write(file, buf, size);
     }
     char *scon = NULL, *tcon = NULL;
-    u32 ssid, tsid, sconlen, tconlen, tmp;
+    u32 ssid, tsid, sconlen, tconlen;
     u16 tclass;
     struct av_decision avd;
     ssize_t length;
@@ -179,38 +171,22 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
     length = security_context_to_sid_with_policy(backup_sepolicy, scon, sconlen, &ssid, SECSID_NULL, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(scon, sconlen, &tmp, GFP_KERNEL);
-    }
 
     length = security_context_to_sid_with_policy(backup_sepolicy, tcon, tconlen, &tsid, SECSID_NULL, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(tcon, tconlen, &tmp, GFP_KERNEL);
-    }
 
     security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, &avd);
 #else
     length = security_context_to_sid(&fake_state, scon, sconlen, &ssid, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(&selinux_state, scon, sconlen, &tmp, GFP_KERNEL);
-    }
 
     length = security_context_to_sid(&fake_state, tcon, tconlen, &tsid, GFP_KERNEL);
-    if (length) {
+    if (length)
         goto out;
-    } else {
-        // sync to global sidtab
-        security_context_to_sid(&selinux_state, tcon, tconlen, &tmp, GFP_KERNEL);
-    }
 
     security_compute_av_user(&fake_state, ssid, tsid, tclass, &avd);
 #endif
