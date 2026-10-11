@@ -89,12 +89,7 @@ void apply_kernelsu_rules()
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "netdomain");
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "bluetoothdomain");
 
-    /*
-     * Label only the anonymous file-wrapper inode handed to a client.
-     * This does not label the wrapped source file or any repository content.
-     * A client still needs to possess the wrapper fd before these permissions
-     * can be used.
-     */
+    // Create unconstrained file type
     ksu_type(db, KERNEL_SU_FILE, "file_type");
     ksu_typeattribute(db, KERNEL_SU_FILE, "mlstrustedobject");
     ksu_allow(db, "domain", KERNEL_SU_FILE, ALL, ALL);

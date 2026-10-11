@@ -3,11 +3,12 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>NightLicenseSigner</AssemblyName>
-    <RootNamespace>NightLicenseSigner</RootNamespace>
+    <AssemblyName>YipaSUOfflinePatcher</AssemblyName>
+    <RootNamespace>YipaSUOfflinePatcher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="private.key" LogicalName="NightLicenseSigner.private.key" />
+    <EmbeddedResource Include="assets\ksud.exe" LogicalName="YipaSUOfflinePatcher.ksud.exe" />
   </ItemGroup>
 </Project>

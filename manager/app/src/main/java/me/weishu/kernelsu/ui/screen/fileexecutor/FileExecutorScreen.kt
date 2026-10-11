@@ -158,7 +158,7 @@ private fun FileExecutorContent(
         scope.launch {
             try {
                 closeTerminal()
-                terminalOutput = "Night ROOT TERMINAL\nMT-style interactive session\n\nroot@night:/ # "
+                terminalOutput = "YipaSU ROOT TERMINAL\nMT-style interactive session\n\nroot@yipasu:/ # "
                 val process = withContext(Dispatchers.IO) { startRootTerminal(context) }
                 val writer = OutputStreamWriter(process.outputStream, Charsets.UTF_8)
                 terminalProcess = process
@@ -169,8 +169,8 @@ private fun FileExecutorContent(
                         while (true) {
                             val line = reader.readLine() ?: break
                             withContext(Dispatchers.Main) {
-                                if (line.startsWith("__NIGHT_EXIT__:")) {
-                                    appendTerminal("\n[exit ${line.removePrefix("__NIGHT_EXIT__:")}]\nroot@night:/ # ")
+                                if (line.startsWith("__YIPASU_EXIT__:")) {
+                                    appendTerminal("\n[exit ${line.removePrefix("__YIPASU_EXIT__:")}]\nroot@yipasu:/ # ")
                                 } else {
                                     appendTerminal(line + "\n")
                                 }
@@ -322,7 +322,7 @@ private fun FileExecutorContent(
                 title = {
                     Column {
                         Text(
-                            text = if (terminalFullscreen) "Night · ${stringResource(R.string.terminal)}"
+                            text = if (terminalFullscreen) "YipaSU · ${stringResource(R.string.terminal)}"
                             else stringResource(R.string.file_executor_files),
                             fontWeight = FontWeight.Bold,
                         )
@@ -397,7 +397,7 @@ private fun FileExecutorContent(
                 onHistoryNext = { browseHistory(1) },
                 onTab = { sendRawTerminalInput("\t") },
                 onInterrupt = { sendRawTerminalInput("\u0003") },
-                onClear = { terminalOutput = "root@night:/ # " },
+                onClear = { terminalOutput = "root@yipasu:/ # " },
                 onFocusRequest = {
                     terminalFocusRequester.requestFocus()
                     keyboardController?.show()
@@ -647,7 +647,7 @@ private fun FullscreenTerminal(
             border = BorderStroke(1.dp, TechGreen.copy(alpha = 0.30f)),
         ) {
             Text(
-                text = output.ifEmpty { "Night ROOT CONSOLE\n# " },
+                text = output.ifEmpty { "YipaSU ROOT CONSOLE\n# " },
                 modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(14.dp),
                 color = TechGreen,
                 fontFamily = FontFamily.Monospace,
@@ -773,7 +773,7 @@ private fun buildExecutionCommand(path: String): String = buildString {
     append("target=")
     append(shellQuote(path))
     append("; if [ -x \"\$target\" ]; then \"\$target\"; else /system/bin/sh \"\$target\"; fi")
-    append("; night_code=\$?; echo __NIGHT_EXIT__:\$night_code")
+    append("; yipasu_code=\$?; echo __YIPASU_EXIT__:\$yipasu_code")
 }
 
 private fun moveRootFileToAdb(path: String): MoveResult {

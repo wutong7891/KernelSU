@@ -110,9 +110,9 @@ fun SettingPager(
 }
 
 private fun installSoterRepairScript(context: android.content.Context): Boolean = runCatching {
-    val script = context.resources.openRawResource(R.raw.night_soter_key_fix).use { it.readBytes() }
+    val script = context.resources.openRawResource(R.raw.yipasu_soter_key_fix).use { it.readBytes() }
     val encoded = Base64.encodeToString(script, Base64.NO_WRAP)
-    val path = "/data/adb/service.d/night_soter_key_fix.sh"
+    val path = "/data/adb/service.d/yipasu_soter_key_fix.sh"
     val stdout = arrayListOf<String>()
     val stderr = arrayListOf<String>()
     val command = "mkdir -p /data/adb/service.d && " +

@@ -5,8 +5,8 @@
 #include <linux/version.h>
 #include <linux/cred.h>
 
-#define KERNEL_SU_DOMAIN "night_root"
-#define KERNEL_SU_FILE "night_fd_wrapper"
+#define KERNEL_SU_DOMAIN "ksu"
+#define KERNEL_SU_FILE "ksu_file"
 
 #define KERNEL_SU_CONTEXT "u:r:" KERNEL_SU_DOMAIN ":s0"
 #define KSU_FILE_CONTEXT "u:object_r:" KERNEL_SU_FILE ":s0"

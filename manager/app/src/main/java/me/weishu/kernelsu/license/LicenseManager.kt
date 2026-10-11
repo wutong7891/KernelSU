@@ -9,9 +9,9 @@ import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 
 object LicenseManager {
-    private const val PREFS = "night_license"
+    private const val PREFS = "yipasu_license"
     private const val CODE = "activation_code"
-    private const val PREFIX = "NIGHT1."
+    private const val PREFIX = "YIPASU1."
     private const val PUBLIC_KEY = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhbOnJD1Ug7WqLyZ9YTC/wO4TCLJh85vndZAsDgSTPaB/amdiO7CPhYG1E0eCFuF84BcMPuHMiZCGOQwkZC/6iA=="
 
     fun androidId(context: Context): String =
@@ -48,5 +48,5 @@ object LicenseManager {
     }.getOrDefault(false)
 
     private fun payload(androidId: String): ByteArray =
-        "Night|1|$androidId".toByteArray(StandardCharsets.UTF_8)
+        "YipaSU|1|$androidId".toByteArray(StandardCharsets.UTF_8)
 }

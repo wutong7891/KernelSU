@@ -1,4 +1,4 @@
-package com.Night.night.signer
+package com.jinfuwei.luoyu.signer
 
 import android.os.Bundle
 import android.util.Base64
@@ -56,12 +56,12 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            "Night // 激活码签发器",
+                            "YipaSU // 激活码签发器",
                             style = MaterialTheme.typography.headlineMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("输入目标 Night 管理器显示的 Android ID。私钥内置在此签发器中，请勿公开分发。")
+                        Text("输入目标 YipaSU 管理器显示的 Android ID。私钥内置在此签发器中，请勿公开分发。")
                         Spacer(Modifier.height(16.dp))
                         OutlinedTextField(
                             value = androidId,
@@ -98,17 +98,17 @@ class MainActivity : ComponentActivity() {
 
     private fun sign(androidId: String): String {
         check(BuildConfig.LICENSE_PRIVATE_KEY.isNotBlank()) {
-            "NIGHT_LICENSE_PRIVATE_KEY is not configured"
+            "YIPASU_LICENSE_PRIVATE_KEY is not configured"
         }
         val keyBytes = Base64.decode(BuildConfig.LICENSE_PRIVATE_KEY, Base64.DEFAULT)
         val privateKey = KeyFactory.getInstance("EC")
             .generatePrivate(PKCS8EncodedKeySpec(keyBytes))
         val signature = Signature.getInstance("SHA256withECDSA").run {
             initSign(privateKey)
-            update("Night|1|$androidId".toByteArray(StandardCharsets.UTF_8))
+            update("YipaSU|1|$androidId".toByteArray(StandardCharsets.UTF_8))
             sign()
         }
-        return "NIGHT1." + Base64.encodeToString(
+        return "YIPASU1." + Base64.encodeToString(
             signature,
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )

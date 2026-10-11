@@ -1,9 +1,9 @@
 #!/system/bin/sh
 
-# One-shot Night boot repair. Remove the launcher immediately so it runs on
+# One-shot YipaSU boot repair. Remove the launcher immediately so it runs on
 # the next boot only, then continue in the background after Android is ready.
 SELF="$0"
-LOG=/data/adb/night_soter_key_fix.log
+LOG=/data/adb/yipasu_soter_key_fix.log
 
 (
     rm -f "$SELF"
@@ -14,7 +14,7 @@ LOG=/data/adb/night_soter_key_fix.log
 
     tap_text() {
         LABEL="$1"
-        UI=/data/local/tmp/night_soter_window.xml
+        UI=/data/local/tmp/yipasu_soter_window.xml
         TRY=0
         while [ "$TRY" -lt 6 ]; do
             uiautomator dump "$UI" >/dev/null 2>&1
@@ -67,7 +67,7 @@ LOG=/data/adb/night_soter_key_fix.log
         fi
         PASS=$((PASS + 1))
     done
-    echo "[$(date)] Night SOTER Key 两遍自动修复完成"
+    echo "[$(date)] YipaSU SOTER Key 两遍自动修复完成"
 ) >>"$LOG" 2>&1 &
 
 exit 0

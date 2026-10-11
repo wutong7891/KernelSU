@@ -1,4 +1,4 @@
-package com.Night.night.patcher
+package com.jinfuwei.luoyu.patcher
 
 import android.app.Activity
 import android.content.Intent
@@ -47,7 +47,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(5, 8, 17))
         }
         content.addView(TextView(this).apply {
-            text = "Night 脱机镜像工坊"
+            text = "YipaSU 脱机镜像工坊"
             textSize = 26f
             setTextColor(Color.rgb(55, 230, 255))
         })
@@ -151,7 +151,7 @@ class MainActivity : Activity() {
             try {
                 val inputFile = File(cacheDir, "source.img")
                 val moduleFile = File(cacheDir, "kernelsu.ko")
-                val outputFile = File(cacheDir, "Night_patched.img")
+                val outputFile = File(cacheDir, "YipaSU_patched.img")
                 contentResolver.openInputStream(inputUri)!!.use { input ->
                     inputFile.outputStream().use(input::copyTo)
                 }
@@ -199,7 +199,7 @@ class MainActivity : Activity() {
 
     private fun outputName(): String {
         val base = sourceName.substringBeforeLast('.', sourceName).ifBlank { "boot" }
-        return "${base}_Night_patched.img"
+        return "${base}_YipaSU_patched.img"
     }
 
     private fun queryDisplayName(uri: Uri): String? = contentResolver.query(

@@ -1,4 +1,4 @@
-name: Build Night Offline Patcher
+name: Build YipaSU Offline Patcher
 
 on:
   workflow_dispatch:
@@ -34,13 +34,13 @@ jobs:
           Copy-Item artifacts/ksud/ksud.exe tools/offline-patcher/assets/ksud.exe -Force
 
       - name: Build single-file Windows tool
-        run: dotnet build tools/offline-patcher/NightOfflinePatcher.csproj -c Release
+        run: dotnet build tools/offline-patcher/YipaSUOfflinePatcher.csproj -c Release
 
       - name: Upload offline patcher
         uses: actions/upload-artifact@v7
         with:
-          name: night-offline-patcher
-          path: tools/offline-patcher/bin/Release/net48/NightOfflinePatcher.exe
+          name: yipasu-offline-patcher
+          path: tools/offline-patcher/bin/Release/net48/YipaSUOfflinePatcher.exe
 
   build-license-signer-exe:
     runs-on: windows-latest
@@ -51,22 +51,22 @@ jobs:
       - name: Write activation private key resource
         shell: pwsh
         env:
-          NIGHT_LICENSE_PRIVATE_KEY: ${{ secrets.NIGHT_LICENSE_PRIVATE_KEY || secrets.YIPASU_LICENSE_PRIVATE_KEY }}
+          YIPASU_LICENSE_PRIVATE_KEY: ${{ secrets.YIPASU_LICENSE_PRIVATE_KEY }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:NIGHT_LICENSE_PRIVATE_KEY)) {
-            throw "NIGHT_LICENSE_PRIVATE_KEY is missing"
+          if ([string]::IsNullOrWhiteSpace($env:YIPASU_LICENSE_PRIVATE_KEY)) {
+            throw "YIPASU_LICENSE_PRIVATE_KEY is missing"
           }
           Set-Content -LiteralPath tools/license-signer-windows/private.key `
-            -Value $env:NIGHT_LICENSE_PRIVATE_KEY -NoNewline
+            -Value $env:YIPASU_LICENSE_PRIVATE_KEY -NoNewline
 
       - name: Build Windows signer
-        run: dotnet build tools/license-signer-windows/NightLicenseSigner.csproj -c Release
+        run: dotnet build tools/license-signer-windows/YipaSULicenseSigner.csproj -c Release
 
       - name: Upload Windows signer
         uses: actions/upload-artifact@v7
         with:
-          name: night-license-signer-exe
-          path: tools/license-signer-windows/bin/Release/net48/NightLicenseSigner.exe
+          name: yipasu-license-signer-exe
+          path: tools/license-signer-windows/bin/Release/net48/YipaSULicenseSigner.exe
 
   build-offline-patcher-apk:
     runs-on: ubuntu-latest
@@ -129,12 +129,12 @@ jobs:
       - name: Create APK signing key
         run: |
           keytool -genkeypair -alias patcher -keyalg RSA -keysize 2048 -validity 3650 \
-            -storepass night-patcher -keypass night-patcher \
-            -dname "CN=Night Offline Patcher" -storetype JKS -keystore patcher.jks
+            -storepass yipasu-patcher -keypass yipasu-patcher \
+            -dname "CN=YipaSU Offline Patcher" -storetype JKS -keystore patcher.jks
           {
-            echo KEYSTORE_PASSWORD=night-patcher
+            echo KEYSTORE_PASSWORD=yipasu-patcher
             echo KEY_ALIAS=patcher
-            echo KEY_PASSWORD=night-patcher
+            echo KEY_PASSWORD=yipasu-patcher
             echo KEYSTORE_FILE=patcher.jks
           } >> gradle.properties
 
@@ -144,5 +144,5 @@ jobs:
       - name: Upload offline patcher APK
         uses: actions/upload-artifact@v7
         with:
-          name: night-offline-patcher-apk
+          name: yipasu-offline-patcher-apk
           path: manager/offline-patcher/build/outputs/apk/release/*.apk

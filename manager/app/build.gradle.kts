@@ -116,7 +116,7 @@ android {
     ndkVersion = androidCompileNdkVersion
 
     defaultConfig {
-        applicationId = "com.Night.night"
+        applicationId = "com.jinfuwei.luoyu"
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
         versionCode = managerVersionCode
@@ -156,7 +156,7 @@ androidComponents {
 
 base {
     archivesName.set(
-        "Night_${managerVersionName}_${managerVersionCode}"
+        "YipaSU_${managerVersionName}_${managerVersionCode}"
     )
 }
 

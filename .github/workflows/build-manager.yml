@@ -92,7 +92,7 @@ jobs:
     with:
       expected_size: ${{ needs.generate-key.outputs.expected_size }}
       expected_hash: ${{ needs.generate-key.outputs.expected_hash }}
-      manager_package: com.Night.night
+      manager_package: com.jinfuwei.luoyu
     secrets: inherit
 
   build-ksuinit:
@@ -153,16 +153,16 @@ jobs:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
           PR_KEY_PASSWORD: ${{ needs.generate-key.outputs.key_password }}
-          NIGHT_LICENSE_PRIVATE_KEY: ${{ secrets.NIGHT_LICENSE_PRIVATE_KEY || secrets.YIPASU_LICENSE_PRIVATE_KEY }}
+          YIPASU_LICENSE_PRIVATE_KEY: ${{ secrets.YIPASU_LICENSE_PRIVATE_KEY }}
         run: |
-          test -n "$NIGHT_LICENSE_PRIVATE_KEY"
+          test -n "$YIPASU_LICENSE_PRIVATE_KEY"
           echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
           {
             echo KEYSTORE_PASSWORD="$PR_KEYSTORE_PASSWORD"
             echo KEY_ALIAS='pr-key'
             echo KEY_PASSWORD="$PR_KEY_PASSWORD"
             echo KEYSTORE_FILE='pr-key.jks'
-            echo NIGHT_LICENSE_PRIVATE_KEY="$NIGHT_LICENSE_PRIVATE_KEY"
+            echo YIPASU_LICENSE_PRIVATE_KEY="$YIPASU_LICENSE_PRIVATE_KEY"
           } >> gradle.properties
 
       - name: Setup Java
@@ -197,7 +197,7 @@ jobs:
       - name: Upload license signer
         uses: actions/upload-artifact@v7
         with:
-          name: night-license-signer
+          name: yipasu-license-signer
           path: manager/license-signer/build/outputs/apk/release/*.apk
 
       - name: Upload mappings
@@ -229,13 +229,13 @@ jobs:
           Copy-Item artifacts/ksud/ksud.exe tools/offline-patcher/assets/ksud.exe -Force
 
       - name: Build offline patcher
-        run: dotnet build tools/offline-patcher/NightOfflinePatcher.csproj -c Release
+        run: dotnet build tools/offline-patcher/YipaSUOfflinePatcher.csproj -c Release
 
       - name: Upload offline patcher
         uses: actions/upload-artifact@v7
         with:
-          name: night-offline-patcher
-          path: tools/offline-patcher/bin/Release/net48/NightOfflinePatcher.exe
+          name: yipasu-offline-patcher
+          path: tools/offline-patcher/bin/Release/net48/YipaSUOfflinePatcher.exe
 
   repack-manager:
     needs: [build-manager, build-ksud, generate-key]

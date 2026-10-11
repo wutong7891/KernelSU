@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace NightOfflinePatcher
+namespace YipaSUOfflinePatcher
 {
     internal static class Program
     {
@@ -34,7 +34,7 @@ namespace NightOfflinePatcher
 
         public MainForm()
         {
-            Text = "Night 脱机镜像工坊";
+            Text = "YipaSU 脱机镜像工坊";
             ClientSize = new Size(760, 590);
             MinimumSize = new Size(700, 560);
             StartPosition = FormStartPosition.CenterScreen;
@@ -45,7 +45,7 @@ namespace NightOfflinePatcher
 
             var title = new Label
             {
-                Text = "Night 脱机镜像工坊",
+                Text = "YipaSU 脱机镜像工坊",
                 Font = new Font("Microsoft YaHei UI", 19F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(55, 230, 255),
                 AutoSize = true,
@@ -166,14 +166,14 @@ namespace NightOfflinePatcher
             var source = Path.GetFullPath(inputBox.Text);
             var dir = Path.GetDirectoryName(source) ?? Environment.CurrentDirectory;
             var name = Path.GetFileNameWithoutExtension(source);
-            return Path.Combine(dir, name + (restore ? "_Night_restored.img" : "_Night_patched.img"));
+            return Path.Combine(dir, name + (restore ? "_YipaSU_restored.img" : "_YipaSU_patched.img"));
         }
 
         private async Task RunPatch(bool restore)
         {
             if (!File.Exists(inputBox.Text))
             {
-                MessageBox.Show(this, "请选择有效的原始镜像。", "Night", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "请选择有效的原始镜像。", "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             var outputPath = GetOutputPath(restore);
@@ -216,7 +216,7 @@ namespace NightOfflinePatcher
                 }
                 outputHint.Text = "输出：" + outputPath;
                 AppendLog("完成：" + outputPath + "\r\n");
-                MessageBox.Show(this, "处理完成。\n\n" + outputPath, "Night", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "处理完成。\n\n" + outputPath, "YipaSU", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -231,10 +231,10 @@ namespace NightOfflinePatcher
 
         private void EnsureEngine()
         {
-            var dir = Path.Combine(Path.GetTempPath(), "NightOfflinePatcher");
+            var dir = Path.Combine(Path.GetTempPath(), "YipaSUOfflinePatcher");
             Directory.CreateDirectory(dir);
             enginePath = Path.Combine(dir, "ksud.exe");
-            using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("NightOfflinePatcher.ksud.exe"))
+            using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("YipaSUOfflinePatcher.ksud.exe"))
             {
                 if (input == null) throw new InvalidOperationException("内置脱机修补引擎缺失。");
                 using (var output = File.Create(enginePath)) input.CopyTo(output);
