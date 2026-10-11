@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Forms;
 
-namespace YipaSULicenseSigner
+namespace NightLicenseSigner
 {
     internal static class Program
     {
@@ -27,7 +27,7 @@ namespace YipaSULicenseSigner
 
         public SignerForm()
         {
-            Text = "YipaSU Android ID 签发工具";
+            Text = "Night Android ID 签发工具";
             ClientSize = new Size(680, 355);
             MinimumSize = new Size(620, 350);
             StartPosition = FormStartPosition.CenterScreen;
@@ -37,7 +37,7 @@ namespace YipaSULicenseSigner
 
             Controls.Add(new Label
             {
-                Text = "YipaSU 激活码签发工具",
+                Text = "Night 激活码签发工具",
                 Font = new Font("Microsoft YaHei UI", 19F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(55, 230, 255),
                 AutoSize = true,
@@ -97,12 +97,12 @@ namespace YipaSULicenseSigner
                 using (var ecdsa = new ECDsaCng(key))
                 {
                     rawSignature = ecdsa.SignData(
-                        Encoding.UTF8.GetBytes("YipaSU|1|" + id),
+                        Encoding.UTF8.GetBytes("Night|1|" + id),
                         HashAlgorithmName.SHA256
                     );
                 }
                 var derSignature = IsDer(rawSignature) ? rawSignature : P1363ToDer(rawSignature);
-                activationCode.Text = "YIPASU1." + Base64Url(derSignature);
+                activationCode.Text = "NIGHT1." + Base64Url(derSignature);
             }
             catch (Exception error)
             {
@@ -113,7 +113,7 @@ namespace YipaSULicenseSigner
         private static string ReadPrivateKey()
         {
             using (var stream = Assembly.GetExecutingAssembly()
-                .GetManifestResourceStream("YipaSULicenseSigner.private.key"))
+                .GetManifestResourceStream("NightLicenseSigner.private.key"))
             using (var reader = new StreamReader(stream ?? throw new InvalidOperationException("内置私钥缺失。")))
                 return reader.ReadToEnd().Trim();
         }

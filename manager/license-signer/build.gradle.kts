@@ -12,16 +12,16 @@ apksign {
 }
 
 android {
-    namespace = "com.jinfuwei.luoyu.signer"
+    namespace = "com.Night.night.signer"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.jinfuwei.luoyu.signer"
+        applicationId = "com.Night.night.signer"
         minSdk = 31
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
-        val privateKey = providers.gradleProperty("YIPASU_LICENSE_PRIVATE_KEY").orNull.orEmpty()
+        val privateKey = providers.gradleProperty("NIGHT_LICENSE_PRIVATE_KEY").orNull.orEmpty()
         buildConfigField("String", "LICENSE_PRIVATE_KEY", "\"$privateKey\"")
     }
 
@@ -42,4 +42,4 @@ dependencies {
     implementation(libs.androidx.compose.ui)
 }
 
-base { archivesName.set("YipaSU-License-Signer") }
+base { archivesName.set("Night-License-Signer") }

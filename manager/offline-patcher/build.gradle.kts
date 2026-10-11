@@ -11,11 +11,11 @@ apksign {
 }
 
 android {
-    namespace = "com.jinfuwei.luoyu.patcher"
+    namespace = "com.Night.night.patcher"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.jinfuwei.luoyu.patcher"
+        applicationId = "com.Night.night.patcher"
         minSdk = 31
         targetSdk = 37
         versionCode = 1
@@ -36,4 +36,4 @@ android {
     }
 }
 
-base { archivesName.set("YipaSU-Offline-Patcher") }
+base { archivesName.set("Night-Offline-Patcher") }

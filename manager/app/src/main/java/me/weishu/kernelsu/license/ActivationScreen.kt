@@ -36,9 +36,9 @@ fun ActivationScreen(androidId: String, onActivate: (String) -> Boolean) {
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("YipaSU 激活", style = MaterialTheme.typography.headlineMedium)
+                Text("Night 激活", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(12.dp))
-                Text("请复制下面的 Android ID，在 YipaSU 签发器中生成激活码。")
+                Text("请复制下面的 Android ID，在 Night 签发器中生成激活码。")
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = androidId,
@@ -62,7 +62,7 @@ fun ActivationScreen(androidId: String, onActivate: (String) -> Boolean) {
                     if (!onActivate(activationCode)) {
                         Toast.makeText(context, "激活码无效或不属于此设备", Toast.LENGTH_LONG).show()
                     }
-                }) { Text("激活并进入 YipaSU") }
+                }) { Text("激活并进入 Night") }
             }
         }
     }

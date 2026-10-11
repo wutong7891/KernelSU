@@ -17,7 +17,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "YipaSU"
+rootProject.name = "Night"
 include(":app")
 include(":license-signer")
 include(":offline-patcher")

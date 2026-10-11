@@ -1,4 +1,4 @@
-# YipaSU 3.2.5ksu
+# Night 3.2.5ksu
 
 This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at version code 32525.
 
@@ -27,13 +27,13 @@ For clarity and auditability, the privileged process domain is `u:r:night_root:s
 
 - The primary reboot action uses Android soft restart.
 - Settings includes a confirmed one-shot **Restart and auto-fix SOTER Key** action. It installs a Root boot script, soft-restarts, waits for Android to finish booting, runs the supplied SOTER service/data repair sequence twice, and after each pass opens the dialer test code and navigates through Manual test / Other / Key status by visible text.
-- The phone must be unlocked for the text-driven UI navigation. The script removes itself before running and writes its diagnostic log to `/data/adb/yipasu_soter_key_fix.log`.
+- The phone must be unlocked for the text-driven UI navigation. The script removes itself before running and writes its diagnostic log to `/data/adb/night_soter_key_fix.log`.
 
 ## Packages
 
-- Manager display name: `YipaSU`
-- Manager application ID: `com.jinfuwei.luoyu`
-- License signer application ID: `com.jinfuwei.luoyu.signer`
+- Manager display name: `Night`
+- Manager application ID: `com.Night.night`
+- License signer application ID: `com.Night.night.signer`
 
 ## Activation
 
@@ -41,26 +41,26 @@ The manager displays its Android ID before initializing KernelSU. It accepts onl
 
 The signer APK accepts an Android ID copied from the manager and produces the matching activation code. Android 8 and later scope Android ID by application signing identity, so the signer intentionally does not use its own Android ID.
 
-The signer private key is supplied at build time through the `YIPASU_LICENSE_PRIVATE_KEY` Gradle property. The GitHub workflow reads it from the Actions secret with the same name. Never commit the private key.
+The signer private key is supplied at build time through the `NIGHT_LICENSE_PRIVATE_KEY` Gradle property. The GitHub workflow reads it from the Actions secret with the same name. Never commit the private key.
 
 ## GitHub Actions artifacts
 
 Pushing to `main`, `dev`, or `ci` runs `.github/workflows/build-manager.yml` and produces:
 
-- the signed/repacked YipaSU manager APK;
-- the signed YipaSU license signer APK;
+- the signed/repacked Night manager APK;
+- the signed Night license signer APK;
 - `kernelsu.ko` artifacts for `android12-5.10`, `android13-5.10`, `android13-5.15`, `android14-5.15`, `android14-6.1`, `android15-6.6`, and `android16-6.12`;
 - matching `ksud` and `ksuinit` artifacts.
 
-The manager signing certificate is generated per workflow run. Its hash and the exact package name `com.jinfuwei.luoyu` replace the upstream manager identity in every KMI module, so the modules accept only the YipaSU manager from the same run. Always install a manager APK and KMI module downloaded from that same Actions run.
+The manager signing certificate is generated per workflow run. Its hash and the exact package name `com.Night.night` replace the upstream manager identity in every KMI module, so the modules accept only the Night manager from the same run. Always install a manager APK and KMI module downloaded from that same Actions run.
 
-The Android `ksud` binaries repacked into the manager are built with `pack_lkm: false`, so the manager APK contains no built-in KMI modules. The separate `YipaSUOfflinePatcher.exe` is built on GitHub Actions and embeds the Windows patch engine plus the exclusive KMI set for fully offline boot/init_boot patching.
+The Android `ksud` binaries repacked into the manager are built with `pack_lkm: false`, so the manager APK contains no built-in KMI modules. The separate `NightOfflinePatcher.exe` is built on GitHub Actions and embeds the Windows patch engine plus the exclusive KMI set for fully offline boot/init_boot patching.
 
-Both offline patchers provide a graphical interface. They no longer ask for a separate output path: the patched file is automatically created beside the selected source image as `<source>_YipaSU_patched.img` (and the Windows restore action creates `<source>_YipaSU_restored.img`).
+Both offline patchers provide a graphical interface. They no longer ask for a separate output path: the patched file is automatically created beside the selected source image as `<source>_Night_patched.img` (and the Windows restore action creates `<source>_Night_restored.img`).
 
 Additional GitHub-built tools are provided for the requested platform split:
 
-- `YipaSULicenseSigner.exe`: a Windows offline Android ID activation-code signer with the private key injected from the encrypted Actions secret;
-- `YipaSU-Offline-Patcher-release.apk`: an Android app with no Internet permission that contains the exclusive KMI files and patches a user-selected boot/init_boot image through Android's document picker.
+- `NightLicenseSigner.exe`: a Windows offline Android ID activation-code signer with the private key injected from the encrypted Actions secret;
+- `Night-Offline-Patcher-release.apk`: an Android app with no Internet permission that contains the exclusive KMI files and patches a user-selected boot/init_boot image through Android's document picker.
 
 The Windows and Android signing tools both provide graphical interfaces. The private signing key remains injected only during the GitHub Actions build and is never committed to the repository.
