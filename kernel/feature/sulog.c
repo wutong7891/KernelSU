@@ -17,10 +17,10 @@ static int sulog_feature_get(u64 *value)
 
 static int sulog_feature_set(u64 value)
 {
-    if (value)
-        pr_info("sulog: root access event logging is disabled by this build\n");
+    bool enable = value != 0;
 
-    ksu_sulog_enabled = false;
+    ksu_sulog_enabled = enable;
+    pr_info("sulog: set to %d\n", enable);
     return 0;
 }
 
