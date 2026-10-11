@@ -37,7 +37,7 @@ class ModuleStorageSettingsActivity : Activity() {
             setPadding(32, 44, 32, 64)
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
-        root.addView(text("Night 独家运行时诊断特征", 27f, Color.WHITE))
+        root.addView(text("Night 独家侧信道运行时特征（诊断）", 27f, Color.WHITE))
         root.addView(text("Night 独家衍生版，仅供个人玩机爱好开发与测试，基于 KernelSU。透明展示当前启动阶段、Boot ID、模块物理目录与兼容状态；不会绕过检测、隐藏或伪装 Root 状态。", 14f, Color.rgb(172, 184, 211)))
         runtimeStatusView = text("正在读取 Night 运行状态…", 14f, Color.rgb(159, 217, 255)).apply {
             setTextIsSelectable(true)
