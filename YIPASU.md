@@ -8,7 +8,7 @@ This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at ver
 
 This is a personal Android-device hobby project. It is intended only for lawful learning, research, and administration of devices owned or authorized by the user. It must not be used for unlawful, infringing, or unauthorized activity.
 
-For clarity and auditability, the privileged process domain is `u:r:yipasu_root:s0`. The `u:object_r:yipasu_fd_wrapper:s0` type labels only anonymous wrapper inodes for file descriptors explicitly handed to client processes; it does not label source files or grant access to repository content. A process must already possess the wrapper file descriptor before the associated SELinux permission can be exercised.
+For clarity and auditability, the privileged process domain is `u:r:night_root:s0`. The `u:object_r:night_fd_wrapper:s0` type labels only anonymous wrapper inodes for file descriptors explicitly handed to client processes; it does not label source files or grant access to repository content. A process must already possess the wrapper file descriptor before the associated SELinux permission can be exercised.
 
 ## UI refresh and Root terminal
 
