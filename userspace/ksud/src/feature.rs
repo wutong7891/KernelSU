@@ -371,6 +371,19 @@ pub fn load_config_and_apply() -> Result<()> {
     Ok(())
 }
 
+pub fn set_feature_config(id: &str, value: u64) -> Result<()> {
+    let feature_id = parse_feature_id(id)?;
+    let mut features = load_binary_config()?;
+    features.insert(feature_id as u32, value);
+    save_binary_config(&features)?;
+    println!(
+        "Feature '{}' persistence set to {value} ({})",
+        feature_id.name(),
+        if value != 0 { "enabled" } else { "disabled" }
+    );
+    Ok(())
+}
+
 pub fn save_config() -> Result<()> {
     let mut features = HashMap::new();
 

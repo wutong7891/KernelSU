@@ -467,6 +467,14 @@ enum Feature {
         id: String,
     },
 
+    /// Persist one feature value without snapshotting unrelated runtime state
+    SetConfig {
+        /// Feature ID or name
+        id: String,
+        /// Feature value to restore during boot
+        value: u64,
+    },
+
     /// Load configuration from file and apply to kernel
     Load,
 
@@ -736,6 +744,7 @@ pub fn run() -> Result<()> {
                 Ok(())
             }
             Feature::Check { id } => crate::feature::check_feature(&id),
+            Feature::SetConfig { id, value } => crate::feature::set_feature_config(&id, value),
             Feature::Load => crate::feature::load_config_and_apply(),
             Feature::Save => crate::feature::save_config(),
         },

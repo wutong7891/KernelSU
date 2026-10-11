@@ -196,6 +196,9 @@ class SettingsRepositoryImpl : SettingsRepository {
 
     override fun setSelinuxHideEnabled(enabled: Boolean): Int = Natives.setSelinuxHideEnabled(enabled)
 
+    override fun persistFeatureValue(feature: String, enabled: Boolean): Boolean =
+        execKsud("feature set-config $feature ${if (enabled) 1 else 0}", true)
+
     override suspend fun getSulogStatus(): String = getFeatureStatus("sulog")
 
     override suspend fun getSulogPersistValue(): Long? = getFeaturePersistValue("sulog")

@@ -180,6 +180,19 @@ pub fn on_services() {
     }
 
     info!("on_services triggered!");
+
+    // Re-apply persisted feature intent at service stage. Some kernel features depend on
+    // policy state that can still be settling during post-fs-data; the handlers are
+    // idempotent, so this is a safe retry and prevents a transient boot race from
+    // leaving the Manager switch off after restart.
+    if utils::has_magisk() {
+        warn!("Magisk detected, skip service-stage feature retry");
+    } else if is_safe_mode() {
+        warn!("safe mode, skip service-stage feature retry");
+    } else if let Err(e) = crate::feature::init_features() {
+        warn!("service-stage feature retry failed: {e}");
+    }
+
     if let Err(e) = crate::night_runtime::record_phase("service", "module-services-running") {
         warn!("record Night runtime phase failed: {e:#}");
     }
