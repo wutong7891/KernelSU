@@ -537,7 +537,7 @@ int ksu_install_file_wrapper(int fd)
     // libc's stdio relies on the fstat() result of the fd to determine its buffer type.
     wrapper_inode->i_mode = file_inode(orig_file)->i_mode;
     struct inode_security_struct *wrapper_sec = selinux_inode(wrapper_inode);
-    // Use ksu_file_sid to bypass SELinux check.
+    // Use the cached Night private-file SID for the explicitly issued wrapper fd.
     // When we call `su` from terminal app, this is useful.
     if (wrapper_sec) {
         wrapper_sec->sid = ksu_file_sid;

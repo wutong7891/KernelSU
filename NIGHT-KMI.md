@@ -15,4 +15,10 @@ Night is an exclusive derivative created by 无痛 for personal hobby developmen
 
 The Night manager APK is intentionally KMI-free. The modules are distributed as separate artifacts and are embedded only in the dedicated offline patcher tools. This keeps the root manager smaller and makes the module/signing identity explicit.
 
+## Intended use and SELinux identity
+
+本项目由作者出于个人玩机爱好进行开发，仅用于合法学习、研究、测试以及管理本人拥有或已获授权的设备；不得用于违法、侵权或未经授权的活动。
+
+Night uses the explicit SELinux identities `u:r:night_root:s0` and `u:object_r:night_private_file:s0`. The private-file policy denies access inherited by ordinary Android application domains, including `untrusted_app`, while retaining only the Root and init access required for operation. These names are fixed, documented, and auditable; they are not randomized or disguised.
+
 Back up the original `boot.img` or `init_boot.img` before patching. The offline tools create a new image and never flash a device.

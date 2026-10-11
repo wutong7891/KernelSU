@@ -236,7 +236,7 @@ service myservice /data/adb/modules/mymodule/bin/myservice
     user root
     group root
     disabled
-    seclabel u:r:ksu:s0
+    seclabel u:r:night_root:s0
 
 on property:sys.boot_completed=1
     start myservice

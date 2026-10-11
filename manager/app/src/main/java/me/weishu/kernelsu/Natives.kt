@@ -26,7 +26,7 @@ object Natives {
     // 32513: add uapi version
     const val MINIMAL_SUPPORTED_KERNEL = 32513
 
-    const val KERNEL_SU_DOMAIN = "u:r:ksu:s0"
+    const val KERNEL_SU_DOMAIN = "u:r:night_root:s0"
 
     const val ROOT_UID = 0
     const val ROOT_GID = 0

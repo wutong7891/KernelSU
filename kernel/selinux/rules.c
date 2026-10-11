@@ -92,17 +92,17 @@ void apply_kernelsu_rules()
 
     // Keep KernelSU private files isolated from ordinary Android domains.
     // In particular, do not grant the domain attribute access here: that
-    // expands to untrusted_app and lets any application probe/read ksu_file.
+    // expands to untrusted_app and lets any application probe/read the Night private-file type.
     ksu_type(db, KERNEL_SU_FILE, "file_type");
     ksu_allow(db, KERNEL_SU_DOMAIN, KERNEL_SU_FILE, ALL, ALL);
 
     // Remove any access inherited through broad platform appdomain/file_type
-    // rules. The manager talks to ksud; it never needs to read ksu_file
+    // rules. The manager talks to ksud; it never needs to read the Night private-file type
     // directly from its Android application domain.
     ksu_deny(db, "appdomain", KERNEL_SU_FILE, ALL, ALL);
 
     // init only needs to inspect and execute ksud during the explicit domain
-    // transition. All subsequent private-file access is performed by ksu.
+    // transition. All subsequent private-file access is performed by the Night Root domain.
     ksu_allow(db, "init", KERNEL_SU_FILE, "file", "getattr");
     ksu_allow(db, "init", KERNEL_SU_FILE, "file", "open");
     ksu_allow(db, "init", KERNEL_SU_FILE, "file", "read");
