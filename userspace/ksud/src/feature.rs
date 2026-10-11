@@ -1,4 +1,3 @@
-use crate::sulog;
 use anyhow::{Context, Result, bail};
 use const_format::concatcp;
 use std::collections::HashMap;
@@ -75,17 +74,17 @@ fn parse_feature_id(name: &str) -> Result<FeatureId> {
     }
 }
 
+fn effective_feature_value(feature_id: FeatureId, value: u64) -> u64 {
+    match feature_id {
+        FeatureId::Sulog => 0,
+        _ => value,
+    }
+}
+
 fn set_kernel_feature(feature_id: FeatureId, value: u64) -> Result<()> {
+    let value = effective_feature_value(feature_id, value);
     crate::ksucalls::set_feature(feature_id as u32, value)
         .with_context(|| format!("Failed to set feature {} to {value}", feature_id.name()))?;
-
-    if feature_id == FeatureId::Sulog
-        && value != 0
-        && let Err(err) = sulog::ensure_sulogd_running()
-    {
-        log::warn!("failed to ensure sulogd is running after feature init: {err:#}");
-    }
-
     Ok(())
 }
 
@@ -182,6 +181,7 @@ pub fn apply_config(features: &HashMap<u32, u64>) {
         match FeatureId::from_u32(id) {
             Some(feature_id) => match set_kernel_feature(feature_id, value) {
                 Ok(()) => {
+                    let value = effective_feature_value(feature_id, value);
                     log::info!("Set feature {} to {value}", feature_id.name());
                     applied += 1;
                 }
@@ -283,6 +283,7 @@ pub fn set_feature(id: &str, value: u64) -> Result<()> {
     }
 
     set_kernel_feature(feature_id, value)?;
+    let value = effective_feature_value(feature_id, value);
 
     println!(
         "Feature '{}' set to {value} ({})",
