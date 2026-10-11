@@ -2,6 +2,14 @@
 
 This fork is based on KernelSU v3.2.5 and keeps the kernel/userspace UAPI at version code 32525.
 
+## Intended use and SELinux labels
+
+本项目是作者个人玩机爱好项目，仅用于合法的学习、研究与自有设备管理；不得用于任何违法、侵权或未经授权的活动。
+
+This is a personal Android-device hobby project. It is intended only for lawful learning, research, and administration of devices owned or authorized by the user. It must not be used for unlawful, infringing, or unauthorized activity.
+
+For clarity and auditability, the privileged process domain is `u:r:yipasu_root:s0`. The `u:object_r:yipasu_fd_wrapper:s0` type labels only anonymous wrapper inodes for file descriptors explicitly handed to client processes; it does not label source files or grant access to repository content. A process must already possess the wrapper file descriptor before the associated SELinux permission can be exercised.
+
 ## UI refresh and Root terminal
 
 - Uses the supplied “无痛定制” artwork as the adaptive and legacy launcher icon.
