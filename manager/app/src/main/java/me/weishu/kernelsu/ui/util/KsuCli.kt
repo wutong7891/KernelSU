@@ -36,6 +36,17 @@ import java.util.concurrent.TimeUnit
  */
 private const val TAG = "KsuCli"
 private const val SYSTEM_KSUD_PATH = "/data/adb/ksud"
+private const val NIGHT_KMI_ASSET_DIR = "night-kmi"
+private val BUNDLED_NIGHT_KMIS = setOf(
+    "android12-5.10",
+    "android13-5.10",
+    "android13-5.15",
+    "android14-5.15",
+    "android14-6.1",
+    "android15-6.6",
+    "android16-6.12",
+    "android17-6.18",
+)
 
 private fun getKsuDaemonPath(): String {
     val bundled = File(ksuApp.applicationInfo.nativeLibraryDir, "libksud.so")
@@ -438,12 +449,35 @@ sealed class LkmSelection : Parcelable {
 }
 
 private fun writeLkmFile(lkm: LkmSelection): File? {
-    if (lkm !is LkmSelection.LkmUri) return null
     val file = File(ksuApp.cacheDir, "kernelsu-tmp-lkm.ko")
-    ksuApp.contentResolver.openInputStream(lkm.uri)?.use { input ->
-        file.outputStream().use { output -> input.copyTo(output) }
+    when (lkm) {
+        is LkmSelection.LkmUri -> {
+            val input = checkNotNull(ksuApp.contentResolver.openInputStream(lkm.uri)) {
+                "Unable to open the selected LKM file"
+            }
+            input.use { source ->
+                file.outputStream().use { output -> source.copyTo(output) }
+            }
+        }
+
+        is LkmSelection.KmiString -> {
+            require(lkm.value in BUNDLED_NIGHT_KMIS) {
+                "Unsupported Night KMI: ${lkm.value}"
+            }
+            val assetPath = "$NIGHT_KMI_ASSET_DIR/${lkm.value}_kernelsu.ko"
+            ksuApp.assets.open(assetPath).use { source ->
+                file.outputStream().use { output -> source.copyTo(output) }
+            }
+        }
+
+        LkmSelection.KmiNone -> return null
     }
+    check(file.isFile && file.length() > 0L) { "Night KMI asset is empty" }
     return file
+}
+
+private fun prepareLkmFile(lkm: LkmSelection): Result<File?> = runCatching {
+    writeLkmFile(lkm)
 }
 
 private fun bootPatchFlags(
@@ -494,11 +528,12 @@ fun installBoot(
         cmd += " -u"
     }
 
-    val lkmFile = writeLkmFile(lkm)
+    val lkmFile = prepareLkmFile(lkm).getOrElse { error ->
+        bootFile?.delete()
+        return FlashResult(-1, "Bundled Night KMI unavailable: ${error.message}", false)
+    }
     if (lkmFile != null) {
         cmd += " -m ${lkmFile.absolutePath}"
-    } else if (lkm is LkmSelection.KmiString) {
-        cmd += " --kmi ${lkm.value}"
     }
 
     if (bootFile != null) {
@@ -590,13 +625,18 @@ fun downloadBoot(
     var cmd = "${getKsuDaemonPath()} boot-patch -b ${bootFile.absolutePath}"
     cmd += bootPatchFlags(allowShell, enableAdb, forceBackup)
 
-    val lkmFile = writeLkmFile(lkm)
+    val effectiveLkm = if (lkm is LkmSelection.KmiNone && autoKmi != null) {
+        LkmSelection.KmiString(autoKmi)
+    } else {
+        lkm
+    }
+    val lkmFile = prepareLkmFile(effectiveLkm).getOrElse { error ->
+        bootFile.delete()
+        return FlashResult(-1, "Bundled Night KMI unavailable: ${error.message}", false)
+    }
     if (lkmFile != null) {
         cmd += " -m ${lkmFile.absolutePath}"
-    } else if (lkm is LkmSelection.KmiString) {
-        cmd += " --kmi ${lkm.value}"
     }
-    if (autoKmi != null) cmd += " --kmi $autoKmi"
     cmd += " --partition $partition"
     // ksud defaults to cwd, which is read-only in the su session; use Downloads.
     val downloadsDir =

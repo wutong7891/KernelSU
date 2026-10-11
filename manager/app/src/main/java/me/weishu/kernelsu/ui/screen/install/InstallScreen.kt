@@ -271,6 +271,13 @@ fun InstallScreen() {
             if (!isLkmSelected && isKmiUnresolved) {
                 showChooseKmiDialog.value = true
             } else {
+                if (!isLkmSelected &&
+                    installMethod !is InstallMethod.DownloadFile &&
+                    installMethod !is InstallMethod.SelectFile &&
+                    currentKmi.isNotBlank()
+                ) {
+                    lkmSelection = LkmSelection.KmiString(currentKmi)
+                }
                 onInstall()
             }
         },

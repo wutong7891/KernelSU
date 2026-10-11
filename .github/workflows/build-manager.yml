@@ -147,8 +147,8 @@ jobs:
       pack_ksuinit: true
   
   build-manager:
-    needs: [generate-key]
-    if: always() && needs.generate-key.result == 'success'
+    needs: [generate-key, build-lkm]
+    if: always() && needs.generate-key.result == 'success' && needs.build-lkm.result == 'success'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -159,6 +159,31 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Embed Night certificate-bound KMI modules
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-*-lkm
+          path: manager/app/src/main/assets/night-kmi
+          merge-multiple: true
+
+      - name: Verify bundled Night KMI set
+        run: |
+          set -euo pipefail
+          KMI_DIR=app/src/main/assets/night-kmi
+          for KMI in \
+            android12-5.10 \
+            android13-5.10 \
+            android13-5.15 \
+            android14-5.15 \
+            android14-6.1 \
+            android15-6.6 \
+            android16-6.12 \
+            android17-6.18; do
+            test -s "$KMI_DIR/${KMI}_kernelsu.ko"
+          done
+          test "$(find "$KMI_DIR" -maxdepth 1 -type f -name '*_kernelsu.ko' | wc -l)" -eq 8
+          sha256sum "$KMI_DIR"/*_kernelsu.ko
 
       - name: Write key
         if: ${{ github.event_name == 'workflow_dispatch' || ( github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/night') ) || github.ref_type == 'tag' }}
