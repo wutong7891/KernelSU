@@ -143,9 +143,9 @@ fun SettingPagerMaterial(
                     add {
                         SegmentedListItem(
                             onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) },
-                            headlineContent = { Text("独家模块存储目录") },
-                            supportingContent = { Text("将模块实际文件迁移到 /data 下的自定义目录") },
-                            leadingContent = { Icon(Icons.Filled.Description, "模块存储目录") },
+                            headlineContent = { Text("Night 独家侧信道运行时特征") },
+                            supportingContent = { Text("查看运行时诊断，并配置独家模块存储目录") },
+                            leadingContent = { Icon(Icons.Filled.Description, "独家侧信道运行时特征") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }

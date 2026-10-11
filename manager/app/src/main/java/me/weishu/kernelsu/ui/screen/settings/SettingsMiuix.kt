@@ -201,10 +201,10 @@ fun SettingPagerMiuix(
                             onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
                         )
                         ArrowPreference(
-                            title = "独家模块存储目录",
-                            summary = "将模块实际文件迁移到 /data 下的自定义目录",
+                            title = "Night 独家侧信道运行时特征",
+                            summary = "查看运行时诊断，并配置独家模块存储目录",
                             startAction = {
-                                Icon(Icons.Rounded.Description, modifier = Modifier.padding(end = 6.dp), contentDescription = "模块存储目录", tint = colorScheme.onBackground)
+                                Icon(Icons.Rounded.Description, modifier = Modifier.padding(end = 6.dp), contentDescription = "独家侧信道运行时特征", tint = colorScheme.onBackground)
                             },
                             onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) }
                         )

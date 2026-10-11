@@ -37,15 +37,15 @@ class ModuleStorageSettingsActivity : Activity() {
             setPadding(32, 44, 32, 64)
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
-        root.addView(text("Night 独家侧信道运行时特征（诊断）", 27f, Color.WHITE))
+        root.addView(text("Night 独家侧信道运行时特征", 27f, Color.WHITE))
         root.addView(text("Night 独家衍生版，仅供个人玩机爱好开发与测试，基于 KernelSU。透明展示当前启动阶段、Boot ID、模块物理目录与兼容状态；不会绕过检测、隐藏或伪装 Root 状态。", 14f, Color.rgb(172, 184, 211)))
-        runtimeStatusView = text("正在读取 Night 运行状态…", 14f, Color.rgb(159, 217, 255)).apply {
+        runtimeStatusView = text("正在读取 Night 独家侧信道运行时特征…", 14f, Color.rgb(159, 217, 255)).apply {
             setTextIsSelectable(true)
             setPadding(20, 24, 20, 24)
             setBackgroundColor(Color.rgb(13, 28, 49))
         }
         root.addView(runtimeStatusView, wide())
-        root.addView(text("独家模块存储目录", 22f, Color.WHITE))
+        root.addView(text("独家侧信道运行时特征 · 模块存储", 22f, Color.WHITE))
         root.addView(text("模块仍通过 /data/adb/modules 兼容路径运行，但实际文件会在重启时迁移到你选择的目录。", 14f, Color.rgb(172, 184, 211)))
         root.addView(text("仅允许 /data 下的绝对路径。新目录必须为空；保存后必须重启。不要选择 /data/adb/ksu、/data/adb/modules 或其子目录。", 14f, Color.rgb(255, 194, 103)))
 
@@ -79,7 +79,7 @@ class ModuleStorageSettingsActivity : Activity() {
                 check(rootAvailable()) { "KernelSU Root 不可用" }
                 Pair(
                     getModuleStoragePath().ifBlank { "/data/adb/modules" },
-                    getNightRuntimeStatus().ifBlank { "Night Runtime 状态暂不可用" },
+                    getNightRuntimeStatus().ifBlank { "Night 独家侧信道运行时特征暂不可用" },
                 )
             }
             runOnUiThread {
@@ -92,7 +92,7 @@ class ModuleStorageSettingsActivity : Activity() {
                     },
                     onFailure = {
                         statusView.text = "读取失败：${it.message}"
-                        runtimeStatusView.text = "Night Runtime 状态读取失败"
+                        runtimeStatusView.text = "Night 独家侧信道运行时特征读取失败"
                     },
                 )
             }
