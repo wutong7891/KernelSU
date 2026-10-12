@@ -139,6 +139,10 @@ pub fn load_binary_config() -> Result<HashMap<u32, u64>> {
         features.insert(id, value);
     }
 
+    if features.contains_key(&(FeatureId::Sulog as u32)) {
+        features.insert(FeatureId::Sulog as u32, 0);
+    }
+
     log::info!("Loaded {} features from config", features.len());
     Ok(features)
 }
@@ -369,6 +373,20 @@ pub fn load_config_and_apply() -> Result<()> {
 
     apply_config(&features);
     println!("Feature configuration loaded and applied");
+    Ok(())
+}
+
+pub fn set_feature_config(id: &str, value: u64) -> Result<()> {
+    let feature_id = parse_feature_id(id)?;
+    let value = effective_feature_value(feature_id, value);
+    let mut features = load_binary_config()?;
+    features.insert(feature_id as u32, value);
+    save_binary_config(&features)?;
+    println!(
+        "Feature '{}' persistence set to {value} ({})",
+        feature_id.name(),
+        if value != 0 { "enabled" } else { "disabled" }
+    );
     Ok(())
 }
 
