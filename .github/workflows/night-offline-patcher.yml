@@ -12,6 +12,7 @@ on:
       - '.github/workflows/ksud-extra.yml'
       - 'manager/offline-patcher/**'
       - 'tools/night-offline-patcher/**'
+      - 'tools/night-terminal-patcher/**'
       - 'userspace/**'
       - 'kernel/**'
       - 'Cargo.lock'
@@ -170,3 +171,59 @@ jobs:
         with:
           name: Night-Offline-Patcher-Android
           path: manager/offline-patcher/build/outputs/apk/release/*.apk
+
+  terminal-patcher:
+    needs: [build-lkm, build-android-engines, build-windows-engine]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Download ARM64 Android engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-aarch64-linux-android
+          path: artifacts/android-arm64
+      - name: Download x86_64 Android engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-linux-android
+          path: artifacts/android-x86_64
+      - name: Download Windows engine
+        uses: actions/download-artifact@v8
+        with:
+          name: ksud-x86_64-pc-windows-gnu
+          path: artifacts/windows
+      - name: Download exclusive ARM64 KMI set
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aarch64-android*-lkm
+          merge-multiple: true
+          path: artifacts/kmi
+      - name: Build Windows terminal EXE
+        run: >-
+          dotnet publish tools/night-terminal-patcher/NightPatcher.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+      - name: Assemble terminal patcher
+        run: |
+          set -euo pipefail
+          root=Night-Terminal-Patcher-v3
+          mkdir -p "$root/bin/android" "$root/bin/windows" "$root/kmi"
+          cp tools/night-terminal-patcher/bin/Release/net8.0/win-x64/publish/NightPatcher.exe "$root/"
+          cp tools/night-terminal-patcher/night-patch.sh "$root/"
+          cp tools/night-terminal-patcher/night-patch.ps1 "$root/"
+          cp tools/night-terminal-patcher/night-patch.cmd "$root/"
+          cp tools/night-terminal-patcher/README.md "$root/README.md"
+          cp artifacts/android-arm64/ksud "$root/bin/android/ksud-arm64"
+          cp artifacts/android-x86_64/ksud "$root/bin/android/ksud-x86_64"
+          cp artifacts/windows/ksud.exe "$root/bin/windows/ksud.exe"
+          cp artifacts/kmi/*_kernelsu.ko "$root/kmi/"
+          chmod 700 "$root/night-patch.sh" "$root/bin/android/ksud-arm64" "$root/bin/android/ksud-x86_64"
+          (cd "$root" && sha256sum NightPatcher.exe night-patch.sh night-patch.ps1 night-patch.cmd bin/android/* bin/windows/* kmi/* > SHA256.txt)
+      - name: Upload terminal patcher
+        uses: actions/upload-artifact@v7
+        with:
+          name: Night-Terminal-Patcher-v3
+          path: Night-Terminal-Patcher-v3
