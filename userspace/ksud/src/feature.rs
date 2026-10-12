@@ -12,6 +12,10 @@ const FEATURE_CONFIG_PATH: &str = concatcp!(defs::WORKING_DIR, ".feature_config"
 const FEATURE_MAGIC: u32 = 0x7f4b5355;
 const FEATURE_VERSION: u32 = 1;
 
+fn default_feature_config() -> HashMap<u32, u64> {
+    HashMap::from([(FeatureId::SelinuxHide as u32, 1)])
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum FeatureId {
@@ -91,8 +95,8 @@ fn set_kernel_feature(feature_id: FeatureId, value: u64) -> Result<()> {
 pub fn load_binary_config() -> Result<HashMap<u32, u64>> {
     let path = Path::new(FEATURE_CONFIG_PATH);
     if !path.exists() {
-        log::info!("Feature config not found, using defaults");
-        return Ok(HashMap::new());
+        log::info!("Feature config not found, using Night defaults");
+        return Ok(default_feature_config());
     }
 
     let mut file = File::open(path).with_context(|| "Failed to open feature config")?;
@@ -123,7 +127,7 @@ pub fn load_binary_config() -> Result<HashMap<u32, u64>> {
         .with_context(|| "Failed to read count")?;
     let count = u32::from_le_bytes(count_buf);
 
-    let mut features = HashMap::new();
+    let mut features = default_feature_config();
     for _ in 0..count {
         let mut id_buf = [0u8; 4];
         let mut value_buf = [0u8; 8];
