@@ -16,6 +16,10 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        Console.OutputEncoding = Encoding.UTF8;
+        if (args.Length == 0)
+            return RunInteractive();
+
         try
         {
             return Run(args);
@@ -25,6 +29,92 @@ internal static class Program
             Console.Error.WriteLine($"错误：{exception.Message}");
             return 1;
         }
+    }
+
+    private static int RunInteractive()
+    {
+        Console.Title = "Night Terminal Patcher v3";
+        Console.WriteLine("Night Terminal Patcher v3");
+        Console.WriteLine("支持 boot.img / init_boot.img");
+        Console.WriteLine();
+        Console.WriteLine("  1. 修补镜像");
+        Console.WriteLine("  2. 还原镜像");
+        Console.WriteLine("  3. 查看支持的 KMI");
+        Console.WriteLine("  0. 退出");
+        Console.WriteLine();
+        Console.Write("请选择：");
+        var choice = Console.ReadLine()?.Trim();
+
+        try
+        {
+            switch (choice)
+            {
+                case "1":
+                    Console.Write("请输入或拖入 boot.img / init_boot.img：");
+                    var image = ReadPath();
+                    Console.WriteLine();
+                    for (var index = 0; index < SupportedKmis.Length; index++)
+                        Console.WriteLine($"  {index + 1}. {SupportedKmis[index]}");
+                    Console.Write("请选择 KMI 编号：");
+                    var selected = Console.ReadLine()?.Trim();
+                    if (!int.TryParse(selected, out var kmiIndex) || kmiIndex < 1 || kmiIndex > SupportedKmis.Length)
+                        throw new ArgumentException("KMI 编号无效。");
+                    Console.Write("输出路径（直接回车使用默认名称）：");
+                    var patchOutput = ReadOptionalPath();
+                    return FinishInteractive(Run(patchOutput is null
+                        ? ["patch", image, SupportedKmis[kmiIndex - 1]]
+                        : ["patch", image, SupportedKmis[kmiIndex - 1], patchOutput]));
+
+                case "2":
+                    Console.Write("请输入或拖入已修补镜像：");
+                    var patchedImage = ReadPath();
+                    Console.Write("输出路径（直接回车使用默认名称）：");
+                    var restoreOutput = ReadOptionalPath();
+                    return FinishInteractive(Run(restoreOutput is null
+                        ? ["restore", patchedImage]
+                        : ["restore", patchedImage, restoreOutput]));
+
+                case "3":
+                    Console.WriteLine();
+                    foreach (var supportedKmi in SupportedKmis)
+                        Console.WriteLine(supportedKmi);
+                    return FinishInteractive(0);
+
+                case "0":
+                    return 0;
+
+                default:
+                    throw new ArgumentException("请选择 0、1、2 或 3。");
+            }
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"错误：{exception.Message}");
+            return FinishInteractive(1);
+        }
+    }
+
+    private static string ReadPath()
+    {
+        var value = Console.ReadLine()?.Trim().Trim('"');
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("没有输入镜像路径。");
+        return value;
+    }
+
+    private static string? ReadOptionalPath()
+    {
+        var value = Console.ReadLine()?.Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static int FinishInteractive(int exitCode)
+    {
+        Console.WriteLine();
+        Console.Write("按 Enter 键关闭窗口……");
+        Console.ReadLine();
+        return exitCode;
     }
 
     private static int Run(string[] args)

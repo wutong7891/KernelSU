@@ -15,6 +15,10 @@ sh night-patch.sh restore init_boot_Night_patched.img
 
 ## Windows 终端 EXE
 
+直接双击 `NightPatcher.exe` 会打开交互式终端菜单，窗口会等待用户选择和输入，不会自动关闭。镜像路径既可以输入，也可以直接拖入终端窗口。
+
+也可以在 PowerShell 或 CMD 中使用命令参数：
+
 ```powershell
 .\NightPatcher.exe list
 .\NightPatcher.exe patch .\boot.img android14-6.1
