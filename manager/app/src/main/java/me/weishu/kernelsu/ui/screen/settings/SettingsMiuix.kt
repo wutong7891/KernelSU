@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -256,6 +257,7 @@ fun SettingPagerMiuix(
                             val suSummary = when (uiState.suCompatStatus) {
                                 "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                                 "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
                                 else -> stringResource(id = R.string.settings_sucompat_summary)
                             }
                             OverlayDropdownPreference(
@@ -278,6 +280,7 @@ fun SettingPagerMiuix(
                             val umountSummary = when (uiState.kernelUmountStatus) {
                                 "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                                 "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
                                 else -> stringResource(id = R.string.settings_kernel_umount_summary)
                             }
                             SwitchPreference(
@@ -299,6 +302,7 @@ fun SettingPagerMiuix(
                             val selinuxHideSummary = when (uiState.selinuxHideStatus) {
                                 "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                                 "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
                                 else -> stringResource(id = R.string.settings_selinux_hide_summary)
                             }
                             SwitchPreference(
@@ -320,6 +324,7 @@ fun SettingPagerMiuix(
                             val sulogSummary = when (uiState.sulogStatus) {
                                 "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                                 "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
                                 else -> stringResource(id = R.string.settings_sulog_summary)
                             }
                             SwitchPreference(
@@ -341,6 +346,7 @@ fun SettingPagerMiuix(
                             val adbRootSummary = when (uiState.adbRootStatus) {
                                 "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                                 "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
                                 else -> stringResource(id = R.string.settings_adb_root_summary)
                             }
                             SwitchPreference(
@@ -357,6 +363,28 @@ fun SettingPagerMiuix(
                                 enabled = uiState.adbRootStatus == "supported",
                                 checked = uiState.isAdbRootEnabled,
                                 onCheckedChange = actions.onSetAdbRootEnabled
+                            )
+
+                            val shellSuAdbOnlySummary = when (uiState.shellSuAdbOnlyStatus) {
+                                "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
+                                "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
+                                else -> stringResource(id = R.string.settings_shell_su_adb_only_summary)
+                            }
+                            SwitchPreference(
+                                title = stringResource(id = R.string.settings_shell_su_adb_only),
+                                summary = shellSuAdbOnlySummary,
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.VerifiedUser,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_shell_su_adb_only),
+                                        tint = if (uiState.shellSuAdbOnlyStatus == "supported") colorScheme.onBackground else colorScheme.disabledOnSecondaryVariant
+                                    )
+                                },
+                                enabled = uiState.shellSuAdbOnlyStatus == "supported",
+                                checked = uiState.isShellSuAdbOnlyEnabled,
+                                onCheckedChange = actions.onSetShellSuAdbOnlyEnabled
                             )
                             SwitchPreference(
                                 title = stringResource(id = R.string.settings_soft_reboot),

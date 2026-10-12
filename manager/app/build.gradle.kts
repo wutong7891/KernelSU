@@ -212,6 +212,7 @@ dependencies {
     implementation(libs.dev.rikka.rikkax.parcelablelist)
 
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     implementation(libs.commonmark)
     implementation(libs.commonmark.ext.gfm.tables)
@@ -243,6 +244,7 @@ dependencies {
     implementation(libs.protobuf.kotlin.lite)
 
     // Offline OCR fallback for calculator apps that draw their result on a Canvas.
+    testImplementation(libs.junit)
 }
 
 kotlin {
