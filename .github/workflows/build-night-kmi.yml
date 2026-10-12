@@ -2,6 +2,10 @@ name: Build Night Exclusive KMI v3
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "night" ]
+    paths:
+      - '.github/workflows/build-night-kmi.yml'
 
 jobs:
   resolve-night-certificate:
