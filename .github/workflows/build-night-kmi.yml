@@ -1,4 +1,4 @@
-name: Build Night Exclusive KMI v2
+name: Build Night Exclusive KMI v3
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ jobs:
       expected_size: ${{ needs.resolve-night-certificate.outputs.expected_size }}
       expected_hash: ${{ needs.resolve-night-certificate.outputs.expected_hash }}
       package_name: 'com.Night.night'
-      build_identity: 'Night-KMI-v2'
+      build_identity: 'Night-KMI-v3'
       build_x86: false
 
   package-night-kmi:
@@ -45,14 +45,14 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: aarch64-*-lkm
-          path: Night-exclusive-KMI-v2
+          path: Night-exclusive-KMI-v3
           merge-multiple: true
 
       - name: Create verification manifest
-        working-directory: Night-exclusive-KMI-v2
+        working-directory: Night-exclusive-KMI-v3
         run: |
           {
-            echo 'Night Exclusive KMI v2'
+            echo 'Night Exclusive KMI v3'
             echo 'Author: 无痛'
             echo 'Purpose: personal hobby development'
             echo 'Origin: Night exclusive derivative based on KernelSU'
@@ -69,5 +69,5 @@ jobs:
       - name: Upload complete Night KMI suite
         uses: actions/upload-artifact@v7
         with:
-          name: Night-exclusive-KMI-v2
-          path: Night-exclusive-KMI-v2/*
+          name: Night-exclusive-KMI-v3
+          path: Night-exclusive-KMI-v3/*

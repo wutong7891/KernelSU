@@ -52,7 +52,7 @@ jobs:
       expected_size: ${{ needs.resolve-night-certificate.outputs.expected_size }}
       expected_hash: ${{ needs.resolve-night-certificate.outputs.expected_hash }}
       package_name: 'com.Night.night'
-      build_identity: 'Night-KMI-v2'
+      build_identity: 'Night-KMI-v3'
       build_x86: false
     secrets: inherit
 
