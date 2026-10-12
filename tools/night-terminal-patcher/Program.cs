@@ -31,8 +31,8 @@ internal static class Program
     {
         if (args.Length == 1 && args[0].Equals("list", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var kmi in SupportedKmis)
-                Console.WriteLine(kmi);
+            foreach (var supportedKmi in SupportedKmis)
+                Console.WriteLine(supportedKmi);
             return 0;
         }
 
