@@ -99,6 +99,9 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, unsigned
 {
     loff_t signers_end, signer_end, signed_data_end, digests_end, certificates_end;
     u32 certificate_size;
+    unsigned char *cert;
+    unsigned char digest[SHA256_DIGEST_SIZE];
+    char hash_str[SHA256_DIGEST_SIZE * 2 + 1];
 
     // v2 block: signers sequence -> first signer -> signed data -> digests
     if (!read_length_prefixed_end(fp, pos, block_end, &signers_end) ||
@@ -115,26 +118,27 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, unsigned
     if (certificate_size > INT_MAX || certificate_size > (u64)(certificates_end - *pos))
         return false;
 
-#define CERT_MAX_LENGTH 1024
     if (certificate_size != expected_size)
         return false;
 
-    if (certificate_size > CERT_MAX_LENGTH) {
-        pr_info("cert length overlimit\n");
+    cert = kmalloc(certificate_size, GFP_KERNEL);
+    if (!cert) {
+        pr_err("cannot allocate manager certificate buffer\n");
         return false;
     }
 
-    char cert[CERT_MAX_LENGTH];
-    if (!read_exact(fp, cert, certificate_size, pos, certificates_end))
+    if (!read_exact(fp, cert, certificate_size, pos, certificates_end)) {
+        kfree(cert);
         return false;
+    }
 
-    unsigned char digest[SHA256_DIGEST_SIZE];
     if (ksu_sha256(cert, certificate_size, digest)) {
         pr_info("sha256 error\n");
+        kfree(cert);
         return false;
     }
+    kfree(cert);
 
-    char hash_str[SHA256_DIGEST_SIZE * 2 + 1];
     hash_str[SHA256_DIGEST_SIZE * 2] = '\0';
 
     bin2hex(hash_str, digest, SHA256_DIGEST_SIZE);
