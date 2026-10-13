@@ -2,6 +2,15 @@ name: Prepare Night Web Patch Engine
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "night" ]
+    paths:
+      - '.github/workflows/prepare-night-web-engine.yml'
+      - '.github/workflows/build-lkm.yml'
+      - '.github/workflows/ksuinit.yml'
+      - '.github/workflows/ksud-extra.yml'
+      - 'kernel/**'
+      - 'userspace/**'
 
 permissions:
   actions: read
