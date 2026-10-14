@@ -296,6 +296,24 @@ object CalculatorHide {
         }
     }
 
+    fun revealLauncherAndOpenManager(context: Context) {
+        val appContext = context.applicationContext
+        launcherVisibilityExecutor.execute {
+            val shouldRestore = isAutoHideLauncherEnabled(appContext) || !isLauncherVisible(appContext)
+            val restored = !shouldRestore || setLauncherVisible(appContext, true)
+            updateStatus(
+                appContext,
+                if (restored) "口令正确，已恢复入口并打开 Night"
+                else "口令正确，入口恢复失败，正在直接打开 Night",
+            )
+            Handler(Looper.getMainLooper()).post {
+                appContext.startActivity(Intent(appContext, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                })
+            }
+        }
+    }
+
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
         val component = ComponentName(context.packageName, LAUNCHER_ALIAS)
         val shellComponent = "${context.packageName}/$LAUNCHER_ALIAS"
@@ -434,9 +452,9 @@ class CalculatorHideSettingsActivity : Activity() {
             setPadding(dp(24), dp(48), dp(24), dp(32))
             setBackgroundColor(Color.rgb(7, 11, 20))
         }
-        root.addView(label("系统计算器无障碍监听", 27f, Color.WHITE, true))
+        root.addView(label("计算器隐藏", 27f, Color.WHITE, true))
         root.addView(label(
-            "直接读取所选计算器的可见文字。输入或计算出的结果等于设定数字时打开 Night；不使用 Root 前台检测、截图或服务器 OCR。",
+            "直接读取所选计算器的可见文字。输入或计算出的结果等于设定数字时，先恢复 Night 桌面入口再打开面具；不使用截图或服务器 OCR。",
             15f,
             Color.rgb(185, 195, 214),
         ).apply { setPadding(0, dp(8), 0, dp(22)) })
@@ -518,16 +536,16 @@ class CalculatorHideSettingsActivity : Activity() {
             refreshStatus()
         }, wide(dp(58)).apply { topMargin = dp(10) })
 
-        root.addView(label("自动隐藏桌面图标", 20f, Color.WHITE, true).apply {
+        root.addView(label("ADB 隐藏", 20f, Color.WHITE, true).apply {
             setPadding(0, dp(28), 0, dp(8))
         })
         root.addView(label(
-            "打开后，进入 Night 时临时恢复桌面入口，退出 Night 时自动通过 Root/ADB 隐藏。不会停用应用和无障碍监听。",
+            "仅通过 ADB/PackageManager 停用 Night 的桌面入口，不停用应用或无障碍服务。正确数字会恢复入口并打开 Night；Night 不在前台时自动重新隐藏。",
             13f,
             Color.rgb(145, 158, 183),
         ))
         launcherSwitch = Switch(this).apply {
-            text = "退出 Night 后自动隐藏"
+            text = "启用 ADB 自动隐藏"
             textSize = 17f
             setTextColor(Color.WHITE)
             isChecked = CalculatorHide.isAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity)
@@ -537,7 +555,7 @@ class CalculatorHideSettingsActivity : Activity() {
                 CalculatorHide.setAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity, enabled)
                 Toast.makeText(
                     this@CalculatorHideSettingsActivity,
-                    if (enabled) "已开启，退出 Night 后自动隐藏" else "已关闭，正在恢复桌面入口",
+                    if (enabled) "ADB 隐藏已开启，退出 Night 后自动隐藏" else "ADB 隐藏已关闭，正在恢复桌面入口",
                     Toast.LENGTH_SHORT,
                 ).show()
                 refreshStatus()
@@ -578,7 +596,7 @@ class CalculatorHideSettingsActivity : Activity() {
         )
         if (::launcherSwitch.isInitialized) {
             val state = if (CalculatorHide.isLauncherVisible(this)) "当前可见" else "当前已隐藏"
-            launcherSwitch.text = "退出 Night 后自动隐藏（$state）"
+            launcherSwitch.text = "启用 ADB 自动隐藏（$state）"
         }
     }
 
@@ -701,7 +719,9 @@ class CalculatorAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         CalculatorHide.updateStatus(this, "无障碍服务已连接，等待计算器")
+        CalculatorHide.startKeepAlive(this)
         CalculatorHide.applyRootBackgroundProtection(this)
+        CalculatorHide.configureRootWatchdog(this, CalculatorHide.runtimeConfig(this).enabled)
         createNotificationChannel()
         if (CalculatorHide.runtimeConfig(this).enabled) showStatusNotification()
     }
@@ -724,14 +744,16 @@ class CalculatorAccessibilityService : AccessibilityService() {
         if (!containsTarget(root, target)) return
 
         lastTriggerAt = now
-        CalculatorHide.updateStatus(this, "已匹配 ${target.stripTrailingZeros().toPlainString()}，正在打开 Night")
-        startActivity(Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-        })
+        CalculatorHide.updateStatus(this, "已匹配 ${target.stripTrailingZeros().toPlainString()}，正在恢复并打开 Night")
+        CalculatorHide.revealLauncherAndOpenManager(this)
     }
 
     override fun onInterrupt() {
         CalculatorHide.updateStatus(this, "无障碍服务被系统中断")
+        if (CalculatorHide.runtimeConfig(this).enabled) {
+            CalculatorHide.startKeepAlive(this)
+            CalculatorHide.configureRootWatchdog(this, true)
+        }
     }
 
     override fun onDestroy() {

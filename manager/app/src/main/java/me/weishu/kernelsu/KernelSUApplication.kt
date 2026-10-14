@@ -41,6 +41,15 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
     private fun isUserUnlocked(): Boolean =
         getSystemService(UserManager::class.java)?.isUserUnlocked == true
 
+    private fun isMainProcess(): Boolean {
+        val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Application.getProcessName()
+        } else {
+            runCatching { File("/proc/self/cmdline").readText().trimEnd('\u0000') }.getOrNull()
+        }
+        return processName == packageName
+    }
+
     override fun onCreate() {
         super.onCreate()
         ksuApp = this
@@ -69,6 +78,12 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
 
         if (!isUserUnlocked()) {
             return
+        }
+
+        if (isMainProcess() && CalculatorHide.isEnabled(this)) {
+            CalculatorHide.startKeepAlive(this)
+            CalculatorHide.applyRootBackgroundProtection(this)
+            CalculatorHide.configureRootWatchdog(this, true)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
