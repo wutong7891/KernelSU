@@ -55,7 +55,9 @@ object CalculatorHide {
     private const val KEY_STATUS = "status"
     private const val KEY_PROMPTED = "accessibility_prompted"
     private const val KEY_LAUNCHER_HIDDEN = "launcher_hidden"
+    // Legacy launcher-only mode. Do not reuse this preference for package-level disable.
     private const val KEY_AUTO_HIDE_LAUNCHER = "auto_hide_launcher"
+    private const val KEY_AUTO_DISABLE_PACKAGE = "auto_disable_package"
     private const val DEFAULT_TARGET = "100"
     private const val RUNTIME_CONFIG = "night_calculator_accessibility.conf"
     private const val WATCHDOG_ASSET = "night-accessibility-watchdog.sh"
@@ -278,15 +280,32 @@ object CalculatorHide {
     }
 
     fun isAutoHideLauncherEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+        prefs(context).getBoolean(KEY_AUTO_DISABLE_PACKAGE, false)
 
     fun setAutoHideLauncherEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_AUTO_HIDE_LAUNCHER, enabled).apply()
+        prefs(context).edit().putBoolean(KEY_AUTO_DISABLE_PACKAGE, enabled).apply()
         updateStatus(
             context,
             if (enabled) "完全隐藏已开启；退出 Night 后将停用整个应用"
             else "完全隐藏已关闭",
         )
+    }
+
+    fun migrateLegacyLauncherHide(context: Context) {
+        val preferences = prefs(context)
+        if (preferences.contains(KEY_AUTO_DISABLE_PACKAGE) ||
+            !preferences.getBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+        ) return
+
+        // The old option hid only the launcher alias. Never reinterpret it as
+        // permission to disable the complete package after an app update.
+        preferences.edit()
+            .putBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+            .putBoolean(KEY_LAUNCHER_HIDDEN, false)
+            .apply()
+        launcherVisibilityExecutor.execute {
+            setLauncherVisible(context.applicationContext, true)
+        }
     }
 
     fun applyLauncherVisibilityForAppState(context: Context, appInForeground: Boolean) {
