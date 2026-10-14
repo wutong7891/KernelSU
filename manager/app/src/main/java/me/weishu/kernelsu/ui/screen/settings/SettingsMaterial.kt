@@ -168,7 +168,7 @@ fun SettingPagerMaterial(
                         SegmentedListItem(
                             onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) },
                             headlineContent = { Text("计算器隐藏") },
-                            supportingContent = { Text("数字口令恢复 Night；离开前台后可用 ADB 自动隐藏") },
+                            supportingContent = { Text("可在退出后完全停用 APK；恢复需要 ADB/Root 命令") },
                             leadingContent = { Icon(Icons.Filled.Lock, "计算器隐藏") },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )

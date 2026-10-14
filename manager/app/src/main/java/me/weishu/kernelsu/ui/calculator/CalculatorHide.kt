@@ -282,36 +282,49 @@ object CalculatorHide {
 
     fun setAutoHideLauncherEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_AUTO_HIDE_LAUNCHER, enabled).apply()
-        if (!enabled) {
-            launcherVisibilityExecutor.execute {
-                setLauncherVisible(context.applicationContext, true)
-            }
-        }
+        updateStatus(
+            context,
+            if (enabled) "完全隐藏已开启；退出 Night 后将停用整个应用"
+            else "完全隐藏已关闭",
+        )
     }
 
     fun applyLauncherVisibilityForAppState(context: Context, appInForeground: Boolean) {
-        if (!isAutoHideLauncherEnabled(context)) return
+        if (!isAutoHideLauncherEnabled(context) || appInForeground) return
         launcherVisibilityExecutor.execute {
-            setLauncherVisible(context.applicationContext, appInForeground)
+            disablePackage(context.applicationContext)
         }
     }
 
     fun revealLauncherAndOpenManager(context: Context) {
         val appContext = context.applicationContext
-        launcherVisibilityExecutor.execute {
-            val shouldRestore = isAutoHideLauncherEnabled(appContext) || !isLauncherVisible(appContext)
-            val restored = !shouldRestore || setLauncherVisible(appContext, true)
-            updateStatus(
-                appContext,
-                if (restored) "口令正确，已恢复入口并打开 Night"
-                else "口令正确，入口恢复失败，正在直接打开 Night",
-            )
-            Handler(Looper.getMainLooper()).post {
-                appContext.startActivity(Intent(appContext, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                })
-            }
+        updateStatus(appContext, "口令正确，正在打开 Night")
+        Handler(Looper.getMainLooper()).post {
+            appContext.startActivity(Intent(appContext, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            })
         }
+    }
+
+    private fun disablePackage(context: Context) {
+        val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
+        val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
+        if (!rootConfirmed || rootShell == null) {
+            updateStatus(context, "完全隐藏失败：请先授予 Night Root 权限")
+            return
+        }
+
+        // A package-level disable is intentionally different from hiding only
+        // the launcher alias: Android stops the app, accessibility service and
+        // background listener together. Recovery therefore requires ADB/Root.
+        prefs(context).edit().putBoolean(KEY_LAUNCHER_HIDDEN, true).commit()
+        updateStatus(context, "正在完全隐藏 Night；恢复需要使用 ADB 命令")
+        rootShell.newJob().add(
+            "user=\$(cmd activity get-current-user 2>/dev/null); " +
+                "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
+                "pm disable-user --user \"\$user\" '${context.packageName}' >/dev/null 2>&1 || " +
+                "cmd package disable-user --user \"\$user\" '${context.packageName}' >/dev/null 2>&1",
+        ).exec()
     }
 
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
@@ -454,7 +467,7 @@ class CalculatorHideSettingsActivity : Activity() {
         }
         root.addView(label("计算器隐藏", 27f, Color.WHITE, true))
         root.addView(label(
-            "直接读取所选计算器的可见文字。输入或计算出的结果等于设定数字时，先恢复 Night 桌面入口再打开面具；不使用截图或服务器 OCR。",
+            "直接读取所选计算器的可见文字。Night 未被完全隐藏时，输入或计算出的结果等于设定数字会打开面具；不使用截图或服务器 OCR。",
             15f,
             Color.rgb(185, 195, 214),
         ).apply { setPadding(0, dp(8), 0, dp(22)) })
@@ -536,16 +549,16 @@ class CalculatorHideSettingsActivity : Activity() {
             refreshStatus()
         }, wide(dp(58)).apply { topMargin = dp(10) })
 
-        root.addView(label("ADB 隐藏", 20f, Color.WHITE, true).apply {
+        root.addView(label("ADB 完全隐藏 APK", 20f, Color.WHITE, true).apply {
             setPadding(0, dp(28), 0, dp(8))
         })
         root.addView(label(
-            "仅通过 ADB/PackageManager 停用 Night 的桌面入口，不停用应用或无障碍服务。正确数字会恢复入口并打开 Night；Night 不在前台时自动重新隐藏。",
+            "退出 Night 后通过 Root/PackageManager 停用整个 com.Night.night 包。应用、计算器监听和后台服务都会停止。恢复命令：adb shell pm enable --user 0 com.Night.night",
             13f,
             Color.rgb(145, 158, 183),
         ))
         launcherSwitch = Switch(this).apply {
-            text = "启用 ADB 自动隐藏"
+            text = "退出 Night 后完全停用 APK"
             textSize = 17f
             setTextColor(Color.WHITE)
             isChecked = CalculatorHide.isAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity)
@@ -555,7 +568,7 @@ class CalculatorHideSettingsActivity : Activity() {
                 CalculatorHide.setAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity, enabled)
                 Toast.makeText(
                     this@CalculatorHideSettingsActivity,
-                    if (enabled) "ADB 隐藏已开启，退出 Night 后自动隐藏" else "ADB 隐藏已关闭，正在恢复桌面入口",
+                    if (enabled) "完全隐藏已开启；退出后只能通过 ADB/Root 恢复" else "完全隐藏已关闭",
                     Toast.LENGTH_SHORT,
                 ).show()
                 refreshStatus()
@@ -595,8 +608,7 @@ class CalculatorHideSettingsActivity : Activity() {
             else Color.rgb(255, 194, 103),
         )
         if (::launcherSwitch.isInitialized) {
-            val state = if (CalculatorHide.isLauncherVisible(this)) "当前可见" else "当前已隐藏"
-            launcherSwitch.text = "启用 ADB 自动隐藏（$state）"
+            launcherSwitch.text = "退出 Night 后完全停用 APK"
         }
     }
 
@@ -744,7 +756,7 @@ class CalculatorAccessibilityService : AccessibilityService() {
         if (!containsTarget(root, target)) return
 
         lastTriggerAt = now
-        CalculatorHide.updateStatus(this, "已匹配 ${target.stripTrailingZeros().toPlainString()}，正在恢复并打开 Night")
+        CalculatorHide.updateStatus(this, "已匹配 ${target.stripTrailingZeros().toPlainString()}，正在打开 Night")
         CalculatorHide.revealLauncherAndOpenManager(this)
     }
 
