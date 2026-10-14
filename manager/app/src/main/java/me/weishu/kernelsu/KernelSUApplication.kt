@@ -54,6 +54,7 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
         super.onCreate()
         ksuApp = this
         CalculatorHide.migrateLegacyLauncherHide(this)
+        CalculatorHide.stopLegacyRootWatchdog(this)
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
@@ -79,12 +80,6 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
 
         if (!isUserUnlocked()) {
             return
-        }
-
-        if (isMainProcess() && CalculatorHide.isEnabled(this)) {
-            CalculatorHide.startKeepAlive(this)
-            CalculatorHide.applyRootBackgroundProtection(this)
-            CalculatorHide.configureRootWatchdog(this, true)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

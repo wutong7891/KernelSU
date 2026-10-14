@@ -102,7 +102,6 @@
         <service
             android:name=".ui.calculator.CalculatorAccessibilityService"
             android:exported="true"
-            android:foregroundServiceType="specialUse"
             android:label="Night 计算器监听"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:process=":night_accessibility"
@@ -113,29 +112,7 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/calculator_accessibility_service" />
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Visible accessibility listener for the selected calculator result" />
         </service>
-        <service
-            android:name=".ui.calculator.CalculatorAccessibilityKeepAliveService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:process=":night_accessibility"
-            android:stopWithTask="false">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Visible keep-alive for the enabled calculator accessibility listener" />
-        </service>
-        <receiver
-            android:name=".ui.calculator.CalculatorAccessibilityBootstrapReceiver"
-            android:exported="true"
-            android:permission="android.permission.WRITE_SECURE_SETTINGS"
-            android:process=":night_accessibility">
-            <intent-filter>
-                <action android:name="com.Night.night.action.START_ACCESSIBILITY_KEEPALIVE" />
-            </intent-filter>
-        </receiver>
         <receiver
             android:name=".ui.calculator.CalculatorAccessibilityControlReceiver"
             android:exported="false"

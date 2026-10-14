@@ -58,6 +58,8 @@ object CalculatorHide {
     // Legacy launcher-only mode. Do not reuse this preference for package-level disable.
     private const val KEY_AUTO_HIDE_LAUNCHER = "auto_hide_launcher"
     private const val KEY_AUTO_DISABLE_PACKAGE = "auto_disable_package"
+    private const val KEY_SYSTEM_BOUND_HIDE_MODE = "system_bound_hide_mode"
+    private const val KEY_LEGACY_WATCHDOG_CLEANED = "legacy_watchdog_cleaned"
     private const val DEFAULT_TARGET = "100"
     private const val RUNTIME_CONFIG = "night_calculator_accessibility.conf"
     private const val WATCHDOG_ASSET = "night-accessibility-watchdog.sh"
@@ -85,8 +87,6 @@ object CalculatorHide {
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
         writeRuntimeConfig(context, enabled, target(context), targetPackage(context))
-        if (enabled) applyRootBackgroundProtection(context)
-        configureRootWatchdog(context, enabled)
         updateStatus(context, if (enabled) "等待计算器界面变化" else "监听已停止")
     }
 
@@ -106,8 +106,6 @@ object CalculatorHide {
             .putString(KEY_TARGET_PACKAGE, targetPackage)
             .apply()
         writeRuntimeConfig(context, enabled, target, targetPackage)
-        if (enabled) applyRootBackgroundProtection(context)
-        configureRootWatchdog(context, enabled)
     }
 
     fun configureRootWatchdog(context: Context, enabled: Boolean) {
@@ -280,27 +278,37 @@ object CalculatorHide {
     }
 
     fun isAutoHideLauncherEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_DISABLE_PACKAGE, false)
+        prefs(context).getBoolean(KEY_SYSTEM_BOUND_HIDE_MODE, false)
 
     fun setAutoHideLauncherEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_AUTO_DISABLE_PACKAGE, enabled).apply()
+        prefs(context).edit()
+            .putBoolean(KEY_SYSTEM_BOUND_HIDE_MODE, enabled)
+            .putBoolean(KEY_AUTO_DISABLE_PACKAGE, false)
+            .apply()
+        if (!enabled) {
+            launcherVisibilityExecutor.execute {
+                setLauncherVisible(context.applicationContext, true)
+            }
+        }
         updateStatus(
             context,
-            if (enabled) "完全隐藏已开启；退出 Night 后将停用整个应用"
-            else "完全隐藏已关闭",
+            if (enabled) "系统监听隐藏已开启；退出 Night 后隐藏桌面入口"
+            else "系统监听隐藏已关闭，正在恢复桌面入口",
         )
     }
 
     fun migrateLegacyLauncherHide(context: Context) {
         val preferences = prefs(context)
-        if (preferences.contains(KEY_AUTO_DISABLE_PACKAGE) ||
-            !preferences.getBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
-        ) return
+        val oldLauncherMode = preferences.getBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+        val packageDisableMode = preferences.getBoolean(KEY_AUTO_DISABLE_PACKAGE, false)
+        if (!oldLauncherMode && !packageDisableMode) return
 
-        // The old option hid only the launcher alias. Never reinterpret it as
-        // permission to disable the complete package after an app update.
+        // Migrate both prior modes to the system-bound listener design. The
+        // package remains enabled; only its launcher alias is hidden.
         preferences.edit()
             .putBoolean(KEY_AUTO_HIDE_LAUNCHER, false)
+            .putBoolean(KEY_AUTO_DISABLE_PACKAGE, false)
+            .putBoolean(KEY_SYSTEM_BOUND_HIDE_MODE, true)
             .putBoolean(KEY_LAUNCHER_HIDDEN, false)
             .apply()
         launcherVisibilityExecutor.execute {
@@ -308,42 +316,47 @@ object CalculatorHide {
         }
     }
 
+    fun stopLegacyRootWatchdog(context: Context) {
+        val appContext = context.applicationContext
+        if (prefs(appContext).getBoolean(KEY_LEGACY_WATCHDOG_CLEANED, false)) return
+        Thread({
+            if (!runCatching { rootAvailable() }.getOrDefault(false)) return@Thread
+            val shell = runCatching { getRootShell() }.getOrNull() ?: return@Thread
+            if (!shell.isRoot) return@Thread
+            val result = shell.newJob().add(
+                "rm -f '$WATCHDOG_MARKER'; " +
+                    "for pid in \$(ps -A -o PID,ARGS 2>/dev/null | /system/bin/toybox grep -F '$WATCHDOG_SCRIPT' | /system/bin/toybox grep -Fv grep | /system/bin/toybox sed 's/^ *//' | /system/bin/toybox sed 's/ .*//'); do [ -n \"\$pid\" ] && kill \"\$pid\" 2>/dev/null; done; " +
+                    "if [ -f '$WATCHDOG_PID' ]; then kill \$(cat '$WATCHDOG_PID') 2>/dev/null; fi; " +
+                    "rm -f '$WATCHDOG_PID'; rmdir '$WATCHDOG_LOCK' 2>/dev/null; rm -f '$WATCHDOG_LOCK/pid'; true",
+            ).exec()
+            if (result.isSuccess) {
+                prefs(appContext).edit().putBoolean(KEY_LEGACY_WATCHDOG_CLEANED, true).apply()
+            }
+        }, "NightLegacyWatchdogCleanup").start()
+    }
+
     fun applyLauncherVisibilityForAppState(context: Context, appInForeground: Boolean) {
-        if (!isAutoHideLauncherEnabled(context) || appInForeground) return
+        if (!isAutoHideLauncherEnabled(context)) return
         launcherVisibilityExecutor.execute {
-            disablePackage(context.applicationContext)
+            setLauncherVisible(context.applicationContext, appInForeground)
         }
     }
 
     fun revealLauncherAndOpenManager(context: Context) {
         val appContext = context.applicationContext
-        updateStatus(appContext, "口令正确，正在打开 Night")
-        Handler(Looper.getMainLooper()).post {
-            appContext.startActivity(Intent(appContext, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            })
+        launcherVisibilityExecutor.execute {
+            val restored = setLauncherVisible(appContext, true)
+            updateStatus(
+                appContext,
+                if (restored) "口令正确，已恢复入口并打开 Night"
+                else "口令正确，正在直接打开 Night",
+            )
+            Handler(Looper.getMainLooper()).post {
+                appContext.startActivity(Intent(appContext, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                })
+            }
         }
-    }
-
-    private fun disablePackage(context: Context) {
-        val rootConfirmed = runCatching { rootAvailable() }.getOrDefault(false)
-        val rootShell = if (rootConfirmed) runCatching { getRootShell() }.getOrNull() else null
-        if (!rootConfirmed || rootShell == null) {
-            updateStatus(context, "完全隐藏失败：请先授予 Night Root 权限")
-            return
-        }
-
-        // A package-level disable is intentionally different from hiding only
-        // the launcher alias: Android stops the app, accessibility service and
-        // background listener together. Recovery therefore requires ADB/Root.
-        prefs(context).edit().putBoolean(KEY_LAUNCHER_HIDDEN, true).commit()
-        updateStatus(context, "正在完全隐藏 Night；恢复需要使用 ADB 命令")
-        rootShell.newJob().add(
-            "user=\$(cmd activity get-current-user 2>/dev/null); " +
-                "case \"\$user\" in ''|*[!0-9]*) user=0;; esac; " +
-                "pm disable-user --user \"\$user\" '${context.packageName}' >/dev/null 2>&1 || " +
-                "cmd package disable-user --user \"\$user\" '${context.packageName}' >/dev/null 2>&1",
-        ).exec()
     }
 
     fun setLauncherVisible(context: Context, visible: Boolean): Boolean {
@@ -456,7 +469,6 @@ class CalculatorHideSettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
-        CalculatorHide.configureRootWatchdog(this, CalculatorHide.isEnabled(this))
         if (CalculatorHide.shouldPromptAccessibility(this)) {
             Handler(Looper.getMainLooper()).postDelayed({
                 if (!CalculatorHide.isAccessibilityEnabled(this)) {
@@ -486,7 +498,7 @@ class CalculatorHideSettingsActivity : Activity() {
         }
         root.addView(label("计算器隐藏", 27f, Color.WHITE, true))
         root.addView(label(
-            "直接读取所选计算器的可见文字。Night 未被完全隐藏时，输入或计算出的结果等于设定数字会打开面具；不使用截图或服务器 OCR。",
+            "由 Android 系统绑定的无障碍服务读取所选计算器的可见文字。输入或计算结果等于设定数字时恢复入口并打开 Night；不使用截图、服务器 OCR 或内核按键采集。",
             15f,
             Color.rgb(185, 195, 214),
         ).apply { setPadding(0, dp(8), 0, dp(22)) })
@@ -568,16 +580,16 @@ class CalculatorHideSettingsActivity : Activity() {
             refreshStatus()
         }, wide(dp(58)).apply { topMargin = dp(10) })
 
-        root.addView(label("ADB 完全隐藏 APK", 20f, Color.WHITE, true).apply {
+        root.addView(label("无前台常驻隐藏", 20f, Color.WHITE, true).apply {
             setPadding(0, dp(28), 0, dp(8))
         })
         root.addView(label(
-            "退出 Night 后通过 Root/PackageManager 停用整个 com.Night.night 包。应用、计算器监听和后台服务都会停止。恢复命令：adb shell pm enable --user 0 com.Night.night",
+            "Night 离开前台后仅停用桌面启动入口，系统无障碍监听继续运行。没有保活前台服务和常驻通知；正确数字会恢复入口并打开 Night。",
             13f,
             Color.rgb(145, 158, 183),
         ))
         launcherSwitch = Switch(this).apply {
-            text = "退出 Night 后完全停用 APK"
+            text = "退出 Night 后隐藏桌面入口"
             textSize = 17f
             setTextColor(Color.WHITE)
             isChecked = CalculatorHide.isAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity)
@@ -587,7 +599,7 @@ class CalculatorHideSettingsActivity : Activity() {
                 CalculatorHide.setAutoHideLauncherEnabled(this@CalculatorHideSettingsActivity, enabled)
                 Toast.makeText(
                     this@CalculatorHideSettingsActivity,
-                    if (enabled) "完全隐藏已开启；退出后只能通过 ADB/Root 恢复" else "完全隐藏已关闭",
+                    if (enabled) "已开启；退出后隐藏入口，计算器监听继续" else "已关闭，正在恢复入口",
                     Toast.LENGTH_SHORT,
                 ).show()
                 refreshStatus()
@@ -627,7 +639,8 @@ class CalculatorHideSettingsActivity : Activity() {
             else Color.rgb(255, 194, 103),
         )
         if (::launcherSwitch.isInitialized) {
-            launcherSwitch.text = "退出 Night 后完全停用 APK"
+            val state = if (CalculatorHide.isLauncherVisible(this)) "当前可见" else "当前已隐藏"
+            launcherSwitch.text = "退出 Night 后隐藏桌面入口（$state）"
         }
     }
 
@@ -750,11 +763,6 @@ class CalculatorAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         CalculatorHide.updateStatus(this, "无障碍服务已连接，等待计算器")
-        CalculatorHide.startKeepAlive(this)
-        CalculatorHide.applyRootBackgroundProtection(this)
-        CalculatorHide.configureRootWatchdog(this, CalculatorHide.runtimeConfig(this).enabled)
-        createNotificationChannel()
-        if (CalculatorHide.runtimeConfig(this).enabled) showStatusNotification()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -781,10 +789,6 @@ class CalculatorAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         CalculatorHide.updateStatus(this, "无障碍服务被系统中断")
-        if (CalculatorHide.runtimeConfig(this).enabled) {
-            CalculatorHide.startKeepAlive(this)
-            CalculatorHide.configureRootWatchdog(this, true)
-        }
     }
 
     override fun onDestroy() {

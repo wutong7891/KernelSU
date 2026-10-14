@@ -187,7 +187,7 @@ fun SettingPagerMiuix(
                         )
                         ArrowPreference(
                             title = "计算器隐藏",
-                            summary = "可在退出后完全停用 APK；恢复需要 ADB/Root 命令",
+                            summary = "隐藏桌面入口；系统计算器监听继续，无常驻通知",
                             startAction = {
                                 Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
                             },
