@@ -18,7 +18,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.parcelize.Parcelize
 import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.Natives
-import me.weishu.kernelsu.core.tasks.BootKernelVersion
 import me.weishu.kernelsu.core.tasks.ExtractImage
 import me.weishu.kernelsu.core.tasks.ProbeResult
 import me.weishu.kernelsu.core.utils.DataSourceChannel
@@ -40,17 +39,6 @@ import java.util.concurrent.TimeUnit
  */
 private const val TAG = "KsuCli"
 private const val SYSTEM_KSUD_PATH = "/data/adb/ksud"
-private const val NIGHT_KMI_ASSET_DIR = "night-kmi"
-private val BUNDLED_NIGHT_KMIS = setOf(
-    "android12-5.10",
-    "android13-5.10",
-    "android13-5.15",
-    "android14-5.15",
-    "android14-6.1",
-    "android15-6.6",
-    "android16-6.12",
-    "android17-6.18",
-)
 
 private fun getKsuDaemonPath(): String {
     val bundled = File(ksuApp.applicationInfo.nativeLibraryDir, "libksud.so")
@@ -467,9 +455,6 @@ sealed class LkmSelection : Parcelable {
     data class LkmUri(val uri: Uri) : LkmSelection()
 
     @Parcelize
-    data class KmiString(val value: String) : LkmSelection()
-
-    @Parcelize
     data object KmiNone : LkmSelection()
 }
 
@@ -485,19 +470,9 @@ private fun writeLkmFile(lkm: LkmSelection): File? {
             }
         }
 
-        is LkmSelection.KmiString -> {
-            require(lkm.value in BUNDLED_NIGHT_KMIS) {
-                "Unsupported Night KMI: ${lkm.value}"
-            }
-            val assetPath = "$NIGHT_KMI_ASSET_DIR/${lkm.value}_kernelsu.ko"
-            ksuApp.assets.open(assetPath).use { source ->
-                file.outputStream().use { output -> source.copyTo(output) }
-            }
-        }
-
         LkmSelection.KmiNone -> return null
     }
-    check(file.isFile && file.length() > 0L) { "Night KMI asset is empty" }
+    check(file.isFile && file.length() > 0L) { "Selected LKM file is empty" }
     return file
 }
 
@@ -584,7 +559,7 @@ fun installBoot(
 
     val lkmFile = prepareLkmFile(lkm).getOrElse { error ->
         bootFile?.delete()
-        return FlashResult(-1, "Bundled Night KMI unavailable: ${error.message}", false)
+        return FlashResult(-1, "Selected LKM unavailable: ${error.message}", false)
     }
     if (lkmFile != null) {
         cmd += " -m ${lkmFile.absolutePath}"
@@ -626,32 +601,11 @@ fun downloadBoot(
     onStderr: (String) -> Unit,
 ): FlashResult {
     val bootFile = File(ksuApp.cacheDir, "download-boot.img")
-    var probedKmi: String? = null
     try {
         onStdout("- Downloading and extracting boot image")
         val channel = DataSourceChannel(newDownloadClient(), url)
         val magic = readMagic(channel)
         val image = ExtractImage(bootFile, onStdout)
-        // Extract the KMI here while the payload is open. ZipFile closes the
-        // channel it is built on, so probe on a separate channel.
-        val probeChannel = DataSourceChannel(newDownloadClient(), url)
-        probedKmi = try {
-            if (magic == "CrAU") {
-                ExtractImage.probePayload(
-                    probeChannel,
-                    withKmi = lkm is LkmSelection.KmiNone,
-                    onProgress = onStdout,
-                ).kmi
-            } else {
-                ExtractImage.probe(
-                    probeChannel,
-                    withKmi = lkm is LkmSelection.KmiNone,
-                    onProgress = onStdout,
-                ).kmi
-            }
-        } finally {
-            probeChannel.close()
-        }
         if (magic == "CrAU") {
             image.consumePayload(channel, partition)
         } else {
@@ -662,32 +616,12 @@ fun downloadBoot(
         return FlashResult(-1, e.message ?: "Download failed", false)
     }
 
-    // init_boot/vendor_boot carry no kernel, so their KMI comes from the
-    // payload's boot probe and must be passed explicitly. A remote download
-    // is unrelated to this device, so ksud must not use the local kernel.
-    val autoKmi = if (lkm is LkmSelection.KmiNone) {
-        (probedKmi ?: BootKernelVersion.parseKmiFromBoot(bootFile))?.also {
-            onStdout("- Auto detected KMI: $it")
-        }
-    } else {
-        null
-    }
-    if (autoKmi == null && lkm is LkmSelection.KmiNone) {
-        bootFile.delete()
-        return FlashResult(-1, "Failed to determine KMI from the package", false)
-    }
-
     var cmd = "${getKsuDaemonPath()} boot-patch -b ${bootFile.absolutePath}"
     cmd += bootPatchFlags(allowShell, enableAdb, forceBackup, blockModules)
 
-    val effectiveLkm = if (lkm is LkmSelection.KmiNone && autoKmi != null) {
-        LkmSelection.KmiString(autoKmi)
-    } else {
-        lkm
-    }
-    val lkmFile = prepareLkmFile(effectiveLkm).getOrElse { error ->
+    val lkmFile = prepareLkmFile(lkm).getOrElse { error ->
         bootFile.delete()
-        return FlashResult(-1, "Bundled Night KMI unavailable: ${error.message}", false)
+        return FlashResult(-1, "Selected LKM unavailable: ${error.message}", false)
     }
     if (lkmFile != null) {
         cmd += " -m ${lkmFile.absolutePath}"

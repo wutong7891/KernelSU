@@ -26,7 +26,6 @@ import me.weishu.kernelsu.R
 import me.weishu.kernelsu.getKernelVersion
 import me.weishu.kernelsu.ui.LocalUiMode
 import me.weishu.kernelsu.ui.UiMode
-import me.weishu.kernelsu.ui.component.choosekmidialog.ChooseKmiDialog
 import me.weishu.kernelsu.ui.component.dialog.DownloadDialog
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
@@ -63,7 +62,6 @@ fun InstallScreen() {
     var lkmSelection by rememberSaveable { mutableStateOf<LkmSelection>(LkmSelection.KmiNone) }
     var partitionSelectionIndex by rememberSaveable { mutableIntStateOf(0) }
     var hasCustomSelected by rememberSaveable { mutableStateOf(false) }
-    val showChooseKmiDialog = rememberSaveable { mutableStateOf(false) }
     var advancedOptionsShown by rememberSaveable { mutableStateOf(false) }
     var allowShell by rememberSaveable { mutableStateOf(false) }
     var enableAdb by rememberSaveable { mutableStateOf(false) }
@@ -141,6 +139,7 @@ fun InstallScreen() {
     }
 
     val blockModulesInvalidMessage = stringResource(R.string.install_block_modules_invalid)
+    val externalLkmRequiredMessage = stringResource(R.string.install_external_lkm_required)
     val onInstall = {
         if (!isBlockModulesValid(effectiveBlockModules)) {
             showMessage(blockModulesInvalidMessage)
@@ -172,17 +171,6 @@ fun InstallScreen() {
             )
         }
     }
-
-    ChooseKmiDialog(
-        show = showChooseKmiDialog.value,
-        onDismissRequest = { showChooseKmiDialog.value = false },
-        onSelected = { kmi ->
-            kmi?.let {
-                lkmSelection = LkmSelection.KmiString(it)
-                onInstall()
-            }
-        }
-    )
 
     DownloadDialog(
         show = downloadDialogShown,
@@ -287,25 +275,9 @@ fun InstallScreen() {
             }
         },
         onNext = {
-            val isLkmSelected = lkmSelection != LkmSelection.KmiNone
-            val isKmiUnknown = currentKmi.isBlank()
-            val isKmiUnresolved = when (installMethod) {
-                // The download flow extracts the KMI itself; no manual
-                // selection needed.
-                is InstallMethod.DownloadFile -> false
-                is InstallMethod.SelectFile -> true
-                else -> isKmiUnknown
-            }
-            if (!isLkmSelected && isKmiUnresolved) {
-                showChooseKmiDialog.value = true
+            if (isGkiDevice && lkmSelection == LkmSelection.KmiNone) {
+                showMessage(externalLkmRequiredMessage)
             } else {
-                if (!isLkmSelected &&
-                    installMethod !is InstallMethod.DownloadFile &&
-                    installMethod !is InstallMethod.SelectFile &&
-                    currentKmi.isNotBlank()
-                ) {
-                    lkmSelection = LkmSelection.KmiString(currentKmi)
-                }
                 onInstall()
             }
         },
