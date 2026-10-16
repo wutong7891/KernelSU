@@ -28,6 +28,7 @@ jobs:
       RELEASE_ID: ${{ inputs.release_id }}
       KMI: ${{ inputs.kmi }}
     steps:
+      - uses: actions/checkout@v7
       - name: Download private input and native engine
         shell: bash
         run: |
@@ -52,21 +53,43 @@ jobs:
             android12-5.10|android13-5.10|android13-5.15|android14-5.15|android14-6.1|android15-6.6|android16-6.12|android17-6.18) ;;
             *) echo "Unsupported KMI" >&2; exit 2 ;;
           esac
-          module="engine/${KMI}_kernelsu.ko"
+          module="dist-night/kmi/aarch64-${KMI}-lkm/${KMI}_kernelsu.ko"
           test -s "$module"
+          strings "$module" | grep -F "night_kmi=Night-KMI-v3-${KMI}"
+          input_type="$(python3 scripts/validate_night_boot_image.py input.img | cut -d: -f1)"
+          input_size="$(stat -c%s input.img)"
+          module_sha256="$(sha256sum "$module" | awk '{print $1}')"
           mkdir output
           engine/ksud boot-patch --boot input.img --module "$module" --kmi "$KMI" --out output --out-name Night_patched.img 2>&1 | tee patch.log
           test -s output/Night_patched.img
+          output_type="$(python3 scripts/validate_night_boot_image.py output/Night_patched.img --expect "$input_type" | cut -d: -f1)"
+          test "$output_type" = "$input_type"
+          test "$(stat -c%s output/Night_patched.img)" -eq "$input_size"
+          mkdir verify
+          engine/ksud boot-restore --boot output/Night_patched.img --out verify --out-name restored.img 2>&1 | tee -a patch.log
+          python3 scripts/validate_night_boot_image.py verify/restored.img --expect "$input_type"
+          test "$(stat -c%s verify/restored.img)" -eq "$input_size"
           sha256sum input.img output/Night_patched.img > output/SHA256.txt
+          {
+            printf 'Night source commit: %s\n' "$GITHUB_SHA"
+            printf 'Image type: %s\n' "$input_type"
+            printf 'KMI: %s\n' "$KMI"
+            printf 'KMI SHA-256: %s\n' "$module_sha256"
+            cat output/SHA256.txt
+          } > output/PATCH-METADATA.txt
       - name: Upload result to private draft task
         if: success()
         shell: bash
         run: |
           curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/octet-stream' --data-binary @output/Night_patched.img "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=Night_patched.img" >/dev/null
           curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: text/plain' --data-binary @output/SHA256.txt "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256.txt" >/dev/null
+          curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: text/plain' --data-binary @output/PATCH-METADATA.txt "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=PATCH-METADATA.txt" >/dev/null
       - name: Upload failure marker
         if: failure()
         shell: bash
         run: |
-          printf 'Night web patch failed. Review workflow run %s.\n' "$GITHUB_RUN_ID" > failure.txt
+          {
+            printf 'Night web patch failed. Review workflow run %s.\n' "$GITHUB_RUN_ID"
+            if [ -s patch.log ]; then tail -n 40 patch.log; fi
+          } > failure.txt
           curl -fsSL -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: text/plain' --data-binary @failure.txt "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=failure.txt" >/dev/null || true

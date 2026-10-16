@@ -6,11 +6,13 @@ on:
     branches: [ "night" ]
     paths:
       - '.github/workflows/prepare-night-web-engine.yml'
+      - '.github/workflows/night-web-patch.yml'
       - '.github/workflows/build-lkm.yml'
       - '.github/workflows/ksuinit.yml'
       - '.github/workflows/ksud-extra.yml'
       - 'kernel/**'
       - 'userspace/**'
+      - 'scripts/validate_night_boot_image.py'
 
 permissions:
   actions: read
@@ -74,17 +76,11 @@ jobs:
         with:
           name: ksud-x86_64-unknown-linux-musl
           path: engine
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: aarch64-android*-lkm
-          merge-multiple: true
-          path: kmi
-      - name: Package native engine and exclusive KMI set
+      - name: Package native engine
         run: |
           chmod +x engine/ksud
           mkdir bundle
           cp engine/ksud bundle/ksud
-          cp kmi/*_kernelsu.ko bundle/
           (cd bundle && zip -9 ../night-web-engine.zip *)
       - name: Replace private draft engine release
         shell: bash
