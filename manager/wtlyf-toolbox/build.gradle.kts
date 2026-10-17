@@ -18,8 +18,8 @@ android {
         applicationId = "com.wutong.yingcang"
         minSdk = 31
         targetSdk = 37
-        versionCode = 28
-        versionName = "1.7.1"
+        versionCode = 29
+        versionName = "1.7.2"
     }
 
     buildTypes {

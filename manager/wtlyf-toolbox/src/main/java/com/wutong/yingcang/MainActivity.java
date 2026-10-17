@@ -40,6 +40,7 @@ import android.webkit.WebViewClient;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -48,7 +49,12 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -218,7 +224,7 @@ public final class MainActivity extends Activity {
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setRequestMethod("POST");
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.2");
+            connection.setRequestProperty("User-Agent", "wtlyf-android/1.7.2");
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8"); connection.setDoOutput(true);
             try (OutputStream output = connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
             int status = connection.getResponseCode();
@@ -485,7 +491,7 @@ public final class MainActivity extends Activity {
                 connection.setReadTimeout(12000);
                 connection.setRequestMethod("GET");
                 connection.setRequestProperty("Accept", "application/json");
-                connection.setRequestProperty("User-Agent", "wtlyf-android/1.6.3");
+                connection.setRequestProperty("User-Agent", "wtlyf-android/1.7.2");
                 if (connection.getResponseCode() != 200) return;
                 StringBuilder text = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
@@ -798,16 +804,21 @@ public final class MainActivity extends Activity {
         showOperationPage("模块部署", "正在调用 KernelSU 安装模块，完成后可返回工具箱。");
         new Thread(() -> {
             boolean success = true;
+            ExecutorService downloadPool = Executors.newFixedThreadPool(Math.max(1, Math.min(3, items.length)));
+            List<Future<File>> downloads = new ArrayList<>(items.length);
             try {
+                appendLog("正在并行准备 " + items.length + " 个模块；已校验的本地缓存会直接复用。\n");
+                for (ModuleItem item : items) {
+                    downloads.add(downloadPool.submit(() -> downloadModule(item)));
+                }
                 for (int index = 0; index < items.length; index++) {
                     ModuleItem item = items[index];
                     appendLog("\n== 部署步骤 " + (index + 1) + "/" + items.length + " ==\n");
                     appendLog(item.name + " " + item.version + "\n");
-                    appendLog("正在从服务器下载模块…\n");
-                    File zip = downloadModule(item);
+                    appendLog("正在等待模块准备完成…\n");
+                    File zip = downloads.get(index).get();
                     int code = installModuleWithTimeout(zip);
                     appendLog("退出码：" + code + "\n");
-                    zip.delete();
                     if (code != 0) {
                         if (waitForModuleInstalled(item.id)) {
                             appendLog("安装器返回非零退出码，但已检测到模块 " + item.id + " 成功落盘，按部署成功继续。\n");
@@ -825,8 +836,10 @@ public final class MainActivity extends Activity {
                 }
             } catch (Throwable error) {
                 success = false;
-                appendLog("错误：" + error.getMessage() + "\n");
+                Throwable cause = error.getCause() == null ? error : error.getCause();
+                appendLog("错误：" + cause.getMessage() + "\n");
             } finally {
+                downloadPool.shutdownNow();
                 installing.set(false);
                 boolean result = success;
                 runOnUiThread(() -> completeOperation(
@@ -1133,7 +1146,14 @@ public final class MainActivity extends Activity {
         File partial = new File(getCacheDir(), item.fileName + ".part");
         File target = new File(getCacheDir(), item.fileName);
         partial.delete();
-        target.delete();
+        if (target.isFile()) {
+            if (item.sha256.equals(fileSha256(target))) {
+                appendLog("缓存命中：" + item.name + "，跳过重复下载\n");
+                return target;
+            }
+            appendLog("缓存校验失败，重新下载：" + item.name + "\n");
+            target.delete();
+        }
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(MODULE_BASE_URL + item.fileName).openConnection();
@@ -1141,7 +1161,7 @@ public final class MainActivity extends Activity {
             connection.setReadTimeout(120000);
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("Accept", "application/zip,application/octet-stream");
-            connection.setRequestProperty("User-Agent", "wtlyf-toolbox/1.7.1 Android");
+            connection.setRequestProperty("User-Agent", "wtlyf-toolbox/1.7.2 Android");
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) throw new Exception("模块下载失败（HTTP " + status + "）");
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -1165,6 +1185,17 @@ public final class MainActivity extends Activity {
             if (connection != null) connection.disconnect();
             if (!target.exists()) partial.delete();
         }
+    }
+
+    private String fileSha256(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = new FileInputStream(file)) {
+            byte[] buffer = new byte[128 * 1024];
+            for (int count; (count = input.read(buffer)) != -1;) digest.update(buffer, 0, count);
+        }
+        StringBuilder actual = new StringBuilder(64);
+        for (byte value : digest.digest()) actual.append(String.format(Locale.ROOT, "%02X", value));
+        return actual.toString();
     }
 
     private void appendLog(String text) {
