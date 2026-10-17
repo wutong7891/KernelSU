@@ -1,0 +1,125 @@
+name: Build Night Local Web Patcher
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [night]
+    paths:
+      - .github/workflows/night-local-patcher.yml
+      - scripts/customize_night_imageforge.py
+      - userspace/ksuinit/**
+      - dist-night/kmi/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: night-local-patcher
+  cancel-in-progress: true
+
+env:
+  IMAGEFORGE_COMMIT: 39607a230c7f9b4f4cc1ddf4c0cb8276bf77a7a5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust and Android NDK
+        run: |
+          rustup update stable
+          rustup target add aarch64-linux-android
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r29
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          cache-targets: false
+
+      - name: Build Night ksuinit
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/scripts/setup-rust-build.sh aarch64-linux-android 26
+          BUILTINS="$($CLANG_PATH --print-resource-dir)/lib/linux/libclang_rt.builtins-aarch64-android.a"
+          test -f "$BUILTINS"
+          export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wno-unused-command-line-argument -C link-arg=$BUILTINS"
+          cargo build --package ksuinit --target=aarch64-linux-android --release
+
+      - name: Prepare pinned browser-local engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/LyraVoid/ImageForge.git imageforge
+          git -C imageforge checkout --detach "$IMAGEFORGE_COMMIT"
+          released_at="$(git show -s --format=%cI "$GITHUB_SHA")"
+          python3 scripts/customize_night_imageforge.py \
+            --imageforge imageforge \
+            --kmi-root dist-night/kmi \
+            --ksuinit target/aarch64-linux-android/release/ksuinit \
+            --night-commit "$GITHUB_SHA" \
+            --released-at "$released_at"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: imageforge/pnpm-lock.yaml
+
+      - name: Install, verify and build local patcher
+        working-directory: imageforge
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm docs:materials
+          pnpm verify
+          test -s dist/index.html
+          test -s dist/NIGHT-BUILD.json
+          test -s dist/artifacts/kernelsu/night/ksuinit
+          test -s dist/wasm/imageforge.wasm
+
+      - name: Package verified site and corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$(sha256sum imageforge/dist/NIGHT-BUILD.json | cut -d' ' -f1)" NIGHT-BUILD.json > imageforge/dist/SHA256.txt
+          (cd imageforge/dist && zip -qr ../../Night-local-patcher-site.zip .)
+          rm -rf imageforge/node_modules imageforge/dist imageforge/.git
+          zip -qr Night-local-patcher-source.zip imageforge scripts/customize_night_imageforge.py .github/workflows/night-local-patcher.yml
+          sha256sum Night-local-patcher-site.zip Night-local-patcher-source.zip > Night-local-patcher-SHA256.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Night-local-patcher
+          path: |
+            Night-local-patcher-site.zip
+            Night-local-patcher-source.zip
+            Night-local-patcher-SHA256.txt
+          if-no-files-found: error
+
+      - name: Publish latest verified site package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=night-local-patcher
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Night Local Web Patcher" --notes "Browser-local boot/init_boot patcher. Images never leave the browser."
+          fi
+          gh release upload "$tag" --clobber Night-local-patcher-site.zip Night-local-patcher-source.zip Night-local-patcher-SHA256.txt
