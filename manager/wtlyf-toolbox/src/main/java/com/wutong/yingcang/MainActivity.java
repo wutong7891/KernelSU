@@ -1141,7 +1141,7 @@ public final class MainActivity extends Activity {
             connection.setReadTimeout(120000);
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("Accept", "application/zip,application/octet-stream");
-            connection.setRequestProperty("User-Agent", "wtlyf-toolbox/1.6.5 Android");
+            connection.setRequestProperty("User-Agent", "wtlyf-toolbox/1.7.1 Android");
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) throw new Exception("模块下载失败（HTTP " + status + "）");
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
