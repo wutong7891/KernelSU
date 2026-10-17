@@ -83,5 +83,4 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add dist-wtlyf-toolbox
           git commit -m "build: Publish wtlyf Toolbox APK"
-          git pull --rebase origin night
           git push origin HEAD:night
