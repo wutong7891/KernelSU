@@ -379,6 +379,14 @@ const $=s=>document.querySelector(s),username=new URLSearchParams(location.searc
 </script></body></html>`;
 }
 
+function accountDetailSiteV2(nonce: string) {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070b18"><title>管理员详情</title><style nonce="${nonce}">
+*{box-sizing:border-box}body{margin:0;min-height:100vh;color:#eef5ff;font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:radial-gradient(circle at 15% 10%,#23396b 0,transparent 34%),radial-gradient(circle at 85% 15%,#562b78 0,transparent 28%),#070b18}main{width:min(1080px,calc(100% - 28px));margin:auto;padding:30px 0 64px}.card{border:1px solid #ffffff2c;background:#101a31c9;box-shadow:0 22px 70px #0008;backdrop-filter:blur(24px);border-radius:28px;padding:26px;margin-bottom:20px}.top,.row{display:flex;align-items:center;justify-content:space-between;gap:18px}.top h1{margin:0;font-size:clamp(26px,5vw,44px)}.muted,small{color:#aebbd4}.buttons{display:flex;gap:10px;flex-wrap:wrap}button,input{border-radius:15px;border:1px solid #ffffff2e;padding:12px 16px;font:inherit;color:#fff;background:#0c162c}button{font-weight:700;background:linear-gradient(120deg,#2f8cff,#8056e8);cursor:pointer}.credential{padding:14px 0;border-bottom:1px solid #ffffff1c}.credential:last-child,.row:last-child{border:0}.credential strong,.credential span{display:block}.password-row{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}.row{align-items:flex-start;padding:15px 0;border-bottom:1px solid #ffffff1c}.row strong,.row small{display:block}.audit{overflow:auto}.audit-row{display:grid;grid-template-columns:150px 1fr 160px 160px 70px;gap:12px;align-items:start;padding:14px 0;border-bottom:1px solid #ffffff1c;min-width:820px}.ok{color:#8fe5b2}.fail{color:#ff9db7}.status{min-height:22px;color:#91d9ff}@media(max-width:720px){main{padding-top:16px}.card{border-radius:21px;padding:20px}.top{align-items:flex-start;flex-direction:column}.buttons{width:100%}.buttons button{flex:1}.password-row{grid-template-columns:1fr}}
+</style></head><body><main><header class="card top"><div><h1 id="title">管理员详情</h1><div class="muted">单独查看所选管理员的账户、使用情况、设备与 IP。</div></div><div class="buttons"><button id="refresh">刷新</button><button id="exit">退出详情</button></div></header><section class="card"><h2>账户凭据</h2><div class="credential"><strong>用户名</strong><span id="accountUsername">正在加载…</span></div><div class="credential"><strong>密码</strong><span>不可查看：服务器只保存加盐哈希，不保存明文密码。</span><div class="password-row"><input id="newPassword" type="password" autocomplete="new-password" maxlength="256" placeholder="输入新密码（1–256 字符）"><button id="resetPassword">重置密码</button></div><div id="passwordStatus" class="status"></div></div></section><section class="card"><h2>使用情况</h2><div id="summary" class="status">正在加载…</div><h2>最近操作</h2><div id="recent">正在加载…</div></section><section class="card"><h2>登录设备与 IP</h2><div class="muted">最近 200 条登录记录，自动保留 90 天。</div><div id="logins" class="audit">正在加载…</div></section></main><script nonce="${nonce}">
+const $=s=>document.querySelector(s),username=new URLSearchParams(location.search).get('username')||'';async function req(path,options={}){const r=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json'},...options});let d={};try{d=await r.json()}catch{}if(r.status===401){location.href='/';throw Error('请重新登录')}if(!r.ok)throw Error(d.message||'请求失败');return d}function addRow(parent,left,meta,right){const row=document.createElement('div'),box=document.createElement('div'),name=document.createElement('strong'),small=document.createElement('small'),value=document.createElement('span');row.className='row';name.textContent=left;small.textContent=meta;value.textContent=right;box.append(name,small);row.append(box,value);parent.append(row)}async function load(){if(!username){location.href='/';return}$('#title').textContent=username+' 的详情';$('#accountUsername').textContent=username;const summary=$('#summary'),recent=$('#recent'),logins=$('#logins');summary.textContent='正在加载…';recent.textContent='正在加载…';logins.textContent='正在加载…';try{const [usage,audit]=await Promise.all([req('/api/admin/usage-audit?username='+encodeURIComponent(username)),req('/api/admin/login-audit?username='+encodeURIComponent(username))]);const s=usage.summary[0]||{};summary.textContent='修补 '+Number(s.patch_count||0)+' 次 · 签发 '+Number(s.license_count||0)+' 张（'+Number(s.issue_operations||0)+' 次操作）';recent.textContent='';if(!usage.recent.length)recent.textContent='暂无最近操作';usage.recent.forEach(a=>{const action=a.action==='night_patch'?'网页修补':a.action==='night_license_issue'?'Night 卡密签发':'WTLYF 卡密签发';addRow(recent,action,a.created_at+' · '+a.ip_address+(a.detail?' · '+a.detail:''),a.action==='night_patch'?'1 次':a.quantity+' 张')});logins.textContent='';if(!audit.records.length)logins.textContent='暂无登录记录';audit.records.forEach(a=>{const row=document.createElement('div'),time=document.createElement('div'),account=document.createElement('div'),device=document.createElement('div'),network=document.createElement('div'),state=document.createElement('strong'),ua=document.createElement('small'),name=document.createElement('strong'),place=document.createElement('small'),ip=document.createElement('strong');row.className='audit-row';time.textContent=a.created_at;name.textContent=a.username;ua.textContent=a.user_agent;account.append(name,ua);device.textContent=a.device;ip.textContent=a.ip_address;place.textContent=[a.country,a.colo].filter(Boolean).join(' · ')||'未知位置';network.append(ip,place);state.textContent=a.success?'成功':'失败';state.className=a.success?'ok':'fail';row.append(time,account,device,network,state);logins.append(row)})}catch(e){summary.textContent=e.message;recent.textContent='';logins.textContent=e.message}}$('#resetPassword').onclick=async()=>{const password=$('#newPassword').value;if(!password){$('#passwordStatus').textContent='请输入新密码';return}if(!confirm('确认重置 '+username+' 的密码？'))return;try{const result=await req('/api/admin/accounts/reset-password',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';$('#passwordStatus').textContent=result.message}catch(e){$('#passwordStatus').textContent=e.message}};$('#refresh').onclick=load;$('#exit').onclick=()=>location.href='/';load();
+</script></body></html>`;
+}
+
 const fromBase64 = (value: string) => {
   const raw = atob(value.replace(/\s+/g, ""));
   const bytes = new Uint8Array(raw.length);
@@ -1426,7 +1434,7 @@ export default {
         crypto.getRandomValues(new Uint8Array(18)),
         (b) => b.toString(16).padStart(2, "0"),
       ).join("");
-      return new Response(accountDetailSite(nonce), {
+      return new Response(accountDetailSiteV2(nonce), {
         headers: {
           ...PAGE_HEADERS,
           "content-security-policy": `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
@@ -1814,6 +1822,32 @@ export default {
       } catch {
         return reply({ ok: false, message: "该管理员账户已经存在" }, 409);
       }
+    }
+    if (
+      path === "/api/admin/accounts/reset-password" &&
+      request.method === "POST"
+    ) {
+      if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
+      const body: any = await request.json().catch(() => ({})),
+        username = normalizeUsername(body.username),
+        password = String(body.password ?? "");
+      if (!validAdminUsername(username))
+        return reply({ ok: false, message: "请选择有效的管理员账户" }, 400);
+      if (password.length < 1 || password.length > 256)
+        return reply(
+          { ok: false, message: "新密码不能为空，且不能超过 256 个字符" },
+          400,
+        );
+      const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
+        hash = await passwordHash(password, salt, PASSWORD_ITERATIONS),
+        result = await env.DB.prepare(
+          "UPDATE admin_users SET password_hash=?,password_salt=?,password_iterations=? WHERE username=? AND active=1",
+        )
+          .bind(hash, salt, PASSWORD_ITERATIONS, username)
+          .run();
+      return result.meta.changes === 1
+        ? reply({ ok: true, message: "密码已重置，新密码立即生效" })
+        : reply({ ok: false, message: "未找到该管理员账户" }, 404);
     }
     if (path === "/api/admin/accounts/delete" && request.method === "POST") {
       if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
