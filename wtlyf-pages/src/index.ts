@@ -1409,10 +1409,15 @@ export default {
         crypto.getRandomValues(new Uint8Array(18)),
         (b) => b.toString(16).padStart(2, "0"),
       ).join("");
-      const page = accountSite(nonce).replaceAll(
-        'placeholder="3–32 位字母、数字、点、横线或下划线"',
-        'placeholder="任意名称（1–64 字符，可用中文、空格和符号）" maxlength="64"',
-      );
+      const page = accountSite(nonce)
+        .replaceAll(
+          'placeholder="3–32 位字母、数字、点、横线或下划线"',
+          'placeholder="任意名称（1–64 字符，可用中文、空格和符号）" maxlength="64"',
+        )
+        .replace(
+          "await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';text('#status','管理员账户创建成功｜账户：'+username);load()",
+          "await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';text('#status','管理员账户创建成功｜账户：'+username+'｜密码：'+password+'（仅显示一次，请立即保存）');load()",
+        );
       return new Response(page, {
         headers: {
           ...PAGE_HEADERS,

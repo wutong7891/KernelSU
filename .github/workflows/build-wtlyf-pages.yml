@@ -40,6 +40,8 @@ jobs:
           grep -F 'value.length >= 1' wtlyf-pages/src/index.ts
           grep -F 'value.length <= 64' wtlyf-pages/src/index.ts
           grep -F '任意名称（1–64 字符，可用中文、空格和符号）' wtlyf-pages/src/index.ts
+          grep -F '/api/admin/accounts/reset-password' wtlyf-pages/src/index.ts
+          grep -F '仅显示一次，请立即保存' wtlyf-pages/src/index.ts
           test -s wtlyf-pages/dist/_worker.js
 
       - name: Write checksums
