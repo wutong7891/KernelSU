@@ -1,0 +1,34 @@
+[hidden]{display:none!important}
+.session-ok{border-color:#b7ffd766}
+.eyebrow{color:#e5d6ff;font-size:12px;letter-spacing:.14em}
+.code-result{min-height:125px;resize:vertical;word-break:break-all}
+.notice{margin-top:14px;padding:13px 14px;border:1px solid #ffd78a55;border-radius:14px;background:#7b551b35;color:#ffe9bb;line-height:1.55}
+.manager-card{margin-top:16px;min-height:0}
+.manager-card p{flex:auto}
+.public-downloads{width:min(1040px,calc(100% - 28px));margin:0 auto 50px}
+.public-downloads .tool{min-height:190px}
+button:disabled,input:disabled{opacity:.55;cursor:not-allowed;transform:none!important}
+.progress{height:7px;margin:8px 0 14px;overflow:hidden;border-radius:999px;background:#ffffff18}
+.progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#77c8ff,#c38cff);transition:width .25s ease}
+.account-url{word-break:break-all;color:#e5d6ff}
+.accounts-list{display:grid;gap:10px}
+.account-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border:1px solid #ffffff24;border-radius:16px;background:#0809127a}
+.account-row strong,.account-row small{display:block}
+.account-row small{margin-top:5px;color:var(--muted);line-height:1.45}
+.account-row button{padding:9px 13px}
+.unpack-shell{max-width:980px}
+.unpack-tabs{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0}
+.unpack-tabs button{margin:0}
+.rom-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.rom-meta div{padding:13px;border:1px solid #ffffff25;border-radius:15px;background:#0809128c}
+.rom-meta strong,.rom-meta small{display:block}
+.rom-meta small{margin-bottom:4px;color:var(--muted)}
+.partition-list{display:grid;gap:10px;margin:16px 0}
+.partition-item{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:13px;padding:15px 16px}
+.partition-item input{width:22px;height:22px;accent-color:#8d8cff}
+.partition-item h3{margin:0;font-size:17px}
+.partition-item p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.partition-item button{padding:10px 14px}
+.partition-item .part-progress{grid-column:2/-1;height:5px;overflow:hidden;border-radius:99px;background:#ffffff17}
+.partition-item .part-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,#77c8ff,#c38cff);transition:width .2s}
+@media(max-width:600px){.rom-meta{grid-template-columns:1fr}.partition-item{grid-template-columns:auto 1fr}.partition-item button{grid-column:1/-1}.partition-item .part-progress{grid-column:1/-1}}

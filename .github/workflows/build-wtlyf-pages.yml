@@ -1,0 +1,55 @@
+name: Build WTLYF Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - night
+    paths:
+      - '.github/workflows/build-wtlyf-pages.yml'
+      - 'wtlyf-pages/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Night
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Build Cloudflare Pages Worker
+        run: >-
+          npx --yes esbuild@0.28.2 wtlyf-pages/src/index.ts
+          --bundle
+          --format=esm
+          --platform=browser
+          --target=es2022
+          --minify
+          --legal-comments=none
+          --outfile=wtlyf-pages/dist/_worker.js
+
+      - name: Verify administrator username policy
+        run: |
+          grep -F 'value.length >= 1' wtlyf-pages/src/index.ts
+          grep -F 'value.length <= 64' wtlyf-pages/src/index.ts
+          grep -F '任意名称（1–64 字符，可用中文、空格和符号）' wtlyf-pages/dist/_worker.js
+
+      - name: Write checksums
+        working-directory: wtlyf-pages/dist
+        run: find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wtlyf-pages-dist
+          path: wtlyf-pages/dist
+          if-no-files-found: error
+          retention-days: 14
+
