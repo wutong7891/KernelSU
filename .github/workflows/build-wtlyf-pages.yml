@@ -43,7 +43,9 @@ jobs:
           grep -F '/api/admin/accounts/reset-password' wtlyf-pages/src/index.ts
           grep -F '仅显示一次，请立即保存' wtlyf-pages/src/index.ts
           grep -F 'security_rate_limits' wtlyf-pages/src/index.ts
-          grep -F 'wtlyf-admin-v4' wtlyf-pages/src/index.ts
+          grep -F 'wtlyf-admin-v5' wtlyf-pages/src/index.ts
+          grep -F 'admin_sessions' wtlyf-pages/src/index.ts
+          grep -F 'calculator-ocr' wtlyf-pages/src/index.ts
           grep -F 'Clear-Site-Data' wtlyf-pages/src/index.ts
           test -s wtlyf-pages/dist/_worker.js
 

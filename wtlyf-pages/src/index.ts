@@ -46,6 +46,7 @@ const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const SESSION_COOKIE = "__Host-wtlyf_admin";
 const SESSION_SECONDS = 12 * 60 * 60;
 let securityRateLimitReady: Promise<unknown> | null = null;
+let adminSessionReady: Promise<unknown> | null = null;
 // Cloudflare Workers WebCrypto caps PBKDF2 at 100,000 iterations.
 const PASSWORD_ITERATIONS = 100000;
 const ADMIN_SITE_ORIGIN = "https://wtlyf-admin-center.pages.dev";
@@ -220,6 +221,10 @@ async function firewall(request: Request, url: URL, env: Env) {
     scope = "admin-login";
     limit = request.method === "POST" ? 6 : 30;
     limiter = env.AUTH_RATE_LIMITER;
+  } else if (path === "/api/v1/night/calculator-ocr") {
+    scope = "calculator-ocr";
+    limit = 10;
+    limiter = env.API_RATE_LIMITER;
   } else if (
     path === "/api/v1/activate" ||
     path === "/api/v1/check" ||
@@ -401,6 +406,8 @@ function deviceLimitFrom(body: any): number | null | undefined {
 async function signSession(
   username: string,
   expires: string,
+  sessionToken: string,
+  host: string,
   passwordHash: string,
   env: Env,
 ) {
@@ -416,10 +423,63 @@ async function signSession(
       "HMAC",
       key,
       new TextEncoder().encode(
-        `wtlyf-admin-v4:${username}:${expires}:${passwordHash}`,
+        `wtlyf-admin-v5:${username}:${expires}:${sessionToken}:${host}:${passwordHash}`,
       ),
     ),
   );
+}
+async function ensureAdminSessions(env: Env) {
+  adminSessionReady ??= env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS admin_sessions (session_hash TEXT PRIMARY KEY, username TEXT NOT NULL, host TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    ),
+    env.DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_admin_sessions_user ON admin_sessions(username,expires_at)",
+    ),
+  ]);
+  await adminSessionReady;
+}
+const sessionTokenHash = async (token: string) =>
+  hex(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`wtlyf-session-v1:${token}`),
+    ),
+  );
+async function createAdminSession(
+  username: string,
+  expires: string,
+  host: string,
+  env: Env,
+) {
+  await ensureAdminSessions(env);
+  const token = toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
+    tokenHash = await sessionTokenHash(token),
+    now = Math.floor(Date.now() / 1000);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at<=?").bind(now),
+    env.DB.prepare(
+      "INSERT INTO admin_sessions(session_hash,username,host,expires_at) VALUES(?,?,?,?)",
+    ).bind(tokenHash, username, host, Number(expires)),
+  ]);
+  return token;
+}
+async function revokeAdminSession(request: Request, env: Env) {
+  const cookie = request.headers.get("cookie") ?? "",
+    match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  if (!match) return;
+  let decoded = "";
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch {
+    return;
+  }
+  const [version, , , token] = decoded.split(".", 5);
+  if (version !== "v5" || !token) return;
+  await ensureAdminSessions(env);
+  await env.DB.prepare("DELETE FROM admin_sessions WHERE session_hash=?")
+    .bind(await sessionTokenHash(token))
+    .run();
 }
 async function getAdminSession(request: Request, env: Env) {
   const cookie = request.headers.get("cookie") ?? "";
@@ -427,13 +487,19 @@ async function getAdminSession(request: Request, env: Env) {
     new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`),
   );
   if (!match) return null;
-  const [version, encodedUsername, expires, signature] = decodeURIComponent(
-    match[1],
-  ).split(".", 4);
+  let decoded = "";
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+  const [version, encodedUsername, expires, sessionToken, signature] =
+    decoded.split(".", 5);
   if (
-    version !== "v4" ||
+    version !== "v5" ||
     !encodedUsername ||
     !expires ||
+    !sessionToken ||
     !signature ||
     Number(expires) <= Math.floor(Date.now() / 1000)
   )
@@ -444,10 +510,18 @@ async function getAdminSession(request: Request, env: Env) {
   } catch {
     return null;
   }
+  await ensureAdminSessions(env);
+  const host = new URL(request.url).hostname;
   const row = await env.DB.prepare(
-    "SELECT username,password_hash FROM admin_users WHERE username=? AND active=1",
+    "SELECT u.username,u.password_hash FROM admin_sessions s JOIN admin_users u ON u.username=s.username WHERE s.session_hash=? AND s.username=? AND s.host=? AND s.expires_at=? AND s.expires_at>? AND u.active=1",
   )
-    .bind(username)
+    .bind(
+      await sessionTokenHash(sessionToken),
+      username,
+      host,
+      Number(expires),
+      Math.floor(Date.now() / 1000),
+    )
     .first<any>();
   if (
     !row?.username ||
@@ -456,6 +530,8 @@ async function getAdminSession(request: Request, env: Env) {
       await signSession(
         String(row.username),
         expires,
+        sessionToken,
+        host,
         String(row.password_hash),
         env,
       ),
@@ -595,13 +671,14 @@ async function ensureAdminLoginAudit(env: Env) {
 }
 async function loginBlocked(request: Request, env: Env, username: string) {
   await ensureAdminLoginAudit(env);
+  const ip = requestIp(request);
   const row = await env.DB.prepare(
-    "SELECT SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN username=? THEN 1 ELSE 0 END) AS account_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-15 minutes')",
+    "SELECT SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username=? THEN 1 ELSE 0 END) AS pair_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-15 minutes')",
   )
-    .bind(requestIp(request), username)
+    .bind(ip, ip, username)
     .first<any>();
   return (
-    Number(row?.ip_count ?? 0) >= 10 || Number(row?.account_count ?? 0) >= 20
+    Number(row?.ip_count ?? 0) >= 20 || Number(row?.pair_count ?? 0) >= 10
   );
 }
 async function recordAdminLogin(
@@ -1605,9 +1682,17 @@ export default {
           .bind(matched.username)
           .run();
         const expires = String(Math.floor(Date.now() / 1000) + SESSION_SECONDS),
+          sessionToken = await createAdminSession(
+            matched.username,
+            expires,
+            url.hostname,
+            env,
+          ),
           signature = await signSession(
             matched.username,
             expires,
+            sessionToken,
+            url.hostname,
             matched.passwordHash,
             env,
           );
@@ -1615,7 +1700,7 @@ export default {
           { ok: true, message: "登录成功", username: matched.username },
           200,
           {
-            "Set-Cookie": `${SESSION_COOKIE}=v4.${encodeSessionUsername(matched.username)}.${expires}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict; Priority=High`,
+            "Set-Cookie": `${SESSION_COOKIE}=v5.${encodeSessionUsername(matched.username)}.${expires}.${sessionToken}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict; Priority=High`,
           },
         );
       } catch (error) {
@@ -1701,11 +1786,15 @@ export default {
       return authorized
         ? reply({ ok: true, authenticated: true, username: adminUser })
         : reply({ ok: false, authenticated: false }, 401);
-    if (path === "/api/admin/logout" && request.method === "POST")
+    if (path === "/api/admin/logout" && request.method === "POST") {
+      await revokeAdminSession(request, env).catch((error) =>
+        console.error("admin session revoke failed", error),
+      );
       return reply({ ok: true, message: "已退出登录" }, 200, {
         "Set-Cookie": `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`,
         "Clear-Site-Data": '"cache", "cookies", "storage"',
       });
+    }
     if (path === "/") return new Response(HOME, { headers: PAGE_HEADERS });
     if (path === "/admin/accounts")
       return Response.redirect(ADMIN_SITE_ORIGIN, 302);
@@ -1963,6 +2052,12 @@ export default {
         )
           .bind(hash, salt, PASSWORD_ITERATIONS, username)
           .run();
+      if (result.meta.changes === 1) {
+        await ensureAdminSessions(env);
+        await env.DB.prepare("DELETE FROM admin_sessions WHERE username=?")
+          .bind(username)
+          .run();
+      }
       return result.meta.changes === 1
         ? reply({ ok: true, message: "密码已重置，新密码立即生效" })
         : reply({ ok: false, message: "未找到该管理员账户" }, 404);
@@ -1983,6 +2078,12 @@ export default {
       )
         .bind(username)
         .run();
+      if (result.meta.changes === 1) {
+        await ensureAdminSessions(env);
+        await env.DB.prepare("DELETE FROM admin_sessions WHERE username=?")
+          .bind(username)
+          .run();
+      }
       return result.meta.changes === 1
         ? reply({ ok: true, message: "管理员账户已删除" })
         : reply({ ok: false, message: "未找到该账户" }, 404);
