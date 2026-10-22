@@ -223,7 +223,7 @@ async function firewall(request: Request, url: URL, env: Env) {
     limiter = env.AUTH_RATE_LIMITER;
   } else if (path === "/api/v1/night/calculator-ocr") {
     scope = "calculator-ocr";
-    limit = 10;
+    limit = 60;
     limiter = env.API_RATE_LIMITER;
   } else if (
     path === "/api/v1/activate" ||
