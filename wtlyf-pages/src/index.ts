@@ -20,6 +20,12 @@ const API_HEADERS = {
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Content-Security-Policy":
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "X-Permitted-Cross-Domain-Policies": "none",
+  "X-Robots-Tag": "noindex, nofollow, nosnippet, noarchive",
   "X-WTLYF-API": "cf-v3",
 };
 const PAGE_HEADERS = {
@@ -39,6 +45,7 @@ const PAGE_HEADERS = {
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const SESSION_COOKIE = "__Host-wtlyf_admin";
 const SESSION_SECONDS = 12 * 60 * 60;
+let securityRateLimitReady: Promise<unknown> | null = null;
 // Cloudflare Workers WebCrypto caps PBKDF2 at 100,000 iterations.
 const PASSWORD_ITERATIONS = 100000;
 const ADMIN_SITE_ORIGIN = "https://wtlyf-admin-center.pages.dev";
@@ -124,16 +131,72 @@ async function cacheRateLimit(
   } catch {}
   return true;
 }
+async function d1RateLimit(
+  env: Env,
+  scopeKey: string,
+  limit: number,
+  period: number,
+) {
+  const now = Math.floor(Date.now() / 1000),
+    expiresAt = now + period;
+  try {
+    securityRateLimitReady ??= env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS security_rate_limits (scope_key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)",
+    ).run();
+    await securityRateLimitReady;
+    const row = await env.DB.prepare(
+      "INSERT INTO security_rate_limits(scope_key,count,expires_at) VALUES(?,1,?) ON CONFLICT(scope_key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count",
+    )
+      .bind(scopeKey, expiresAt, now, now)
+      .first<any>();
+    if (crypto.getRandomValues(new Uint8Array(1))[0] < 3)
+      await env.DB.prepare(
+        "DELETE FROM security_rate_limits WHERE expires_at<?",
+      )
+        .bind(now - 3600)
+        .run();
+    return Number(row?.count ?? limit + 1) <= limit;
+  } catch (error) {
+    console.error("durable rate limit failed", error);
+    return null;
+  }
+}
 async function firewall(request: Request, url: URL, env: Env) {
   if (!new Set(["GET", "HEAD", "POST", "OPTIONS"]).has(request.method))
     return firewallReply("请求方法已被防火墙拦截", 405, {
       Allow: "GET, HEAD, POST, OPTIONS",
     });
   if (request.url.length > 4096) return firewallReply("请求地址过长", 414);
-  // GET/HEAD includes every APK, module and image download and is intentionally never rate limited.
-  if (request.method !== "POST") return null;
   const path = url.pathname,
-    length = Number(request.headers.get("content-length") ?? 0);
+    rawLength = request.headers.get("content-length"),
+    length = Number(rawLength ?? 0);
+  if (
+    rawLength !== null &&
+    (!Number.isSafeInteger(length) || length < 0)
+  )
+    return firewallReply("请求长度无效", 400);
+  const jsonPost =
+    request.method === "POST" &&
+    (path === "/api/admin/session" ||
+      (path.startsWith("/api/admin/") &&
+        path !== "/api/admin/push/upload") ||
+      path === "/api/night/sign" ||
+      path === "/api/night/patch/create" ||
+      path === "/api/night/patch/finalize" ||
+      path === "/api/night/patch/cleanup");
+  if (jsonPost) {
+    const contentType = (request.headers.get("content-type") ?? "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (contentType !== "application/json" && !contentType.endsWith("+json"))
+      return firewallReply("请求格式必须为 JSON", 415);
+  }
+  // Static downloads stay cacheable. Sensitive API reads and every write are rate limited.
+  const sensitiveRead =
+    request.method === "GET" &&
+    (path.startsWith("/api/admin/") || path.startsWith("/api/night/"));
+  if (request.method !== "POST" && !sensitiveRead) return null;
   let max = 2 * 1024 * 1024;
   if (path === "/api/v1/night/calculator-ocr") max = 768 * 1024;
   else if (
@@ -148,13 +211,14 @@ async function firewall(request: Request, url: URL, env: Env) {
   else if (path === "/api/night/patch/chunk") max = 17 * 1024 * 1024;
   else if (path.startsWith("/api/admin/") || path.startsWith("/api/night/"))
     max = 256 * 1024;
-  if (length > max) return firewallReply("请求内容超过安全限制", 413);
+  if (request.method === "POST" && length > max)
+    return firewallReply("请求内容超过安全限制", 413);
   let scope = "",
     limit = 0,
     limiter: RateLimiter | undefined;
   if (path === "/api/admin/session") {
     scope = "admin-login";
-    limit = 8;
+    limit = request.method === "POST" ? 6 : 30;
     limiter = env.AUTH_RATE_LIMITER;
   } else if (
     path === "/api/v1/activate" ||
@@ -166,7 +230,7 @@ async function firewall(request: Request, url: URL, env: Env) {
     limiter = env.API_RATE_LIMITER;
   } else if (path.startsWith("/api/admin/")) {
     scope = "admin-api";
-    limit = 120;
+    limit = 60;
     limiter = env.API_RATE_LIMITER;
   } else if (path.startsWith("/api/night/")) {
     scope = "night-tools";
@@ -175,11 +239,26 @@ async function firewall(request: Request, url: URL, env: Env) {
   }
   if (!scope) return null;
   const ip = request.headers.get("cf-connecting-ip") ?? "unknown",
-    native = limiter ? await limiter.limit({ key: `${scope}:${ip}` }) : null;
+    ipHash = hex(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(`${scope}:${ip}`),
+      ),
+    ),
+    scopeKey = `${scope}:${ipHash}`,
+    native = limiter ? await limiter.limit({ key: scopeKey }) : null;
   if (native && !native.success)
     return firewallReply("请求过于频繁，请一分钟后再试", 429);
-  if (!limiter && !(await cacheRateLimit(request, url, scope, limit, 60)))
-    return firewallReply("请求过于频繁，请一分钟后再试", 429);
+  if (!limiter) {
+    const durable = await d1RateLimit(env, scopeKey, limit, 60);
+    if (durable === false)
+      return firewallReply("请求过于频繁，请一分钟后再试", 429);
+    if (
+      durable === null &&
+      !(await cacheRateLimit(request, url, scope, limit, 60))
+    )
+      return firewallReply("请求过于频繁，请一分钟后再试", 429);
+  }
   return null;
 }
 const normalize = (value: unknown) => {
@@ -319,7 +398,12 @@ function deviceLimitFrom(body: any): number | null | undefined {
     : undefined;
 }
 
-async function signSession(username: string, expires: string, env: Env) {
+async function signSession(
+  username: string,
+  expires: string,
+  passwordHash: string,
+  env: Env,
+) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(env.WTLYF_ADMIN_TOKEN),
@@ -331,7 +415,9 @@ async function signSession(username: string, expires: string, env: Env) {
     await crypto.subtle.sign(
       "HMAC",
       key,
-      new TextEncoder().encode(`wtlyf-admin-v3:${username}:${expires}`),
+      new TextEncoder().encode(
+        `wtlyf-admin-v4:${username}:${expires}:${passwordHash}`,
+      ),
     ),
   );
 }
@@ -345,7 +431,7 @@ async function getAdminSession(request: Request, env: Env) {
     match[1],
   ).split(".", 4);
   if (
-    version !== "v3" ||
+    version !== "v4" ||
     !encodedUsername ||
     !expires ||
     !signature ||
@@ -358,17 +444,25 @@ async function getAdminSession(request: Request, env: Env) {
   } catch {
     return null;
   }
-  if (
-    !username ||
-    !safeEqual(signature, await signSession(username, expires, env))
-  )
-    return null;
   const row = await env.DB.prepare(
-    "SELECT username FROM admin_users WHERE username=? AND active=1",
+    "SELECT username,password_hash FROM admin_users WHERE username=? AND active=1",
   )
     .bind(username)
     .first<any>();
-  return row?.username ? String(row.username) : null;
+  if (
+    !row?.username ||
+    !safeEqual(
+      signature,
+      await signSession(
+        String(row.username),
+        expires,
+        String(row.password_hash),
+        env,
+      ),
+    )
+  )
+    return null;
+  return String(row.username);
 }
 
 function accountDetailSite(nonce: string) {
@@ -458,7 +552,7 @@ async function authenticateAdmin(username: string, password: string, env: Env) {
   const iterations = Number(row?.password_iterations ?? PASSWORD_ITERATIONS);
   const derived = await passwordHash(password, salt, iterations);
   return row && safeEqual(derived, String(row.password_hash))
-    ? String(row.username)
+    ? { username: String(row.username), passwordHash: String(row.password_hash) }
     : null;
 }
 function loginDevice(userAgent: string) {
@@ -1374,6 +1468,14 @@ export default {
       path = url.pathname.replace(/\/+$/, "") || "/",
       accountHost = url.hostname === new URL(ADMIN_SITE_ORIGIN).hostname,
       legacyAccountHost = url.hostname === LEGACY_ADMIN_HOST;
+    const accountOnlyApi =
+      path === "/api/admin/accounts" ||
+      path.startsWith("/api/admin/accounts/") ||
+      path === "/api/admin/login-audit" ||
+      path === "/api/admin/usage-audit" ||
+      path.startsWith("/api/admin/push/");
+    if (accountOnlyApi && !accountHost)
+      return reply({ ok: false, message: "接口不存在" }, 404);
     if (request.method === "OPTIONS")
       return request.headers.get("origin") === url.origin
         ? new Response(null, {
@@ -1387,6 +1489,11 @@ export default {
             },
           })
         : reply({ ok: false, message: "跨站请求已拒绝" }, 403);
+    if (
+      request.headers.get("sec-fetch-site") === "cross-site" &&
+      (path.startsWith("/api/admin/") || path.startsWith("/api/night/"))
+    )
+      return reply({ ok: false, message: "跨站请求已拒绝" }, 403);
     if (
       request.method === "POST" &&
       (path.startsWith("/api/admin/") || path.startsWith("/api/night/")) &&
@@ -1495,15 +1602,20 @@ export default {
         await env.DB.prepare(
           "UPDATE admin_users SET last_login_at=CURRENT_TIMESTAMP WHERE username=?",
         )
-          .bind(matched)
+          .bind(matched.username)
           .run();
         const expires = String(Math.floor(Date.now() / 1000) + SESSION_SECONDS),
-          signature = await signSession(matched, expires, env);
+          signature = await signSession(
+            matched.username,
+            expires,
+            matched.passwordHash,
+            env,
+          );
         return reply(
-          { ok: true, message: "登录成功", username: matched },
+          { ok: true, message: "登录成功", username: matched.username },
           200,
           {
-            "Set-Cookie": `${SESSION_COOKIE}=v3.${encodeSessionUsername(matched)}.${expires}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict`,
+            "Set-Cookie": `${SESSION_COOKIE}=v4.${encodeSessionUsername(matched.username)}.${expires}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict; Priority=High`,
           },
         );
       } catch (error) {
@@ -1592,6 +1704,7 @@ export default {
     if (path === "/api/admin/logout" && request.method === "POST")
       return reply({ ok: true, message: "已退出登录" }, 200, {
         "Set-Cookie": `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`,
+        "Clear-Site-Data": '"cache", "cookies", "storage"',
       });
     if (path === "/") return new Response(HOME, { headers: PAGE_HEADERS });
     if (path === "/admin/accounts")
