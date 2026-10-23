@@ -35,6 +35,11 @@ jobs:
           --legal-comments=none
           --outfile=wtlyf-pages/dist/_worker.js
 
+      - name: Run security regression checks
+        run: |
+          node wtlyf-pages/tests/security-regression.mjs
+          node wtlyf-pages/tests/security-behavior.mjs
+
       - name: Verify administrator username policy
         run: |
           grep -F 'value.length >= 1' wtlyf-pages/src/index.ts
@@ -47,6 +52,9 @@ jobs:
           grep -F 'admin_sessions' wtlyf-pages/src/index.ts
           grep -F 'calculator-ocr' wtlyf-pages/src/index.ts
           grep -F 'Clear-Site-Data' wtlyf-pages/src/index.ts
+          grep -F 'admin_access_audit' wtlyf-pages/src/index.ts
+          grep -F 'recordAdminAccess(request, env, path, "scanner")' wtlyf-pages/src/index.ts
+          grep -F 'Number(row?.ip_hour_count ?? 0) >= 30' wtlyf-pages/src/index.ts
           test -s wtlyf-pages/dist/_worker.js
 
       - name: Write checksums

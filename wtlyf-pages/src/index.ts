@@ -47,10 +47,20 @@ const SESSION_COOKIE = "__Host-wtlyf_admin";
 const SESSION_SECONDS = 12 * 60 * 60;
 let securityRateLimitReady: Promise<unknown> | null = null;
 let adminSessionReady: Promise<unknown> | null = null;
+let adminAccessAuditReady: Promise<unknown> | null = null;
 // Cloudflare Workers WebCrypto caps PBKDF2 at 100,000 iterations.
 const PASSWORD_ITERATIONS = 100000;
 const ADMIN_SITE_ORIGIN = "https://wtlyf-admin-center.pages.dev";
 const LEGACY_ADMIN_HOST = "wtlyf-license-center.wtlyf-night.workers.dev";
+const ADMIN_PAGE_PATHS = new Set([
+  "/",
+  "/admin/accounts",
+  "/admin/account-detail",
+  "/night-licenses",
+  "/push",
+]);
+const SUSPICIOUS_PATH =
+  /(?:^|\/)(?:\.env|\.git|wp-admin|wp-login\.php|phpmyadmin|server-status|actuator|cgi-bin)(?:\/|$)/i;
 const GITHUB_REPO = "wutong7891/KernelSU";
 const KMI_SET = new Set([
   "android12-5.10",
@@ -162,7 +172,12 @@ async function d1RateLimit(
     return null;
   }
 }
-async function firewall(request: Request, url: URL, env: Env) {
+async function firewall(
+  request: Request,
+  url: URL,
+  env: Env,
+  context?: ExecutionContext,
+) {
   if (!new Set(["GET", "HEAD", "POST", "OPTIONS"]).has(request.method))
     return firewallReply("请求方法已被防火墙拦截", 405, {
       Allow: "GET, HEAD, POST, OPTIONS",
@@ -171,6 +186,10 @@ async function firewall(request: Request, url: URL, env: Env) {
   const path = url.pathname,
     rawLength = request.headers.get("content-length"),
     length = Number(rawLength ?? 0);
+  if (SUSPICIOUS_PATH.test(path)) {
+    context?.waitUntil(recordAdminAccess(request, env, path, "scanner"));
+    return firewallReply("资源不存在", 404);
+  }
   if (
     rawLength !== null &&
     (!Number.isSafeInteger(length) || length < 0)
@@ -461,6 +480,9 @@ async function createAdminSession(
     env.DB.prepare(
       "INSERT INTO admin_sessions(session_hash,username,host,expires_at) VALUES(?,?,?,?)",
     ).bind(tokenHash, username, host, Number(expires)),
+    env.DB.prepare(
+      "DELETE FROM admin_sessions WHERE session_hash IN (SELECT session_hash FROM admin_sessions WHERE username=? AND host=? ORDER BY expires_at DESC, created_at DESC LIMIT -1 OFFSET 8)",
+    ).bind(username, host),
   ]);
   return token;
 }
@@ -673,12 +695,14 @@ async function loginBlocked(request: Request, env: Env, username: string) {
   await ensureAdminLoginAudit(env);
   const ip = requestIp(request);
   const row = await env.DB.prepare(
-    "SELECT SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username=? THEN 1 ELSE 0 END) AS pair_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-15 minutes')",
+    "SELECT SUM(CASE WHEN ip_address=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS pair_count, SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_hour_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-1 hour')",
   )
-    .bind(ip, ip, username)
+    .bind(ip, ip, username, ip)
     .first<any>();
   return (
-    Number(row?.ip_count ?? 0) >= 20 || Number(row?.pair_count ?? 0) >= 10
+    Number(row?.ip_count ?? 0) >= 12 ||
+    Number(row?.pair_count ?? 0) >= 5 ||
+    Number(row?.ip_hour_count ?? 0) >= 30
   );
 }
 async function recordAdminLogin(
@@ -709,6 +733,57 @@ async function recordAdminLogin(
       .run();
   } catch (error) {
     console.error("admin login audit failed", error);
+  }
+}
+async function ensureAdminAccessAudit(env: Env) {
+  if (!adminAccessAuditReady) {
+    adminAccessAuditReady = env.DB.batch([
+      env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS admin_access_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, method TEXT NOT NULL, category TEXT NOT NULL, ip_address TEXT NOT NULL, user_agent TEXT NOT NULL, country TEXT, colo TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+      ),
+      env.DB.prepare(
+        "CREATE INDEX IF NOT EXISTS idx_admin_access_audit_created ON admin_access_audit(created_at DESC)",
+      ),
+      env.DB.prepare(
+        "CREATE INDEX IF NOT EXISTS idx_admin_access_audit_ip ON admin_access_audit(ip_address,created_at DESC)",
+      ),
+      env.DB.prepare(
+        "DELETE FROM admin_access_audit WHERE created_at < datetime('now','-90 days')",
+      ),
+    ]).catch((error) => {
+      adminAccessAuditReady = null;
+      throw error;
+    });
+  }
+  await adminAccessAuditReady;
+}
+async function recordAdminAccess(
+  request: Request,
+  env: Env,
+  path: string,
+  category: "page" | "scanner",
+) {
+  try {
+    await ensureAdminAccessAudit(env);
+    const userAgent = (request.headers.get("user-agent") ?? "未知设备")
+      .replace(/[\r\n]/g, " ")
+      .slice(0, 512);
+    const cf = (request as any).cf ?? {};
+    await env.DB.prepare(
+      "INSERT INTO admin_access_audit(path,method,category,ip_address,user_agent,country,colo) VALUES(?,?,?,?,?,?,?)",
+    )
+      .bind(
+        path.slice(0, 256),
+        request.method.slice(0, 16),
+        category,
+        requestIp(request),
+        userAgent,
+        String(cf.country ?? "").slice(0, 8),
+        String(cf.colo ?? "").slice(0, 16),
+      )
+      .run();
+  } catch (error) {
+    console.error("admin access audit failed", error);
   }
 }
 async function ensureAdminUsageAudit(env: Env) {
@@ -1537,15 +1612,21 @@ async function calculatorOcr(request: Request, env: Env) {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    context: ExecutionContext,
+  ): Promise<Response> {
     const firewallUrl = new URL(request.url),
-      blocked = await firewall(request, firewallUrl, env);
+      blocked = await firewall(request, firewallUrl, env, context);
     if (blocked) return blocked;
     const url = new URL(request.url),
       path = url.pathname.replace(/\/+$/, "") || "/",
       accountHost = url.hostname === new URL(ADMIN_SITE_ORIGIN).hostname,
       legacyAccountHost = url.hostname === LEGACY_ADMIN_HOST;
     const accountOnlyApi =
+      path === "/api/admin/session" ||
+      path === "/api/admin/logout" ||
       path === "/api/admin/accounts" ||
       path.startsWith("/api/admin/accounts/") ||
       path === "/api/admin/login-audit" ||
@@ -1553,6 +1634,12 @@ export default {
       path.startsWith("/api/admin/push/");
     if (accountOnlyApi && !accountHost)
       return reply({ ok: false, message: "接口不存在" }, 404);
+    if (
+      accountHost &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      ADMIN_PAGE_PATHS.has(path)
+    )
+      context.waitUntil(recordAdminAccess(request, env, path, "page"));
     if (request.method === "OPTIONS")
       return request.headers.get("origin") === url.origin
         ? new Response(null, {
@@ -1581,9 +1668,9 @@ export default {
     if (
       legacyAccountHost &&
       request.method === "GET" &&
-      (path === "/" || path === "/admin/accounts")
+      path === "/admin/accounts"
     )
-      return Response.redirect(ADMIN_SITE_ORIGIN, 302);
+      return reply({ ok: false, message: "资源不存在" }, 404);
     if (
       accountHost &&
       request.method === "GET" &&
@@ -1666,12 +1753,14 @@ export default {
           password.length > 256
         )
           return reply({ ok: false, message: "账户或密码错误" }, 401);
-        if (await loginBlocked(request, env, username))
+        if (await loginBlocked(request, env, username)) {
+          await recordAdminLogin(request, env, username, false);
           return reply(
             { ok: false, message: "登录失败次数过多，请 15 分钟后再试" },
             429,
             { "Retry-After": "900" },
           );
+        }
         const matched = await authenticateAdmin(username, password, env);
         await recordAdminLogin(request, env, username, !!matched);
         if (!matched)
@@ -1713,6 +1802,14 @@ export default {
     }
     const adminUser = await getAdminSession(request, env),
       authorized = !!adminUser;
+    if (path === "/api/admin/access-audit" && request.method === "GET") {
+      if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
+      await ensureAdminAccessAudit(env);
+      const rows = await env.DB.prepare(
+        "SELECT path,method,category,ip_address,user_agent,country,colo,created_at FROM admin_access_audit ORDER BY id DESC LIMIT 500",
+      ).all();
+      return reply({ ok: true, records: rows.results ?? [] });
+    }
     if (path === "/api/v1/push/latest" && request.method === "GET") {
       const item = (await env.PUSH_FILES.get(
         "push:latest",
@@ -1797,7 +1894,7 @@ export default {
     }
     if (path === "/") return new Response(HOME, { headers: PAGE_HEADERS });
     if (path === "/admin/accounts")
-      return Response.redirect(ADMIN_SITE_ORIGIN, 302);
+      return reply({ ok: false, message: "资源不存在" }, 404);
     if (
       (path === "/wtlyf" || path === "/night" || path === "/unpack") &&
       !authorized
