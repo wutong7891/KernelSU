@@ -827,6 +827,17 @@ async function protectedPasswordHash(
   );
   return `v2$${await passwordHash(protectedMaterial, saltBase64, iterations)}`;
 }
+async function portablePasswordHash(
+  password: string,
+  saltBase64: string,
+  iterations: number,
+) {
+  // Administrator accounts are shared by several Pages projects through one
+  // D1 database. Project secrets are intentionally independent, so a password
+  // verifier must not depend on WTLYF_ADMIN_TOKEN or accounts created on the
+  // account-center project cannot sign in on the ordinary service projects.
+  return `v3$${await passwordHash(password, saltBase64, iterations)}`;
+}
 const failedUsernameFingerprint = async (username: string, env: Env) =>
   `failed:${hex(await credentialHmac(username, "wtlyf-admin-username-v1", env)).slice(0, 32)}`;
 async function authenticateAdmin(username: string, password: string, env: Env) {
@@ -839,25 +850,29 @@ async function authenticateAdmin(username: string, password: string, env: Env) {
     row?.password_salt ?? toBase64(crypto.getRandomValues(new Uint8Array(16)));
   const iterations = Number(row?.password_iterations ?? PASSWORD_ITERATIONS);
   const storedHash = String(row?.password_hash ?? ""),
-    protectedHash = await protectedPasswordHash(
-      password,
-      salt,
-      iterations,
-      env,
-    );
+    portableHash = await portablePasswordHash(password, salt, iterations);
   if (!row) return null;
-  if (storedHash.startsWith("v2$"))
-    return safeEqual(protectedHash, storedHash)
+  if (storedHash.startsWith("v3$"))
+    return safeEqual(portableHash, storedHash)
       ? { username: String(row.username), passwordHash: storedHash }
       : null;
-  const legacyHash = await passwordHash(password, salt, iterations);
-  if (!safeEqual(legacyHash, storedHash)) return null;
+  const protectedHash = await protectedPasswordHash(
+    password,
+    salt,
+    iterations,
+    env,
+  );
+  if (storedHash.startsWith("v2$"))
+    if (!safeEqual(protectedHash, storedHash)) return null;
+  if (!storedHash.startsWith("v2$")) {
+    const legacyHash = await passwordHash(password, salt, iterations);
+    if (!safeEqual(legacyHash, storedHash)) return null;
+  }
   const migratedSalt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
-    migratedHash = await protectedPasswordHash(
+    migratedHash = await portablePasswordHash(
       password,
       migratedSalt,
       PASSWORD_ITERATIONS,
-      env,
     );
   await env.DB.prepare(
     "UPDATE admin_users SET password_hash=?,password_salt=?,password_iterations=? WHERE username=? AND password_hash=?",
@@ -2452,11 +2467,10 @@ export default {
         return denied;
       }
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
-        hash = await protectedPasswordHash(
+        hash = await portablePasswordHash(
           password,
           salt,
           PASSWORD_ITERATIONS,
-          env,
         );
       try {
         await env.DB.prepare(
@@ -2500,11 +2514,10 @@ export default {
         return denied;
       }
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
-        hash = await protectedPasswordHash(
+        hash = await portablePasswordHash(
           password,
           salt,
           PASSWORD_ITERATIONS,
-          env,
         ),
         result = await env.DB.prepare(
           "UPDATE admin_users SET password_hash=?,password_salt=?,password_iterations=? WHERE username=? AND active=1",

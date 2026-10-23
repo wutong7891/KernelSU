@@ -6,29 +6,15 @@ const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundle).toString("b
 const worker = (await import(moduleUrl)).default;
 
 const passwordSalt = Buffer.alloc(16, 7).toString("base64");
-async function protectedHash(password) {
-  const hmacKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode("test-admin-token"),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const protectedMaterial = Buffer.from(
-    await crypto.subtle.sign(
-      "HMAC",
-      hmacKey,
-      new TextEncoder().encode(`wtlyf-admin-password-v2:${password}`),
-    ),
-  ).toString("base64");
+async function portableHash(password) {
   const passwordKey = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(protectedMaterial),
+    new TextEncoder().encode(password),
     "PBKDF2",
     false,
     ["deriveBits"],
   );
-  return `v2$${Buffer.from(
+  return `v3$${Buffer.from(
     await crypto.subtle.deriveBits(
       {
         name: "PBKDF2",
@@ -41,7 +27,7 @@ async function protectedHash(password) {
     ),
   ).toString("base64")}`;
 }
-const adminPasswordHash = await protectedHash("correct-password");
+const adminPasswordHash = await portableHash("correct-password");
 
 class Statement {
   constructor(sql) {
@@ -98,10 +84,10 @@ const context = {
   passThroughOnException() {},
 };
 
-async function request(url, init = {}, cf = null) {
+async function request(url, init = {}, cf = null, requestEnv = env) {
   const incoming = new Request(url, init);
   if (cf) Object.defineProperty(incoming, "cf", { value: cf });
-  return worker.fetch(incoming, env, context);
+  return worker.fetch(incoming, requestEnv, context);
 }
 
 let response = await request("https://wutong886.pages.dev/admin/accounts");
@@ -225,6 +211,7 @@ response = await request(
     body: JSON.stringify({ username: "wutong", password: "correct-password" }),
   },
   { country: "CN", colo: "SHA" },
+  { ...env, WTLYF_ADMIN_TOKEN: "different-project-admin-token" },
 );
 assert.equal(
   response.status,
