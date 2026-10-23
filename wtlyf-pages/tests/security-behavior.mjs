@@ -109,7 +109,40 @@ assert.equal(response.status, 404, "public host must not redirect to the admin h
 assert.equal(response.headers.get("location"), null);
 
 response = await request("https://wutong886.pages.dev/api/admin/session");
-assert.equal(response.status, 404, "admin session API must be isolated to admin host");
+assert.equal(
+  response.status,
+  401,
+  "ordinary administrator hosts must retain session checks",
+);
+
+response = await request("https://wutong886.pages.dev/api/admin/accounts");
+assert.equal(
+  response.status,
+  404,
+  "administrator-account management must remain isolated to the account center",
+);
+
+response = await request("https://wutong886.pages.dev/api/admin/access-audit");
+assert.equal(
+  response.status,
+  404,
+  "administrator access audits must remain isolated to the account center",
+);
+
+response = await request("https://wutong886.pages.dev/api/admin/session/", {
+  method: "POST",
+  headers: {
+    "content-type": "text/plain",
+    origin: "https://wutong886.pages.dev",
+    "sec-fetch-site": "same-origin",
+  },
+  body: "{}",
+});
+assert.equal(
+  response.status,
+  415,
+  "trailing slashes must not bypass login-specific request validation",
+);
 
 response = await request("https://wutong886.pages.dev/.env");
 assert.equal(response.status, 404, "common secret-file probes must be blocked");
@@ -178,6 +211,27 @@ assert.ok(
   !sessionCookie.includes(Buffer.from("wutong").toString("base64url")),
   "the session cookie must not expose the administrator username",
 );
+
+response = await request(
+  "https://wutong886.pages.dev/api/admin/session",
+  {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://wutong886.pages.dev",
+      "sec-fetch-site": "same-origin",
+      "cf-connecting-ip": "203.0.113.11",
+    },
+    body: JSON.stringify({ username: "wutong", password: "correct-password" }),
+  },
+  { country: "CN", colo: "SHA" },
+);
+assert.equal(
+  response.status,
+  200,
+  "ordinary administrator login must remain available on the public service host",
+);
+assert.match(response.headers.get("set-cookie") || "", /__Host-wtlyf_admin=v6\./);
 
 response = await request("https://wutong886.pages.dev/api/v1/night/check", {
   method: "OPTIONS",

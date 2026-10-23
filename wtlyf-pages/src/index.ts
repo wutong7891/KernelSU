@@ -185,7 +185,7 @@ async function firewall(
       Allow: "GET, HEAD, POST, OPTIONS",
     });
   if (request.url.length > 4096) return firewallReply("请求地址过长", 414);
-  const path = url.pathname,
+  const path = url.pathname.replace(/\/+$/, "") || "/",
     rawLength = request.headers.get("content-length"),
     length = Number(rawLength ?? 0);
   if (SUSPICIOUS_PATH.test(path)) {
@@ -1857,10 +1857,9 @@ export default {
       return reply({ ok: false, message: "该地区暂不允许访问管理服务" }, 403);
     }
     const accountOnlyApi =
-      path === "/api/admin/session" ||
-      path === "/api/admin/logout" ||
       path === "/api/admin/accounts" ||
       path.startsWith("/api/admin/accounts/") ||
+      path === "/api/admin/access-audit" ||
       path === "/api/admin/login-audit" ||
       path === "/api/admin/usage-audit" ||
       path.startsWith("/api/admin/push/");

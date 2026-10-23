@@ -5,7 +5,7 @@ const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8
 
 const mustContain = [
   'path === "/api/admin/session" ||',
-  'path === "/api/admin/logout" ||',
+  'path === "/api/admin/logout" && request.method === "POST"',
   'return reply({ ok: false, message: "接口不存在" }, 404);',
   'return reply({ ok: false, message: "资源不存在" }, 404);',
   'CREATE TABLE IF NOT EXISTS admin_access_audit',
@@ -39,6 +39,7 @@ const mustContain = [
   '主账号当前密码错误',
   '`admin-account-mutation:${ipHash}`',
   'body:JSON.stringify({username,password,currentPassword,actionToken})',
+  'const path = url.pathname.replace(/\\/+$/, "") || "/"',
 ];
 
 for (const marker of mustContain) {
@@ -56,6 +57,27 @@ assert.ok(
 
 const loginHostGate = source.indexOf('path === "/api/admin/session" ||');
 const accountHostReject = source.indexOf("if (accountOnlyApi && !accountHost)");
-assert.ok(loginHostGate >= 0 && accountHostReject > loginHostGate);
+assert.ok(loginHostGate >= 0, "administrator login must remain rate limited");
+assert.ok(accountHostReject >= 0, "account-center APIs must remain host isolated");
+const accountOnlyApi = source.slice(
+  source.indexOf("const accountOnlyApi ="),
+  accountHostReject,
+);
+assert.ok(
+  !accountOnlyApi.includes('path === "/api/admin/session"'),
+  "ordinary administrator hosts must retain their login endpoint",
+);
+assert.ok(
+  !accountOnlyApi.includes('path === "/api/admin/logout"'),
+  "ordinary administrator hosts must retain their logout endpoint",
+);
+assert.ok(
+  accountOnlyApi.includes('path === "/api/admin/accounts"'),
+  "administrator-account management must remain isolated to the account center",
+);
+assert.ok(
+  accountOnlyApi.includes('path === "/api/admin/access-audit"'),
+  "administrator access audits must remain isolated to the account center",
+);
 
 console.log("WTLYF security regression checks passed");
