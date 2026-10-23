@@ -59,6 +59,7 @@ const ADMIN_PAGE_PATHS = new Set([
   "/night-licenses",
   "/push",
 ]);
+const ADMIN_ALLOWED_COUNTRIES = new Set(["CN", "HK", "MO", "TW"]);
 const SUSPICIOUS_PATH =
   /(?:^|\/)(?:\.env|\.git|wp-admin|wp-login\.php|phpmyadmin|server-status|actuator|cgi-bin)(?:\/|$)/i;
 const GITHUB_REPO = "wutong7891/KernelSU";
@@ -238,7 +239,7 @@ async function firewall(
     limiter: RateLimiter | undefined;
   if (path === "/api/admin/session") {
     scope = "admin-login";
-    limit = request.method === "POST" ? 6 : 30;
+    limit = request.method === "POST" ? 5 : 30;
     limiter = env.AUTH_RATE_LIMITER;
   } else if (path === "/api/v1/night/calculator-ocr") {
     scope = "calculator-ocr";
@@ -254,11 +255,11 @@ async function firewall(
     limiter = env.API_RATE_LIMITER;
   } else if (path.startsWith("/api/admin/")) {
     scope = "admin-api";
-    limit = 60;
+    limit = 30;
     limiter = env.API_RATE_LIMITER;
   } else if (path.startsWith("/api/night/")) {
     scope = "night-tools";
-    limit = 300;
+    limit = 120;
     limiter = env.API_RATE_LIMITER;
   }
   if (!scope) return null;
@@ -761,7 +762,7 @@ async function recordAdminAccess(
   request: Request,
   env: Env,
   path: string,
-  category: "page" | "scanner",
+  category: "page" | "scanner" | "geo-block",
 ) {
   try {
     await ensureAdminAccessAudit(env);
@@ -1624,6 +1625,15 @@ export default {
       path = url.pathname.replace(/\/+$/, "") || "/",
       accountHost = url.hostname === new URL(ADMIN_SITE_ORIGIN).hostname,
       legacyAccountHost = url.hostname === LEGACY_ADMIN_HOST;
+    const country = String((request as any).cf?.country ?? "").toUpperCase();
+    if (
+      (accountHost || path.startsWith("/api/admin/")) &&
+      country &&
+      !ADMIN_ALLOWED_COUNTRIES.has(country)
+    ) {
+      context.waitUntil(recordAdminAccess(request, env, path, "geo-block"));
+      return reply({ ok: false, message: "该地区暂不允许访问管理服务" }, 403);
+    }
     const accountOnlyApi =
       path === "/api/admin/session" ||
       path === "/api/admin/logout" ||

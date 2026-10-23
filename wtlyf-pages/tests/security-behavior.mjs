@@ -44,8 +44,10 @@ const context = {
   passThroughOnException() {},
 };
 
-async function request(url, init = {}) {
-  return worker.fetch(new Request(url, init), env, context);
+async function request(url, init = {}, cf = null) {
+  const incoming = new Request(url, init);
+  if (cf) Object.defineProperty(incoming, "cf", { value: cf });
+  return worker.fetch(incoming, env, context);
 }
 
 let response = await request("https://wutong886.pages.dev/admin/accounts");
@@ -64,6 +66,20 @@ assert.equal(response.status, 405, "unexpected HTTP methods must be blocked");
 response = await request("https://wtlyf-admin-center.pages.dev/");
 assert.equal(response.status, 200, "normal administrator login page must remain available");
 assert.match(await response.text(), /管理员登录/);
+
+response = await request(
+  "https://wtlyf-admin-center.pages.dev/",
+  {},
+  { country: "US", colo: "LAX" },
+);
+assert.equal(response.status, 403, "foreign administrator access must be blocked");
+
+response = await request(
+  "https://wtlyf-admin-center.pages.dev/",
+  {},
+  { country: "CN", colo: "SHA" },
+);
+assert.equal(response.status, 200, "domestic administrator access must remain available");
 
 response = await request("https://wtlyf-admin-center.pages.dev/api/admin/session", {
   method: "POST",
