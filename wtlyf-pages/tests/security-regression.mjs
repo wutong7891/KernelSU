@@ -31,6 +31,14 @@ const mustContain = [
   'version !== "v5" && version !== "v6"',
   '${SESSION_COOKIE}=v6.${expires}.${sessionToken}.${signature}',
   'username IN (?,?)',
+  'CREATE TABLE IF NOT EXISTS admin_action_tokens',
+  '"DELETE FROM admin_action_tokens WHERE token_hash=? AND username=? AND action=? AND expires_at>? RETURNING token_hash"',
+  'String(row?.created_by ?? "") === "system"',
+  '"account-mutation"',
+  '仅主账号可以管理管理员账户',
+  '主账号当前密码错误',
+  '`admin-account-mutation:${ipHash}`',
+  'body:JSON.stringify({username,password,currentPassword,actionToken})',
 ];
 
 for (const marker of mustContain) {

@@ -47,6 +47,7 @@ const SESSION_COOKIE = "__Host-wtlyf_admin";
 const SESSION_SECONDS = 12 * 60 * 60;
 let securityRateLimitReady: Promise<unknown> | null = null;
 let adminSessionReady: Promise<unknown> | null = null;
+let adminActionTokenReady: Promise<unknown> | null = null;
 let adminAccessAuditReady: Promise<unknown> | null = null;
 // Cloudflare Workers WebCrypto caps PBKDF2 at 100,000 iterations.
 const PASSWORD_ITERATIONS = 100000;
@@ -581,6 +582,148 @@ async function getAdminSession(request: Request, env: Env) {
   )
     return null;
   return String(row.username);
+}
+
+async function ensureAdminActionTokens(env: Env) {
+  adminActionTokenReady ??= env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS admin_action_tokens (token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, action TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    ),
+    env.DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_admin_action_tokens_expiry ON admin_action_tokens(expires_at)",
+    ),
+  ]);
+  await adminActionTokenReady;
+}
+
+async function isPrimaryAdmin(username: string, env: Env) {
+  const row = await env.DB.prepare(
+    "SELECT created_by FROM admin_users WHERE username=? AND active=1",
+  )
+    .bind(username)
+    .first<any>();
+  return String(row?.created_by ?? "") === "system";
+}
+
+async function adminActionTokenHash(
+  token: string,
+  username: string,
+  action: string,
+  host: string,
+  env: Env,
+) {
+  return hex(
+    await credentialHmac(
+      `${token}:${username}:${action}:${host}`,
+      "wtlyf-admin-action-v1",
+      env,
+    ),
+  );
+}
+
+async function issueAdminActionToken(
+  username: string,
+  action: string,
+  host: string,
+  env: Env,
+) {
+  await ensureAdminActionTokens(env);
+  const token = toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
+    tokenHash = await adminActionTokenHash(token, username, action, host, env),
+    now = Math.floor(Date.now() / 1000),
+    expiresAt = now + 5 * 60;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM admin_action_tokens WHERE expires_at<=?").bind(
+      now,
+    ),
+    env.DB.prepare(
+      "DELETE FROM admin_action_tokens WHERE username=? AND action=?",
+    ).bind(username, action),
+    env.DB.prepare(
+      "INSERT INTO admin_action_tokens(token_hash,username,action,expires_at) VALUES(?,?,?,?)",
+    ).bind(tokenHash, username, action, expiresAt),
+  ]);
+  return { token, expiresAt };
+}
+
+async function consumeAdminActionToken(
+  token: string,
+  username: string,
+  action: string,
+  host: string,
+  env: Env,
+) {
+  if (!token || token.length > 256) return false;
+  await ensureAdminActionTokens(env);
+  const result = await env.DB.prepare(
+    "DELETE FROM admin_action_tokens WHERE token_hash=? AND username=? AND action=? AND expires_at>? RETURNING token_hash",
+  )
+    .bind(
+      await adminActionTokenHash(token, username, action, host, env),
+      username,
+      action,
+      Math.floor(Date.now() / 1000),
+    )
+    .first<any>();
+  return !!result?.token_hash;
+}
+
+async function authorizeAccountMutation(
+  request: Request,
+  env: Env,
+  username: string,
+  body: any,
+) {
+  if (!(await isPrimaryAdmin(username, env)))
+    return reply(
+      { ok: false, message: "仅主账号可以管理管理员账户" },
+      403,
+    );
+  const ipHash = hex(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(`${username}:${requestIp(request)}`),
+      ),
+    ),
+    allowed = await d1RateLimit(
+      env,
+      `admin-account-mutation:${ipHash}`,
+      5,
+      15 * 60,
+    );
+  if (allowed !== true)
+    return reply(
+      {
+        ok: false,
+        message:
+          allowed === false
+            ? "账户管理验证失败次数过多，请 15 分钟后再试"
+            : "账户管理安全验证暂时不可用，请稍后重试",
+      },
+      allowed === false ? 429 : 503,
+      allowed === false ? { "Retry-After": "900" } : {},
+    );
+  if (
+    !(await consumeAdminActionToken(
+      String(body.actionToken ?? ""),
+      username,
+      "account-mutation",
+      new URL(request.url).hostname,
+      env,
+    ))
+  )
+    return reply(
+      { ok: false, message: "安全操作令牌已失效，请刷新页面后重试" },
+      403,
+    );
+  const currentPassword = String(body.currentPassword ?? "");
+  if (
+    currentPassword.length < 1 ||
+    currentPassword.length > 256 ||
+    !(await authenticateAdmin(username, currentPassword, env))
+  )
+    return reply({ ok: false, message: "主账号当前密码错误" }, 403);
+  return null;
 }
 
 function accountDetailSite(nonce: string) {
@@ -1607,7 +1750,7 @@ function accountSite(nonce: string) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070b18"><title>WTLYF 管理员账户中心</title><style nonce="${nonce}">
 *{box-sizing:border-box}body{margin:0;min-height:100vh;color:#eef5ff;font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:radial-gradient(circle at 15% 10%,#23396b 0,transparent 34%),radial-gradient(circle at 85% 15%,#562b78 0,transparent 28%),#070b18}main{width:min(1080px,calc(100% - 28px));margin:auto;padding:38px 0 64px}.hero,.card{border:1px solid #ffffff2c;background:#101a31c9;box-shadow:0 22px 70px #0008;backdrop-filter:blur(24px);border-radius:28px}.hero{padding:28px 30px;margin-bottom:20px}.hero h1{margin:0;font-size:clamp(30px,6vw,54px)}.hero p,.muted{color:#aebbd4}.grid{display:grid;grid-template-columns:1fr 1.25fr;gap:20px}.card{padding:26px}h2{margin:0 0 18px}label{display:block;margin:13px 0 7px;color:#c5d2e8}input,button{width:100%;border-radius:15px;border:1px solid #ffffff2e;padding:14px 16px;font:inherit;color:#fff;background:#071022b8}button{cursor:pointer;margin-top:14px;font-weight:700;background:linear-gradient(120deg,#2f8cff,#8056e8);transition:.2s transform,.2s filter}button:hover{transform:translateY(-2px);filter:brightness(1.12)}button.danger{width:auto;margin:0;background:#8e2948}.status{min-height:24px;margin-top:14px;color:#91d9ff}.row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 0;border-bottom:1px solid #ffffff1c}.row:last-child{border:0}.row strong,.row small{display:block}.row small{color:#9cabc4;margin-top:3px}.logout{background:#25304a;width:auto}.hidden{display:none!important}.audit-card{margin-top:20px}.audit-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.audit-head button{width:auto;margin:0}.audit-list{overflow:auto}.audit-row{display:grid;grid-template-columns:150px 1fr 160px 150px 82px;gap:12px;align-items:start;padding:14px 0;border-bottom:1px solid #ffffff1c;min-width:800px}.audit-row:last-child{border:0}.audit-row strong,.audit-row small{display:block}.audit-row small{color:#9cabc4;margin-top:2px}.audit-ok{color:#8fe5b2}.audit-fail{color:#ff9db7}@media(max-width:720px){main{padding-top:18px}.grid{grid-template-columns:1fr}.hero,.card{border-radius:22px;padding:21px}.row{align-items:flex-start;flex-direction:column}.row button{width:100%}.audit-head{align-items:flex-start}.audit-head button{width:auto}}
 .row>div:last-child{display:flex;gap:8px;align-items:center}.row>div:last-child button{width:auto;margin:0;white-space:nowrap}
-</style></head><body><main><header class="hero"><h1>WTLYF 管理员账户中心</h1><p>独立管理员登录、账户生成与安全审计站点。</p></header><section id="loginCard" class="card"><h2>管理员登录</h2><label>账户</label><input id="username" autocomplete="username"><label>密码</label><input id="password" type="password" autocomplete="current-password"><button id="login">登录账户中心</button><div id="loginStatus" class="status"></div></section><div id="manager" class="hidden"><div class="grid"><section class="card"><h2>生成管理员账户</h2><label>新账户名</label><input id="newUsername" placeholder="3–32 位字母、数字、点、横线或下划线"><label>新密码</label><input id="newPassword" type="password" autocomplete="new-password" placeholder="密码内容自由设置（不能为空）"><button id="create">生成账户</button><button id="nightLicenses">打开 Night 独立卡密中心</button><button id="pushCenter">打开文件推送中心</button><button id="logout" class="logout">退出登录</button><div id="status" class="status"></div></section><section class="card"><h2>现有管理员</h2><p class="muted">选择一个管理员查看他的使用情况、登录设备和 IP。</p><div id="list">正在加载…</div></section></div><section id="detailsPanel" class="card audit-card hidden"><div class="audit-head"><div><h2 id="detailsTitle">管理员详情</h2><div class="muted">仅显示当前选择管理员的数据。</div></div><button id="refreshDetails">刷新详情</button></div><h2>使用情况</h2><div id="usageSummary" class="audit-list">正在加载…</div><h2>最近操作</h2><div id="usageRecent" class="audit-list">正在加载…</div><h2>登录设备与 IP</h2><div class="muted">最近 200 条登录记录，自动保留 90 天。</div><div id="auditList" class="audit-list">正在加载…</div></section></div></main><script nonce="${nonce}">
+</style></head><body><main><header class="hero"><h1>WTLYF 管理员账户中心</h1><p>独立管理员登录、账户生成与安全审计站点。</p></header><section id="loginCard" class="card"><h2>管理员登录</h2><label>账户</label><input id="username" autocomplete="username"><label>密码</label><input id="password" type="password" autocomplete="current-password"><button id="login">登录账户中心</button><div id="loginStatus" class="status"></div></section><div id="manager" class="hidden"><div class="grid"><section id="createPanel" class="card"><h2>生成管理员账户</h2><p class="muted">仅主账号可操作；每次必须重新验证主账号当前密码。</p><label>新账户名</label><input id="newUsername" maxlength="64" placeholder="任意名称（1–64 字符）"><label>新密码</label><input id="newPassword" type="password" autocomplete="new-password" maxlength="256" placeholder="设置新账户密码"><label>主账号当前密码</label><input id="ownerPassword" type="password" autocomplete="current-password" maxlength="256" placeholder="用于本次高风险操作验证"><button id="create">验证并生成账户</button><button id="nightLicenses">打开 Night 独立卡密中心</button><button id="pushCenter">打开文件推送中心</button><button id="logout" class="logout">退出登录</button><div id="status" class="status"></div></section><section class="card"><h2>现有管理员</h2><p class="muted">选择一个管理员查看他的使用情况、登录设备和 IP。</p><div id="list">正在加载…</div></section></div><section id="detailsPanel" class="card audit-card hidden"><div class="audit-head"><div><h2 id="detailsTitle">管理员详情</h2><div class="muted">仅显示当前选择管理员的数据。</div></div><button id="refreshDetails">刷新详情</button></div><h2>使用情况</h2><div id="usageSummary" class="audit-list">正在加载…</div><h2>最近操作</h2><div id="usageRecent" class="audit-list">正在加载…</div><h2>登录设备与 IP</h2><div class="muted">最近 200 条登录记录，自动保留 90 天。</div><div id="auditList" class="audit-list">正在加载…</div></section></div></main><script nonce="${nonce}">
 const $=s=>document.querySelector(s);let selectedUser='';async function req(path,options={}){const r=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json'},...options});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||'请求失败');return d}function text(id,v){$(id).textContent=v}async function load(){const d=await req('/api/admin/accounts');const list=$('#list');list.textContent='';d.accounts.forEach(a=>{const row=document.createElement('div');row.className='row';const box=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('small'),actions=document.createElement('div'),view=document.createElement('button');name.textContent=a.username+(a.username===d.current?'（当前账户）':'');meta.textContent='创建：'+a.created_at+(a.last_login_at?' · 最近登录：'+a.last_login_at:'');box.append(name,meta);view.textContent='查看详情';view.onclick=()=>openDetails(a.username);actions.append(view);if(a.username!==d.current){const del=document.createElement('button');del.className='danger';del.textContent='删除账户';del.onclick=async()=>{if(!confirm('确认删除管理员 '+a.username+'？'))return;try{await req('/api/admin/accounts/delete',{method:'POST',body:JSON.stringify({username:a.username})});text('#status','账户已删除');if(selectedUser===a.username){selectedUser='';$('#detailsPanel').classList.add('hidden')}load()}catch(e){text('#status',e.message)}};actions.append(del)}row.append(box,actions);list.append(row)})}async function loadAudit(username){const list=$('#auditList');list.textContent='正在加载…';try{const d=await req('/api/admin/login-audit?username='+encodeURIComponent(username));list.textContent='';if(!d.records.length){list.textContent='暂无登录记录';return}d.records.forEach(a=>{const row=document.createElement('div');row.className='audit-row';const time=document.createElement('div'),account=document.createElement('div'),device=document.createElement('div'),network=document.createElement('div'),state=document.createElement('strong');time.textContent=a.created_at;const user=document.createElement('strong'),ua=document.createElement('small');user.textContent=a.username;ua.textContent=a.user_agent;account.append(user,ua);device.textContent=a.device;const ip=document.createElement('strong'),place=document.createElement('small');ip.textContent=a.ip_address;place.textContent=[a.country,a.colo].filter(Boolean).join(' · ')||'未知位置';network.append(ip,place);state.textContent=a.success?'成功':'失败';state.className=a.success?'audit-ok':'audit-fail';row.append(time,account,device,network,state);list.append(row)})}catch(e){list.textContent=e.message}}async function loadUsage(username){const summary=$('#usageSummary'),recent=$('#usageRecent');summary.textContent='正在加载…';recent.textContent='正在加载…';try{const d=await req('/api/admin/usage-audit?username='+encodeURIComponent(username));summary.textContent='';recent.textContent='';const a=d.summary[0]||{};const row=document.createElement('div'),name=document.createElement('strong'),value=document.createElement('span');row.className='row';name.textContent=username;value.textContent='修补 '+Number(a.patch_count||0)+' 次 · 签发 '+Number(a.license_count||0)+' 张（'+Number(a.issue_operations||0)+' 次操作）';row.append(name,value);summary.append(row);if(!d.recent.length)recent.textContent='暂无最近操作';d.recent.forEach(a=>{const row=document.createElement('div'),left=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('small'),value=document.createElement('span');row.className='row';name.textContent=a.username;const action=a.action==='night_patch'?'网页修补':a.action==='night_license_issue'?'Night 卡密签发':'WTLYF 卡密签发';meta.textContent=a.created_at+' · '+a.ip_address+(a.detail?' · '+a.detail:'');left.append(name,meta);value.textContent=action+(a.action==='night_patch'?'':' × '+a.quantity);row.append(left,value);recent.append(row)})}catch(e){summary.textContent=e.message;recent.textContent=''}}async function openDetails(username){location.href='/admin/account-detail?username='+encodeURIComponent(username)}async function session(){try{await req('/api/admin/session');$('#loginCard').classList.add('hidden');$('#manager').classList.remove('hidden');await load()}catch{$('#loginCard').classList.remove('hidden');$('#manager').classList.add('hidden')}}$('#login').onclick=async()=>{try{await req('/api/admin/session',{method:'POST',body:JSON.stringify({username:$('#username').value,password:$('#password').value})});text('#loginStatus','登录成功');session()}catch(e){text('#loginStatus',e.message)}};$('#create').onclick=async()=>{const username=$('#newUsername').value,password=$('#newPassword').value;try{await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';text('#status','管理员账户创建成功｜账户：'+username);load()}catch(e){text('#status',e.message)}};$('#refreshDetails').onclick=()=>selectedUser&&openDetails(selectedUser);$('#nightLicenses').onclick=()=>location.href='/night-licenses';$('#pushCenter').onclick=()=>location.href='/push';$('#logout').onclick=async()=>{await req('/api/admin/logout',{method:'POST',body:'{}'});location.reload()};session();
 </script></body></html>`;
 }
@@ -1775,8 +1918,32 @@ export default {
           'placeholder="任意名称（1–64 字符，可用中文、空格和符号）" maxlength="64"',
         )
         .replace(
+          "const $=s=>document.querySelector(s);let selectedUser='';",
+          "const $=s=>document.querySelector(s);let selectedUser='',actionToken='',canManageAccounts=false;",
+        )
+        .replace(
+          "async function load(){const d=await req('/api/admin/accounts');const list=",
+          "async function load(){const d=await req('/api/admin/accounts');actionToken=d.actionToken||'';canManageAccounts=!!d.canManageAccounts;$('#createPanel').style.display=canManageAccounts?'':'none';const list=",
+        )
+        .replace(
+          "if(a.username!==d.current){const del=",
+          "if(canManageAccounts&&a.username!==d.current){const del=",
+        )
+        .replace(
+          "body:JSON.stringify({username:a.username})",
+          "body:JSON.stringify({username:a.username,currentPassword:$('#ownerPassword').value,actionToken})",
+        )
+        .replace(
+          "load()}catch(e){text('#status',e.message)}};actions.append(del)",
+          "load()}catch(e){text('#status',e.message);load().catch(()=>{})}};actions.append(del)",
+        )
+        .replace(
           "await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';text('#status','管理员账户创建成功｜账户：'+username);load()",
-          "await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password})});$('#newPassword').value='';text('#status','管理员账户创建成功｜账户：'+username+'｜密码：'+password+'（仅显示一次，请立即保存）');load()",
+          "if(!canManageAccounts)throw Error('仅主账号可以创建管理员账户');const currentPassword=$('#ownerPassword').value;if(!currentPassword)throw Error('请输入主账号当前密码');await req('/api/admin/accounts',{method:'POST',body:JSON.stringify({username,password,currentPassword,actionToken})});$('#newPassword').value='';$('#ownerPassword').value='';text('#status','管理员账户创建成功｜账户：'+username+'｜密码：'+password+'（仅显示一次，请立即保存）');load()",
+        )
+        .replace(
+          "load()}catch(e){text('#status',e.message)}};$('#refreshDetails')",
+          "load()}catch(e){text('#status',e.message);load().catch(()=>{})}};$('#refreshDetails')",
         );
       return new Response(page, {
         headers: {
@@ -1799,7 +1966,36 @@ export default {
         crypto.getRandomValues(new Uint8Array(18)),
         (b) => b.toString(16).padStart(2, "0"),
       ).join("");
-      return new Response(accountDetailSiteV2(nonce), {
+      const page = accountDetailSiteV2(nonce)
+        .replace(
+          '<section class="card"><h2>账户凭据</h2>',
+          '<section id="credentialSection" class="card"><h2>账户凭据</h2><p class="muted">仅主账号可重置；每次必须重新验证主账号当前密码。</p>',
+        )
+        .replace(
+          '<div class="password-row"><input id="newPassword"',
+          '<label for="ownerPassword">主账号当前密码</label><input id="ownerPassword" type="password" autocomplete="current-password" maxlength="256" placeholder="用于本次高风险操作验证"><div class="password-row"><input id="newPassword"',
+        )
+        .replace(
+          "const $=s=>document.querySelector(s),username=new URLSearchParams(location.search).get('username')||'';",
+          "const $=s=>document.querySelector(s),username=new URLSearchParams(location.search).get('username')||'';let actionToken='';",
+        )
+        .replace(
+          "async function load(){if(!username)",
+          "async function load(){try{const token=await req('/api/admin/accounts/security-token');actionToken=token.actionToken||'';$('#credentialSection').style.display=''}catch{$('#credentialSection').style.display='none'}if(!username)",
+        )
+        .replace(
+          "body:JSON.stringify({username,password})",
+          "body:JSON.stringify({username,password,currentPassword:$('#ownerPassword').value,actionToken})",
+        )
+        .replace(
+          "const password=$('#newPassword').value;if(!password)",
+          "const password=$('#newPassword').value;if(!$('#ownerPassword').value){$('#passwordStatus').textContent='请输入主账号当前密码';return}if(!password)",
+        )
+        .replace(
+          "$('#passwordStatus').textContent=e.message}};$('#refresh')",
+          "$('#passwordStatus').textContent=e.message;load().catch(()=>{})}};$('#refresh')",
+        );
+      return new Response(page, {
         headers: {
           ...PAGE_HEADERS,
           "content-security-policy": `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
@@ -2137,10 +2333,50 @@ export default {
     }
     if (path === "/api/admin/accounts" && request.method === "GET") {
       if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
-      const result = await env.DB.prepare(
-        "SELECT username,active,created_at,last_login_at,created_by FROM admin_users ORDER BY created_at ASC",
-      ).all<any>();
-      return reply({ ok: true, accounts: result.results, current: adminUser });
+      const [result, canManageAccounts] = await Promise.all([
+        env.DB.prepare(
+          "SELECT username,active,created_at,last_login_at,created_by FROM admin_users ORDER BY created_at ASC",
+        ).all<any>(),
+        isPrimaryAdmin(adminUser!, env),
+      ]);
+      const action = canManageAccounts
+        ? await issueAdminActionToken(
+            adminUser!,
+            "account-mutation",
+            url.hostname,
+            env,
+          )
+        : null;
+      return reply({
+        ok: true,
+        accounts: result.results,
+        current: adminUser,
+        canManageAccounts,
+        actionToken: action?.token ?? null,
+        actionTokenExpiresAt: action?.expiresAt ?? null,
+      });
+    }
+    if (
+      path === "/api/admin/accounts/security-token" &&
+      request.method === "GET"
+    ) {
+      if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
+      if (!(await isPrimaryAdmin(adminUser!, env)))
+        return reply(
+          { ok: false, message: "仅主账号可以管理管理员账户" },
+          403,
+        );
+      const action = await issueAdminActionToken(
+        adminUser!,
+        "account-mutation",
+        url.hostname,
+        env,
+      );
+      return reply({
+        ok: true,
+        actionToken: action.token,
+        actionTokenExpiresAt: action.expiresAt,
+      });
     }
     if (path === "/api/admin/login-audit" && request.method === "GET") {
       if (!authorized) return reply({ ok: false, message: "请先登录" }, 401);
@@ -2204,6 +2440,18 @@ export default {
           { ok: false, message: "密码不能为空，且不能超过 256 个字符" },
           400,
         );
+      const denied = await authorizeAccountMutation(
+        request,
+        env,
+        adminUser!,
+        body,
+      );
+      if (denied) {
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "account-create-denied"),
+        );
+        return denied;
+      }
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
         hash = await protectedPasswordHash(
           password,
@@ -2217,6 +2465,9 @@ export default {
         )
           .bind(username, hash, salt, PASSWORD_ITERATIONS, adminUser)
           .run();
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "account-created"),
+        );
         return reply({ ok: true, message: "管理员账户已生成", username });
       } catch {
         return reply({ ok: false, message: "该管理员账户已经存在" }, 409);
@@ -2237,6 +2488,18 @@ export default {
           { ok: false, message: "新密码不能为空，且不能超过 256 个字符" },
           400,
         );
+      const denied = await authorizeAccountMutation(
+        request,
+        env,
+        adminUser!,
+        body,
+      );
+      if (denied) {
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "password-reset-denied"),
+        );
+        return denied;
+      }
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
         hash = await protectedPasswordHash(
           password,
@@ -2254,6 +2517,9 @@ export default {
         await env.DB.prepare("DELETE FROM admin_sessions WHERE username=?")
           .bind(username)
           .run();
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "password-reset"),
+        );
       }
       return result.meta.changes === 1
         ? reply({ ok: true, message: "密码已重置，新密码立即生效" })
@@ -2265,6 +2531,20 @@ export default {
         username = normalizeUsername(body.username);
       if (username === adminUser)
         return reply({ ok: false, message: "不能删除当前登录账户" }, 400);
+      if (!validAdminUsername(username))
+        return reply({ ok: false, message: "请选择有效的管理员账户" }, 400);
+      const denied = await authorizeAccountMutation(
+        request,
+        env,
+        adminUser!,
+        body,
+      );
+      if (denied) {
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "account-delete-denied"),
+        );
+        return denied;
+      }
       const count = await env.DB.prepare(
         "SELECT COUNT(*) AS count FROM admin_users WHERE active=1",
       ).first<any>();
@@ -2280,6 +2560,9 @@ export default {
         await env.DB.prepare("DELETE FROM admin_sessions WHERE username=?")
           .bind(username)
           .run();
+        context.waitUntil(
+          recordAdminAccess(request, env, path, "account-deleted"),
+        );
       }
       return result.meta.changes === 1
         ? reply({ ok: true, message: "管理员账户已删除" })

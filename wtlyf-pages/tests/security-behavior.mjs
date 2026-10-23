@@ -119,7 +119,18 @@ assert.equal(response.status, 405, "unexpected HTTP methods must be blocked");
 
 response = await request("https://wtlyf-admin-center.pages.dev/");
 assert.equal(response.status, 200, "normal administrator login page must remain available");
-assert.match(await response.text(), /管理员登录/);
+const adminPage = await response.text();
+assert.match(adminPage, /管理员登录/);
+assert.match(
+  adminPage,
+  /主账号当前密码/,
+  "administrator account creation must require primary-account reauthentication",
+);
+assert.match(
+  adminPage,
+  /currentPassword,actionToken/,
+  "administrator account mutations must send the one-time action token",
+);
 
 response = await request(
   "https://wtlyf-admin-center.pages.dev/",
