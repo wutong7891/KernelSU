@@ -24,6 +24,13 @@ const mustContain = [
   'LIMIT -1 OFFSET 8',
   'SameSite=Strict; Priority=High',
   'request.headers.get("origin") === url.origin',
+  'wtlyf-admin-password-v2',
+  'wtlyf-admin-username-v1',
+  'return `v2$${await passwordHash',
+  'storedHash.startsWith("v2$")',
+  'version !== "v5" && version !== "v6"',
+  '${SESSION_COOKIE}=v6.${expires}.${sessionToken}.${signature}',
+  'username IN (?,?)',
 ];
 
 for (const marker of mustContain) {
@@ -33,6 +40,10 @@ for (const marker of mustContain) {
 assert.ok(
   !source.includes("Response.redirect(ADMIN_SITE_ORIGIN"),
   "the public service must not reveal the administrator origin through redirects",
+);
+assert.ok(
+  !source.includes("${SESSION_COOKIE}=v6.${encodeSessionUsername"),
+  "v6 administrator cookies must not expose an encoded username",
 );
 
 const loginHostGate = source.indexOf('path === "/api/admin/session" ||');

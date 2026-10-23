@@ -497,8 +497,10 @@ async function revokeAdminSession(request: Request, env: Env) {
   } catch {
     return;
   }
-  const [version, , , token] = decoded.split(".", 5);
-  if (version !== "v5" || !token) return;
+  const parts = decoded.split(".", 5),
+    version = parts[0],
+    token = version === "v6" ? parts[2] : version === "v5" ? parts[3] : "";
+  if (!token) return;
   await ensureAdminSessions(env);
   await env.DB.prepare("DELETE FROM admin_sessions WHERE session_hash=?")
     .bind(await sessionTokenHash(token))
@@ -516,11 +518,14 @@ async function getAdminSession(request: Request, env: Env) {
   } catch {
     return null;
   }
-  const [version, encodedUsername, expires, sessionToken, signature] =
-    decoded.split(".", 5);
+  const parts = decoded.split(".", 5),
+    version = parts[0];
+  if (version !== "v5" && version !== "v6") return null;
+  const encodedUsername = version === "v5" ? parts[1] : "",
+    expires = version === "v5" ? parts[2] : parts[1],
+    sessionToken = version === "v5" ? parts[3] : parts[2],
+    signature = version === "v5" ? parts[4] : parts[3];
   if (
-    version !== "v5" ||
-    !encodedUsername ||
     !expires ||
     !sessionToken ||
     !signature ||
@@ -528,22 +533,36 @@ async function getAdminSession(request: Request, env: Env) {
   )
     return null;
   let username = "";
-  try {
-    username = decodeSessionUsername(encodedUsername);
-  } catch {
-    return null;
+  if (version === "v5") {
+    if (!encodedUsername) return null;
+    try {
+      username = decodeSessionUsername(encodedUsername);
+    } catch {
+      return null;
+    }
   }
   await ensureAdminSessions(env);
   const host = new URL(request.url).hostname;
   const row = await env.DB.prepare(
-    "SELECT u.username,u.password_hash FROM admin_sessions s JOIN admin_users u ON u.username=s.username WHERE s.session_hash=? AND s.username=? AND s.host=? AND s.expires_at=? AND s.expires_at>? AND u.active=1",
+    version === "v5"
+      ? "SELECT u.username,u.password_hash FROM admin_sessions s JOIN admin_users u ON u.username=s.username WHERE s.session_hash=? AND s.username=? AND s.host=? AND s.expires_at=? AND s.expires_at>? AND u.active=1"
+      : "SELECT u.username,u.password_hash FROM admin_sessions s JOIN admin_users u ON u.username=s.username WHERE s.session_hash=? AND s.host=? AND s.expires_at=? AND s.expires_at>? AND u.active=1",
   )
     .bind(
-      await sessionTokenHash(sessionToken),
-      username,
-      host,
-      Number(expires),
-      Math.floor(Date.now() / 1000),
+      ...(version === "v5"
+        ? [
+            await sessionTokenHash(sessionToken),
+            username,
+            host,
+            Number(expires),
+            Math.floor(Date.now() / 1000),
+          ]
+        : [
+            await sessionTokenHash(sessionToken),
+            host,
+            Number(expires),
+            Math.floor(Date.now() / 1000),
+          ]),
     )
     .first<any>();
   if (
@@ -616,6 +635,20 @@ const decodeSessionUsername = (value: string) => {
   for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
   return new TextDecoder().decode(bytes);
 };
+async function credentialHmac(value: string, purpose: string, env: Env) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.WTLYF_ADMIN_TOKEN),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${purpose}:${value}`),
+  );
+}
 async function passwordHash(
   password: string,
   saltBase64: string,
@@ -640,6 +673,19 @@ async function passwordHash(
   );
   return toBase64(bits);
 }
+async function protectedPasswordHash(
+  password: string,
+  saltBase64: string,
+  iterations: number,
+  env: Env,
+) {
+  const protectedMaterial = toBase64(
+    await credentialHmac(password, "wtlyf-admin-password-v2", env),
+  );
+  return `v2$${await passwordHash(protectedMaterial, saltBase64, iterations)}`;
+}
+const failedUsernameFingerprint = async (username: string, env: Env) =>
+  `failed:${hex(await credentialHmac(username, "wtlyf-admin-username-v1", env)).slice(0, 32)}`;
 async function authenticateAdmin(username: string, password: string, env: Env) {
   const row = await env.DB.prepare(
     "SELECT username,password_hash,password_salt,password_iterations FROM admin_users WHERE username=? AND active=1",
@@ -649,10 +695,39 @@ async function authenticateAdmin(username: string, password: string, env: Env) {
   const salt =
     row?.password_salt ?? toBase64(crypto.getRandomValues(new Uint8Array(16)));
   const iterations = Number(row?.password_iterations ?? PASSWORD_ITERATIONS);
-  const derived = await passwordHash(password, salt, iterations);
-  return row && safeEqual(derived, String(row.password_hash))
-    ? { username: String(row.username), passwordHash: String(row.password_hash) }
-    : null;
+  const storedHash = String(row?.password_hash ?? ""),
+    protectedHash = await protectedPasswordHash(
+      password,
+      salt,
+      iterations,
+      env,
+    );
+  if (!row) return null;
+  if (storedHash.startsWith("v2$"))
+    return safeEqual(protectedHash, storedHash)
+      ? { username: String(row.username), passwordHash: storedHash }
+      : null;
+  const legacyHash = await passwordHash(password, salt, iterations);
+  if (!safeEqual(legacyHash, storedHash)) return null;
+  const migratedSalt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
+    migratedHash = await protectedPasswordHash(
+      password,
+      migratedSalt,
+      PASSWORD_ITERATIONS,
+      env,
+    );
+  await env.DB.prepare(
+    "UPDATE admin_users SET password_hash=?,password_salt=?,password_iterations=? WHERE username=? AND password_hash=?",
+  )
+    .bind(
+      migratedHash,
+      migratedSalt,
+      PASSWORD_ITERATIONS,
+      String(row.username),
+      storedHash,
+    )
+    .run();
+  return { username: String(row.username), passwordHash: migratedHash };
 }
 function loginDevice(userAgent: string) {
   const os = /Android/i.test(userAgent)
@@ -694,11 +769,12 @@ async function ensureAdminLoginAudit(env: Env) {
 }
 async function loginBlocked(request: Request, env: Env, username: string) {
   await ensureAdminLoginAudit(env);
-  const ip = requestIp(request);
+  const ip = requestIp(request),
+    protectedUsername = await failedUsernameFingerprint(username, env);
   const row = await env.DB.prepare(
-    "SELECT SUM(CASE WHEN ip_address=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS pair_count, SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_hour_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-1 hour')",
+    "SELECT SUM(CASE WHEN ip_address=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username IN (?,?) AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS pair_count, SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_hour_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-1 hour')",
   )
-    .bind(ip, ip, username, ip)
+    .bind(ip, ip, username, protectedUsername, ip)
     .first<any>();
   return (
     Number(row?.ip_count ?? 0) >= 12 ||
@@ -714,7 +790,10 @@ async function recordAdminLogin(
 ) {
   try {
     await ensureAdminLoginAudit(env);
-    const ip = requestIp(request);
+    const ip = requestIp(request),
+      auditUsername = success
+        ? username.slice(0, 64) || "未知账户"
+        : await failedUsernameFingerprint(username, env);
     const userAgent = (request.headers.get("user-agent") ?? "未知设备")
       .replace(/[\r\n]/g, " ")
       .slice(0, 512);
@@ -723,7 +802,7 @@ async function recordAdminLogin(
       "INSERT INTO admin_login_audit(username,ip_address,device,user_agent,country,colo,success) VALUES(?,?,?,?,?,?,?)",
     )
       .bind(
-        username.slice(0, 64) || "未知账户",
+        auditUsername,
         ip,
         loginDevice(userAgent),
         userAgent,
@@ -1799,7 +1878,7 @@ export default {
           { ok: true, message: "登录成功", username: matched.username },
           200,
           {
-            "Set-Cookie": `${SESSION_COOKIE}=v5.${encodeSessionUsername(matched.username)}.${expires}.${sessionToken}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict; Priority=High`,
+            "Set-Cookie": `${SESSION_COOKIE}=v6.${expires}.${sessionToken}.${signature}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict; Priority=High`,
           },
         );
       } catch (error) {
@@ -2069,10 +2148,11 @@ export default {
       if (!username || username.length > 64)
         return reply({ ok: false, message: "请选择要查看的管理员" }, 400);
       await ensureAdminLoginAudit(env);
+      const protectedUsername = await failedUsernameFingerprint(username, env);
       const result = await env.DB.prepare(
-        "SELECT username,ip_address,device,user_agent,country,colo,success,created_at FROM admin_login_audit WHERE username=? ORDER BY id DESC LIMIT 200",
+        "SELECT ? AS username,ip_address,device,user_agent,country,colo,success,created_at FROM admin_login_audit WHERE username IN (?,?) ORDER BY id DESC LIMIT 200",
       )
-        .bind(username)
+        .bind(username, username, protectedUsername)
         .all<any>();
       return reply({
         ok: true,
@@ -2125,7 +2205,12 @@ export default {
           400,
         );
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
-        hash = await passwordHash(password, salt, PASSWORD_ITERATIONS);
+        hash = await protectedPasswordHash(
+          password,
+          salt,
+          PASSWORD_ITERATIONS,
+          env,
+        );
       try {
         await env.DB.prepare(
           "INSERT INTO admin_users(username,password_hash,password_salt,password_iterations,created_by) VALUES(?,?,?,?,?)",
@@ -2153,7 +2238,12 @@ export default {
           400,
         );
       const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))),
-        hash = await passwordHash(password, salt, PASSWORD_ITERATIONS),
+        hash = await protectedPasswordHash(
+          password,
+          salt,
+          PASSWORD_ITERATIONS,
+          env,
+        ),
         result = await env.DB.prepare(
           "UPDATE admin_users SET password_hash=?,password_salt=?,password_iterations=? WHERE username=? AND active=1",
         )

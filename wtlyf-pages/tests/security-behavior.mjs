@@ -5,14 +5,67 @@ const bundle = await readFile(new URL("../dist/_worker.js", import.meta.url), "u
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`;
 const worker = (await import(moduleUrl)).default;
 
+const passwordSalt = Buffer.alloc(16, 7).toString("base64");
+async function protectedHash(password) {
+  const hmacKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode("test-admin-token"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const protectedMaterial = Buffer.from(
+    await crypto.subtle.sign(
+      "HMAC",
+      hmacKey,
+      new TextEncoder().encode(`wtlyf-admin-password-v2:${password}`),
+    ),
+  ).toString("base64");
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(protectedMaterial),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  return `v2$${Buffer.from(
+    await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt: Buffer.from(passwordSalt, "base64"),
+        iterations: 100000,
+      },
+      passwordKey,
+      256,
+    ),
+  ).toString("base64")}`;
+}
+const adminPasswordHash = await protectedHash("correct-password");
+
 class Statement {
-  bind() {
+  constructor(sql) {
+    this.sql = sql;
+    this.values = [];
+  }
+  bind(...values) {
+    this.values = values;
     return this;
   }
   async run() {
     return { success: true };
   }
   async first() {
+    if (this.sql.includes("SELECT username,password_hash,password_salt"))
+      return {
+        username: "wutong",
+        password_hash: adminPasswordHash,
+        password_salt: passwordSalt,
+        password_iterations: 100000,
+      };
+    if (this.sql.includes("SELECT SUM(CASE WHEN ip_address="))
+      return { ip_count: 0, pair_count: 0, ip_hour_count: 0 };
+    if (this.sql.includes("INSERT INTO security_rate_limits")) return { count: 1 };
     return { count: 1 };
   }
   async all() {
@@ -22,8 +75,8 @@ class Statement {
 
 const env = {
   DB: {
-    prepare() {
-      return new Statement();
+    prepare(sql) {
+      return new Statement(sql);
     },
     async batch(statements) {
       return statements.map(() => ({ success: true }));
@@ -34,6 +87,7 @@ const env = {
       return null;
     },
   },
+  WTLYF_ADMIN_TOKEN: "test-admin-token",
 };
 
 const pending = [];
@@ -91,6 +145,28 @@ response = await request("https://wtlyf-admin-center.pages.dev/api/admin/session
   body: JSON.stringify({ username: "probe", password: "probe" }),
 });
 assert.equal(response.status, 403, "cross-site administrator login must be rejected");
+
+response = await request(
+  "https://wtlyf-admin-center.pages.dev/api/admin/session",
+  {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://wtlyf-admin-center.pages.dev",
+      "sec-fetch-site": "same-origin",
+      "cf-connecting-ip": "203.0.113.10",
+    },
+    body: JSON.stringify({ username: "wutong", password: "correct-password" }),
+  },
+  { country: "CN", colo: "SHA" },
+);
+assert.equal(response.status, 200, "valid administrator credentials must still work");
+const sessionCookie = response.headers.get("set-cookie") || "";
+assert.match(sessionCookie, /__Host-wtlyf_admin=v6\./);
+assert.ok(
+  !sessionCookie.includes(Buffer.from("wutong").toString("base64url")),
+  "the session cookie must not expose the administrator username",
+);
 
 response = await request("https://wutong886.pages.dev/api/v1/night/check", {
   method: "OPTIONS",
