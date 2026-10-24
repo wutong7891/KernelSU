@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.provider.Settings
+import android.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -47,15 +48,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 object NightActivation {
     private const val PREFS = "night_activation"
     private const val KEY_CODE = "night_license_code"
     private val ENDPOINTS = listOf(
-        "https://wtlyf-license-center.wtlyf-night.workers.dev/api/v1/night",
         "https://wtlyf-night-license.pages.dev/api/v1/night",
+        "https://wutong886.pages.dev/api/v1/night",
     )
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -87,36 +92,68 @@ object NightActivation {
         .getString(KEY_CODE, "")
         .orEmpty()
 
+    private fun randomHex(): String = ByteArray(32).also(SecureRandom()::nextBytes)
+        .joinToString("") { "%02x".format(it) }
+
+    private fun sha256Hex(vararg values: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        values.forEach(digest::update)
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun decodeUrlBase64(value: String): ByteArray =
+        Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
     private fun requestEndpoint(endpoint: String, action: String, payload: String): EndpointReply =
         runCatching {
-            val body = payload.toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$endpoint/$action")
-                .post(body)
-                .build()
-            client.newCall(request).execute().use { response ->
+            val base = JSONObject(payload)
+            val clientNonce = randomHex()
+            val startPayload = JSONObject(payload)
+                .put("action", action)
+                .put("clientNonce", clientNonce)
+                .toString()
+            val startRequest = Request.Builder().url("$endpoint/session/start")
+                .post(startPayload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+            val start = client.newCall(startRequest).execute().use { response ->
                 val raw = response.body?.string().orEmpty()
-                if (response.code >= 500 || raw.isBlank()) {
-                    return@use EndpointReply()
-                }
-
+                if (response.code >= 500 || raw.isBlank()) return@use null
                 val authoritative = response.isSuccessful || response.code in 400..499
-                if (!authoritative) {
-                    return@use EndpointReply()
-                }
-
                 val data = JSONObject(raw)
-                val ok = response.isSuccessful && data.optBoolean("ok")
-                val message = data.optString(
-                    "message",
-                    if (ok) "验证成功" else "验证失败",
-                )
-                EndpointReply(
-                    result = Result(ok, message),
-                    authoritative = true,
-                    clearSavedCode = response.code == 403 &&
-                        data.optString("error") == "expired_code",
-                )
+                if (!response.isSuccessful || !data.optBoolean("ok"))
+                    return@use EndpointReply(Result(false, data.optString("message", "验证失败")), authoritative, response.code == 403 && data.optString("error") == "expired_code")
+                data
+            }
+            if (start !is JSONObject) return@runCatching start as? EndpointReply ?: EndpointReply()
+            val sessionId = start.getString("sessionId")
+            val sealed = decodeUrlBase64(start.getString("sealedPacket"))
+            val iv = decodeUrlBase64(start.getString("iv"))
+            var key = ByteArray(0)
+            var packet = ByteArray(0)
+            try {
+                val keyPayload = JSONObject(payload).put("action", action).put("clientNonce", clientNonce).put("sessionId", sessionId).toString()
+                val keyRequest = Request.Builder().url("$endpoint/session/key")
+                    .post(keyPayload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                key = client.newCall(keyRequest).execute().use { response ->
+                    if (!response.isSuccessful) return@use ByteArray(0)
+                    response.body?.bytes() ?: ByteArray(0)
+                }
+                if (key.size != 32) return@runCatching EndpointReply()
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+                packet = cipher.doFinal(sealed)
+                val proof = sha256Hex(packet, action.toByteArray(Charsets.UTF_8), sessionId.toByteArray(Charsets.UTF_8))
+                val finalPayload = base.put("action", action).put("clientNonce", clientNonce).put("sessionId", sessionId).put("sessionProof", proof).toString()
+                val finalRequest = Request.Builder().url("$endpoint/$action")
+                    .post(finalPayload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                client.newCall(finalRequest).execute().use { response ->
+                    val raw = response.body?.string().orEmpty()
+                    if (response.code >= 500 || raw.isBlank()) return@use EndpointReply()
+                    val data = JSONObject(raw)
+                    val ok = response.isSuccessful && data.optBoolean("ok")
+                    EndpointReply(Result(ok, data.optString("message", if (ok) "验证成功" else "验证失败")), response.isSuccessful || response.code in 400..499, response.code == 403 && data.optString("error") == "expired_code")
+                }
+            } finally {
+                key.fill(0); packet.fill(0); sealed.fill(0); iv.fill(0)
             }
         }.getOrElse { EndpointReply() }
 

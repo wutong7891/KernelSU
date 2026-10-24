@@ -49,6 +49,7 @@ let securityRateLimitReady: Promise<unknown> | null = null;
 let adminSessionReady: Promise<unknown> | null = null;
 let adminActionTokenReady: Promise<unknown> | null = null;
 let adminAccessAuditReady: Promise<unknown> | null = null;
+let nightEphemeralSessionReady: Promise<unknown> | null = null;
 // Cloudflare Workers WebCrypto caps PBKDF2 at 100,000 iterations.
 const PASSWORD_ITERATIONS = 100000;
 const ADMIN_SITE_ORIGIN = "https://wtlyf-admin-center.pages.dev";
@@ -1569,8 +1570,49 @@ async function activateLicense(
 }
 const activate = (request: Request, env: Env) =>
   activateLicense(request, env, "wtlyf");
-const activateNight = (request: Request, env: Env) =>
-  activateLicense(request, env, "night");
+
+async function ensureNightEphemeralSessions(env: Env) {
+  nightEphemeralSessionReady ??= env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS night_ephemeral_sessions (session_hash TEXT PRIMARY KEY,code_hash TEXT NOT NULL,device_hash TEXT NOT NULL,action TEXT NOT NULL,client_nonce TEXT NOT NULL,proof_hash TEXT NOT NULL,key_issued INTEGER NOT NULL DEFAULT 0,expires_at INTEGER NOT NULL)",
+  ).run();
+  await nightEphemeralSessionReady;
+}
+const nightSessionHash = async (sessionId: string) =>
+  hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`night-session-v1:${sessionId}`)));
+async function nightSessionKey(sessionId: string, codeHashValue: string, deviceHash: string, action: string, clientNonce: string, env: Env) {
+  return new Uint8Array(await credentialHmac(`${sessionId}:${codeHashValue}:${deviceHash}:${action}:${clientNonce}`, "night-memory-key-v1", env));
+}
+async function startNightEphemeralSession(request: Request, env: Env) {
+  const body: any = await request.json().catch(() => ({})), code = normalize(body.code), deviceHash = String(body.deviceHash ?? "").toLowerCase(), action = String(body.action ?? ""), clientNonce = String(body.clientNonce ?? "").toLowerCase();
+  if (!validLicenseCode(code) || !/^[a-f0-9]{64}$/.test(deviceHash) || !/^[a-f0-9]{64}$/.test(clientNonce) || !new Set(["activate", "check"]).has(action))
+    return reply({ ok: false, error: "invalid_request", message: "会话参数无效" }, 400);
+  const licenseResponse = await activateLicense(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, deviceHash }) }), env, "night");
+  if (!licenseResponse.ok) return licenseResponse;
+  await ensureNightEphemeralSessions(env);
+  const sessionId = toBase64Url(crypto.getRandomValues(new Uint8Array(32))), codeHashValue = await nightCodeHash(code), keyBytes = await nightSessionKey(sessionId, codeHashValue, deviceHash, action, clientNonce, env), packet = crypto.getRandomValues(new Uint8Array(32)), iv = crypto.getRandomValues(new Uint8Array(12)), aesKey = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]), sealedPacket = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, packet)), proofInput = new Uint8Array(packet.length + action.length + sessionId.length), now = Math.floor(Date.now() / 1000), expiresAt = now + 45;
+  proofInput.set(packet, 0); proofInput.set(new TextEncoder().encode(action), packet.length); proofInput.set(new TextEncoder().encode(sessionId), packet.length + action.length);
+  const proofHash = hex(await crypto.subtle.digest("SHA-256", proofInput));
+  await env.DB.batch([env.DB.prepare("DELETE FROM night_ephemeral_sessions WHERE expires_at<=?").bind(now), env.DB.prepare("INSERT INTO night_ephemeral_sessions(session_hash,code_hash,device_hash,action,client_nonce,proof_hash,expires_at) VALUES(?,?,?,?,?,?,?)").bind(await nightSessionHash(sessionId), codeHashValue, deviceHash, action, clientNonce, proofHash, expiresAt)]);
+  keyBytes.fill(0); packet.fill(0); proofInput.fill(0);
+  return reply({ ok: true, sessionId, sealedPacket: toBase64Url(sealedPacket), iv: toBase64Url(iv), expiresAt });
+}
+async function revealNightEphemeralKey(request: Request, env: Env) {
+  const body: any = await request.json().catch(() => ({})), code = normalize(body.code), deviceHash = String(body.deviceHash ?? "").toLowerCase(), action = String(body.action ?? ""), clientNonce = String(body.clientNonce ?? "").toLowerCase(), sessionId = String(body.sessionId ?? "");
+  if (!validLicenseCode(code) || !/^[a-f0-9]{64}$/.test(deviceHash) || !/^[a-f0-9]{64}$/.test(clientNonce) || !/^[A-Za-z0-9_-]{43}$/.test(sessionId)) return reply({ ok: false, error: "invalid_request", message: "会话参数无效" }, 400);
+  await ensureNightEphemeralSessions(env);
+  const codeHashValue = await nightCodeHash(code), row = await env.DB.prepare("UPDATE night_ephemeral_sessions SET key_issued=1 WHERE session_hash=? AND code_hash=? AND device_hash=? AND action=? AND client_nonce=? AND key_issued=0 AND expires_at>? RETURNING session_hash").bind(await nightSessionHash(sessionId), codeHashValue, deviceHash, action, clientNonce, Math.floor(Date.now() / 1000)).first();
+  if (!row) return reply({ ok: false, error: "session_mismatch", message: "会话不一致、已使用或已过期" }, 403);
+  const keyBytes = await nightSessionKey(sessionId, codeHashValue, deviceHash, action, clientNonce, env);
+  return new Response(keyBytes, { headers: { ...API_HEADERS, "content-type": "application/octet-stream", "cache-control": "no-store", "content-disposition": "attachment; filename=night-session.key" } });
+}
+async function activateNight(request: Request, env: Env, expectedAction: "activate" | "check") {
+  const body: any = await request.json().catch(() => ({})), code = normalize(body.code), deviceHash = String(body.deviceHash ?? "").toLowerCase(), action = String(body.action ?? ""), clientNonce = String(body.clientNonce ?? "").toLowerCase(), sessionId = String(body.sessionId ?? ""), sessionProof = String(body.sessionProof ?? "").toLowerCase();
+  if (action !== expectedAction || !validLicenseCode(code) || !/^[a-f0-9]{64}$/.test(deviceHash) || !/^[a-f0-9]{64}$/.test(clientNonce) || !/^[a-f0-9]{64}$/.test(sessionProof) || !/^[A-Za-z0-9_-]{43}$/.test(sessionId)) return reply({ ok: false, error: "session_required", message: "需要有效的一次性内存会话" }, 403);
+  await ensureNightEphemeralSessions(env);
+  const consumed = await env.DB.prepare("DELETE FROM night_ephemeral_sessions WHERE session_hash=? AND code_hash=? AND device_hash=? AND action=? AND client_nonce=? AND proof_hash=? AND key_issued=1 AND expires_at>? RETURNING session_hash").bind(await nightSessionHash(sessionId), await nightCodeHash(code), deviceHash, action, clientNonce, sessionProof, Math.floor(Date.now() / 1000)).first();
+  if (!consumed) return reply({ ok: false, error: "session_mismatch", message: "会话不一致、已使用或已过期" }, 403);
+  return activateLicense(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, deviceHash }) }), env, "night");
+}
 
 type PushItem = {
   id: string;
@@ -2239,7 +2281,15 @@ export default {
       (path === "/api/v1/night/activate" || path === "/api/v1/night/check") &&
       request.method === "POST"
     )
-      return activateNight(request, env);
+      return activateNight(
+        request,
+        env,
+        path.endsWith("/activate") ? "activate" : "check",
+      );
+    if (path === "/api/v1/night/session/start" && request.method === "POST")
+      return startNightEphemeralSession(request, env);
+    if (path === "/api/v1/night/session/key" && request.method === "POST")
+      return revealNightEphemeralKey(request, env);
     if (path === "/api/night/sign" && request.method === "POST") {
       if (!authorized)
         return reply(

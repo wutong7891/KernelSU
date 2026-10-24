@@ -243,5 +243,13 @@ response = await request("https://wutong886.pages.dev/api/v1/night/check", {
 });
 assert.equal(response.status, 204, "normal Night API preflight must remain available");
 
+response = await request("https://wutong886.pages.dev/api/v1/night/check", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ code: "probe", deviceHash: "0".repeat(64) }),
+});
+assert.equal(response.status, 403, "Night checks must require a one-time memory session");
+assert.equal((await response.json()).error, "session_required");
+
 await Promise.all(pending);
 console.log("WTLYF bundled worker behavior checks passed");
