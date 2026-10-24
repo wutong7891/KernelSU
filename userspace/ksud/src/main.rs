@@ -25,6 +25,8 @@ mod defs;
 mod feature;
 mod feature_id;
 #[cfg(target_os = "android")]
+mod hot_install;
+#[cfg(target_os = "android")]
 mod init_event;
 #[cfg(target_os = "android")]
 mod ksucalls;
@@ -41,9 +43,7 @@ mod module;
 #[cfg(target_os = "android")]
 mod module_config;
 #[cfg(target_os = "android")]
-mod module_storage;
-#[cfg(target_os = "android")]
-mod night_runtime;
+mod preinit;
 #[cfg(target_os = "android")]
 mod profile;
 #[cfg(target_os = "android")]

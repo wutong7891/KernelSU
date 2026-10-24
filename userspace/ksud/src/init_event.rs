@@ -18,19 +18,6 @@ pub fn on_post_fs_data() -> Result<()> {
 
     utils::umask(0);
 
-    if let Err(e) = crate::night_runtime::record_phase("post-fs-data", "initializing") {
-        warn!("record Night runtime phase failed: {e:#}");
-    }
-
-    if let Err(e) = crate::module_storage::prepare() {
-        let _ = crate::night_runtime::record_phase("degraded", "module-storage-error");
-        error!("prepare custom module storage failed: {e:#}");
-        return Ok(());
-    }
-    if let Err(e) = crate::night_runtime::record_phase("post-fs-data", "module-storage-ready") {
-        warn!("record Night runtime phase failed: {e:#}");
-    }
-
     // Clear all temporary module configs early
     if let Err(e) = crate::module_config::clear_all_temp_configs() {
         warn!("clear temp configs failed: {e}");
@@ -62,6 +49,8 @@ pub fn on_post_fs_data() -> Result<()> {
 
     assets::ensure_binaries(true).with_context(|| "Failed to extract bin assets")?;
 
+    crate::hot_install::clean_trash();
+
     // if we are in safe mode, we should disable all modules
     if safe_mode {
         warn!("safe mode, skip post-fs-data scripts and disable all modules!");
@@ -79,11 +68,11 @@ pub fn on_post_fs_data() -> Result<()> {
         warn!("prune modules failed: {e}");
     }
 
-    // Refresh /metadata/watchdog/ksu/modules.rc so the next boot's kernel hook sees the
+    // Refresh /metadata/watchdog/ksu/{modules.rc,preinit/} so the next boot's kernel hook sees the
     // current module set. Acts as a safety net when state was changed outside
     // of ksud's normal mutation commands.
-    if let Err(e) = crate::module::regenerate_preinit_rc() {
-        warn!("regenerate preinit rc failed: {e}");
+    if let Err(e) = crate::module::regenerate_preinit() {
+        warn!("regenerate preinit failed: {e:#}");
     }
 
     if let Err(e) = restorecon::restorecon() {
@@ -195,9 +184,6 @@ pub fn on_services() {
         warn!("service-stage feature retry failed: {e}");
     }
 
-    if let Err(e) = crate::night_runtime::record_phase("service", "module-services-running") {
-        warn!("record Night runtime phase failed: {e:#}");
-    }
     run_stage("service", ScriptWait::NoWait);
 }
 
@@ -210,9 +196,7 @@ pub fn on_boot_completed() {
     ksucalls::report_boot_complete();
     info!("on_boot_completed triggered!");
 
-    if let Err(e) = crate::night_runtime::record_phase("boot-completed", "ready") {
-        warn!("record Night runtime phase failed: {e:#}");
-    }
+    crate::preinit::on_boot_completed();
 
     run_stage("boot-completed", ScriptWait::NoWait);
 }

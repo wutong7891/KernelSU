@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.DisplaySettings
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LayersClear
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
@@ -50,10 +49,6 @@ import me.weishu.kernelsu.ui.component.KsuIsValid
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.miuix.SendLogDialog
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
-import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
-import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
-import me.weishu.kernelsu.ui.NightToolsActivity
-import me.weishu.kernelsu.ui.ModuleStorageSettingsActivity
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.util.BlurredBar
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
@@ -184,38 +179,6 @@ fun SettingPagerMiuix(
                                 )
                             },
                             onClick = actions.onOpenTheme
-                        )
-                        ArrowPreference(
-                            title = "计算器隐藏",
-                            summary = "隐藏桌面入口；系统计算器监听继续，无常驻通知",
-                            startAction = {
-                                Icon(Icons.Rounded.Lock, modifier = Modifier.padding(end = 6.dp), contentDescription = "计算器隐藏", tint = colorScheme.onBackground)
-                            },
-                            onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) }
-                        )
-                        ArrowPreference(
-                            title = "Root 应用监听",
-                            summary = "指定应用前后台切换时执行自选脚本",
-                            startAction = {
-                                Icon(Icons.Rounded.DeveloperMode, modifier = Modifier.padding(end = 6.dp), contentDescription = "Root 应用监听", tint = colorScheme.onBackground)
-                            },
-                            onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) }
-                        )
-                        ArrowPreference(
-                            title = "Night 独家侧信道运行时特征",
-                            summary = "查看运行时诊断，并配置独家模块存储目录",
-                            startAction = {
-                                Icon(Icons.Rounded.Description, modifier = Modifier.padding(end = 6.dp), contentDescription = "独家侧信道运行时特征", tint = colorScheme.onBackground)
-                            },
-                            onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) }
-                        )
-                        ArrowPreference(
-                            title = "Night 部署与分区工具",
-                            summary = "刷写 boot/init_boot、配置 TEE/PathMask、部署 Sokey",
-                            startAction = {
-                                Icon(Icons.Rounded.FlashOn, modifier = Modifier.padding(end = 6.dp), contentDescription = "Night 部署与分区工具", tint = colorScheme.onBackground)
-                            },
-                            onClick = { context.startActivity(Intent(context, NightToolsActivity::class.java)) }
                         )
                     }
 

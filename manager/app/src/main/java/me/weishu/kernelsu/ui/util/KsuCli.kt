@@ -32,6 +32,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
 
 /**
  * @author weishu
@@ -122,27 +123,6 @@ fun execKsud(args: String, newShell: Boolean = false, globalMnt: Boolean = false
     } else {
         ShellUtils.fastCmdResult(getRootShell(globalMnt), "${getKsuDaemonPath()} $args")
     }
-}
-
-fun getModuleStoragePath(): String {
-    val shell = getRootShell(true)
-    return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} module storage get").trim()
-}
-
-fun getNightRuntimeStatus(): String {
-    val shell = getRootShell(true)
-    return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} night-runtime status").trim()
-}
-
-fun setModuleStoragePath(path: String): String {
-    val shell = getRootShell(true)
-    val result = shell.newJob()
-        .add("${shellQuote(getKsuDaemonPath())} module storage set ${shellQuote(path)}")
-        .to(ArrayList<String>(), ArrayList<String>())
-        .exec()
-    val message = (result.out + result.err).joinToString("\n").trim()
-    check(result.isSuccess) { message.ifBlank { "Failed to set module storage directory" } }
-    return message
 }
 
 suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.IO) {
@@ -271,7 +251,7 @@ fun flashModule(
         val cmd = "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(file.absolutePath)}"
         val result = flashWithIO(cmd, onStdout, onStderr)
         Log.i("KernelSU", "install module $uri result: $result")
-        return FlashResult(result)
+        return FlashResult(result, result.isSuccess && moduleNeedsReboot(file))
     } finally {
         file.delete()
     }
@@ -279,135 +259,22 @@ fun flashModule(
 
 private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 
-private fun copyNightAssetToCache(assetName: String): File {
-    require(assetName.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid bundled asset name" }
-    val target = File(ksuApp.cacheDir, "night-$assetName")
-    ksuApp.assets.open("night-$assetName").use { input ->
-        target.outputStream().use { output -> input.copyTo(output) }
-    }
-    return target
-}
+private val MODULE_ID_REGEX = Regex("^[a-zA-Z][a-zA-Z0-9._-]+$")
 
-/** Installs an APK-bundled module through the same ksud module installer used by the manager. */
-fun installBundledModule(
-    assetName: String,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit,
-): FlashResult {
-    val module = copyNightAssetToCache(assetName)
-    return try {
-        val result = flashWithIO(
-            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(module.absolutePath)}",
-            onStdout,
-            onStderr,
-        )
-        FlashResult(result)
-    } finally {
-        module.delete()
-    }
-}
-
-/**
- * Installs TEESimulator-RS and the selected PathMask package, then applies the configuration
- * demonstrated in the supplied video and replaces Tricky Store's keybox.
- */
-fun configureNightAttestation(
-    pathMaskAssetName: String,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit,
-): FlashResult {
-    val tee = copyNightAssetToCache("teesimulator-rs-v6.0.0-162.zip")
-    val pathMask = copyNightAssetToCache(pathMaskAssetName)
-    val keybox = copyNightAssetToCache("keybox.xml")
-    return try {
-        onStdout("[1/3] 安装 TEESimulator-RS")
-        val teeResult = flashWithIO(
-            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(tee.absolutePath)}",
-            onStdout,
-            onStderr,
-        )
-        if (!teeResult.isSuccess) return FlashResult(teeResult)
-
-        onStdout("[2/3] 安装所选 PathMask")
-        val pathResult = flashWithIO(
-            "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(pathMask.absolutePath)}",
-            onStdout,
-            onStderr,
-        )
-        if (!pathResult.isSuccess) return FlashResult(pathResult)
-
-        onStdout("[3/3] 写入 PathMask 配置、目标应用与 keybox")
-        val configure = """
-            set -e
-            mkdir -p /data/adb/pathmask /data/adb/tricky_store
-            printf '%s\n' '/dev/cpuset/scene-daemon' 'dir:/dev/???/scene_mode_category' '/system_ext/app/SoterService' > /data/adb/pathmask/target_path.conf
-            printf '%s\n' 'global' > /data/adb/pathmask/scope_mode.conf
-            printf '%s\n' '1' > /data/adb/pathmask/hide_dirents.conf
-            printf '%s\n' '1' > /data/adb/pathmask/enable_syscall_hooks.conf
-            printf '%s\n' 'newfstatat,statx,faccessat2,readlinkat,openat,openat2' > /data/adb/pathmask/syscall_hooks.conf
-            pm list packages | sed 's/^package://' | sort -u > /data/adb/tricky_store/target.txt
-            cp -f ${shellQuote(keybox.absolutePath)} /data/adb/tricky_store/keybox.xml
-            chown -R 0:0 /data/adb/pathmask /data/adb/tricky_store
-            chmod 0700 /data/adb/pathmask /data/adb/tricky_store
-            chmod 0600 /data/adb/pathmask/*.conf /data/adb/tricky_store/keybox.xml /data/adb/tricky_store/target.txt
-            rm -f /data/adb/tricky_store/tee_status.txt
-            sync
-            echo '配置完成；重启后生效'
-        """.trimIndent()
-        val configResult = flashWithIO(configure, onStdout, onStderr)
-        FlashResult(configResult)
-    } finally {
-        tee.delete()
-        pathMask.delete()
-        keybox.delete()
-    }
-}
-
-/** Writes an explicitly selected boot/init_boot A/B partition after validating image size. */
-fun flashRawBootImage(
-    uri: Uri,
-    partition: String,
-    slot: String,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit,
-): FlashResult {
-    require(partition == "boot" || partition == "init_boot")
-    require(slot == "a" || slot == "b")
-    val image = File(ksuApp.cacheDir, "night-${partition}_${slot}.img")
-    ksuApp.contentResolver.openInputStream(uri).use { input ->
-        requireNotNull(input) { "无法读取所选镜像" }
-        image.outputStream().use { output -> input.copyTo(output) }
-    }
-    return try {
-        val blockName = "${partition}_$slot"
-        val command = """
-            set -e
-            image=${shellQuote(image.absolutePath)}
-            target=''
-            for candidate in /dev/block/by-name/$blockName /dev/block/bootdevice/by-name/$blockName /dev/block/platform/*/by-name/$blockName; do
-              if [ -e "${'$'}candidate" ]; then target="${'$'}candidate"; break; fi
-            done
-            [ -n "${'$'}target" ] || { echo '找不到分区 $blockName' >&2; exit 20; }
-            image_size=${'$'}(stat -c '%s' "${'$'}image")
-            block_size=${'$'}(blockdev --getsize64 "${'$'}target")
-            [ "${'$'}image_size" -gt 0 ] || { echo '镜像为空' >&2; exit 21; }
-            [ "${'$'}image_size" -le "${'$'}block_size" ] || { echo "镜像大于目标分区: ${'$'}image_size > ${'$'}block_size" >&2; exit 22; }
-            echo "当前写入: ${'$'}target (${'$'}image_size / ${'$'}block_size bytes)"
-            dd if="${'$'}image" of="${'$'}target" bs=4M conv=fsync
-            sync
-            echo '刷写完成；请确认后再重启设备'
-        """.trimIndent()
-        FlashResult(flashWithIO(command, onStdout, onStderr))
-    } finally {
-        image.delete()
-    }
-}
-
-fun currentBootSlot(): String {
-    val shell = getRootShell()
-    val suffix = ShellUtils.fastCmd(shell, "getprop ro.boot.slot_suffix").trim().removePrefix("_")
-    if (suffix == "a" || suffix == "b") return suffix
-    return ShellUtils.fastCmd(shell, "getprop ro.boot.slot").trim().removePrefix("_")
+// A hot installed module goes live without leaving the "update" flag behind
+private fun moduleNeedsReboot(zip: File): Boolean {
+    val id = runCatching {
+        ZipFile(zip).use { archive ->
+            val entry = archive.getEntry("module.prop") ?: return@use null
+            archive.getInputStream(entry).bufferedReader().useLines { lines ->
+                lines.map { it.trim() }.firstOrNull { it.startsWith("id=") }?.substringAfter('=')?.trim()
+            }
+        }
+    }.getOrNull()
+    if (id == null || !MODULE_ID_REGEX.matches(id)) return true
+    val dir = "/data/adb/modules/$id"
+    // Any failure to check counts as needing a reboot
+    return !ShellUtils.fastCmdResult(getRootShell(), "[ -d $dir ] && [ ! -e $dir/update ]")
 }
 
 fun runModuleAction(
@@ -433,6 +300,38 @@ fun runModuleAction(
     Log.i("KernelSU", "Module runAction result: $result")
 
     return result.isSuccess
+}
+
+/**
+ * Runs a prepared one-shot script command (see ScriptCommand) in a new root shell in the
+ * global mount namespace, like a module action. Returns the exit code.
+ */
+fun runOneshotScript(
+    command: String, onStdout: (String) -> Unit, onStderr: (String) -> Unit
+): Int {
+    val stdoutCallback: CallbackList<String?> = object : CallbackList<String?>() {
+        override fun onAddElement(s: String?) {
+            onStdout(s ?: "")
+        }
+    }
+
+    val stderrCallback: CallbackList<String?> = object : CallbackList<String?>() {
+        override fun onAddElement(s: String?) {
+            onStderr(s ?: "")
+        }
+    }
+
+    val result = withNewRootShell(true) {
+        newJob().add(command).to(stdoutCallback, stderrCallback).exec()
+    }
+    Log.i(TAG, "one-shot script exit code: ${result.code}")
+    return result.code
+}
+
+/** Removes a script's extraction directory, including files the script created as root. */
+fun removeAsRoot(path: String): Boolean {
+    val escaped = "'" + path.replace("'", "'\\''") + "'"
+    return ShellUtils.fastCmdResult(getRootShell(), "rm -rf $escaped")
 }
 
 fun restoreBoot(
@@ -480,42 +379,14 @@ private fun prepareLkmFile(lkm: LkmSelection): Result<File?> = runCatching {
     writeLkmFile(lkm)
 }
 
-// A single module name as accepted by ksud's --block-module parser.
-private fun isValidBlockModuleName(name: String): Boolean =
-    name.isNotEmpty() && name.length <= 64 &&
-        name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' }
-
-/** Parse the comma-separated block-modules field into the non-empty names. */
-fun parseBlockModules(input: String): List<String> =
-    input.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-
-// The kernel copies the block_modules= value into a 256-byte buffer, leaving
-// 255 bytes; a longer list would be silently truncated, leaving some modules
-// unblocked. Reject it here too.
-private const val MAX_BLOCK_MODULES_LEN = 255
-
-/** Whether every name in the block-modules field is valid (empty is valid). */
-fun isBlockModulesValid(input: String): Boolean {
-    val names = parseBlockModules(input)
-    return names.all(::isValidBlockModuleName) &&
-        names.joinToString(",").length <= MAX_BLOCK_MODULES_LEN
-}
-
 private fun bootPatchFlags(
     allowShell: Boolean,
     enableAdb: Boolean,
     forceBackup: Boolean,
-    blockModules: String,
 ): String = buildString {
     if (allowShell) append(" --allow-shell")
     if (enableAdb) append(" --enable-adbd")
     if (forceBackup) append(" --backup")
-    // Names are validated in the UI before install; pass them through without
-    // mutating. Drop the flag entirely (never inject) if anything slips through.
-    val names = parseBlockModules(blockModules)
-    if (names.isNotEmpty() && names.all(::isValidBlockModuleName)) {
-        append(" --block-module ${names.joinToString(",")}")
-    }
 }
 
 fun installBoot(
@@ -526,7 +397,6 @@ fun installBoot(
     allowShell: Boolean,
     enableAdb: Boolean,
     forceBackup: Boolean,
-    blockModules: String,
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit,
 ): FlashResult {
@@ -551,7 +421,7 @@ fun installBoot(
     } else {
         " -b ${bootFile.absolutePath}"
     }
-    cmd += bootPatchFlags(allowShell, enableAdb, forceBackup, blockModules)
+    cmd += bootPatchFlags(allowShell, enableAdb, forceBackup)
 
     if (ota) {
         cmd += " -u"
@@ -596,7 +466,6 @@ fun downloadBoot(
     allowShell: Boolean,
     enableAdb: Boolean,
     forceBackup: Boolean,
-    blockModules: String,
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit,
 ): FlashResult {
@@ -617,7 +486,7 @@ fun downloadBoot(
     }
 
     var cmd = "${getKsuDaemonPath()} boot-patch -b ${bootFile.absolutePath}"
-    cmd += bootPatchFlags(allowShell, enableAdb, forceBackup, blockModules)
+    cmd += bootPatchFlags(allowShell, enableAdb, forceBackup)
 
     val lkmFile = prepareLkmFile(lkm).getOrElse { error ->
         bootFile.delete()
@@ -746,20 +615,6 @@ suspend fun getAvailablePartitions(): List<String> = withContext(Dispatchers.IO)
     val cmd = "boot-info available-partitions"
     val out = shell.newJob().add("${getKsuDaemonPath()} $cmd").to(ArrayList(), null).exec().out
     out.filter { it.isNotBlank() }.map { it.trim() }
-}
-
-// Known vendor anti-root kernel modules that `--block-module` is meant for.
-private val KNOWN_BLOCKABLE_MODULES = listOf(
-    "vr", "vklp", "oplus_secure_guard", "oplus_secure_guard_new", "mkp"
-)
-
-// Return the known anti-root modules currently loaded on this device (per
-// /proc/modules), so the install screen can pre-fill only the relevant ones.
-suspend fun getLoadedBlockableModules(): List<String> = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
-    val out = shell.newJob().add("cat /proc/modules").to(ArrayList(), null).exec().out
-    val loaded = out.mapNotNull { it.trim().substringBefore(' ').takeIf(String::isNotBlank) }.toHashSet()
-    KNOWN_BLOCKABLE_MODULES.filter { it in loaded }
 }
 
 fun hasMagisk(): Boolean {

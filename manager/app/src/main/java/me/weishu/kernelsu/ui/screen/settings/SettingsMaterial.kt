@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LayersClear
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
@@ -63,10 +62,6 @@ import me.weishu.kernelsu.ui.component.material.SendLogBottomSheet
 import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
-import me.weishu.kernelsu.ui.calculator.CalculatorHideSettingsActivity
-import me.weishu.kernelsu.ui.monitor.RootAppMonitorSettingsActivity
-import me.weishu.kernelsu.ui.NightToolsActivity
-import me.weishu.kernelsu.ui.ModuleStorageSettingsActivity
 
 /**
  * @author weishu
@@ -143,15 +138,6 @@ fun SettingPagerMaterial(
                     }
                     add {
                         SegmentedListItem(
-                            onClick = { context.startActivity(Intent(context, ModuleStorageSettingsActivity::class.java)) },
-                            headlineContent = { Text("Night 独家侧信道运行时特征") },
-                            supportingContent = { Text("查看运行时诊断，并配置独家模块存储目录") },
-                            leadingContent = { Icon(Icons.Filled.Description, "独家侧信道运行时特征") },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
                             onClick = actions.onOpenTheme,
                             headlineContent = { Text(stringResource(id = R.string.settings_theme)) },
                             supportingContent = { Text(stringResource(id = R.string.settings_theme_summary)) },
@@ -162,33 +148,6 @@ fun SettingPagerMaterial(
                                     null
                                 )
                             }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
-                            onClick = { context.startActivity(Intent(context, CalculatorHideSettingsActivity::class.java)) },
-                            headlineContent = { Text("计算器隐藏") },
-                            supportingContent = { Text("隐藏桌面入口；系统计算器监听继续，无常驻通知") },
-                            leadingContent = { Icon(Icons.Filled.Lock, "计算器隐藏") },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
-                            onClick = { context.startActivity(Intent(context, RootAppMonitorSettingsActivity::class.java)) },
-                            headlineContent = { Text("Root 应用监听") },
-                            supportingContent = { Text("指定应用前后台切换时执行自选脚本") },
-                            leadingContent = { Icon(Icons.Filled.DeveloperMode, "Root 应用监听") },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
-                            onClick = { context.startActivity(Intent(context, NightToolsActivity::class.java)) },
-                            headlineContent = { Text("Night 部署与分区工具") },
-                            supportingContent = { Text("刷写 boot/init_boot、配置 TEE/PathMask、部署 Sokey") },
-                            leadingContent = { Icon(Icons.Filled.FlashOn, "Night 部署与分区工具") },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
                         )
                     }
                 }

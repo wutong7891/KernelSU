@@ -7,7 +7,7 @@ use log::{LevelFilter, error, info};
 
 use crate::boot_patch::{BootPatchArgs, BootRestoreArgs};
 use crate::lkm_image::BootPatchV2Args;
-use crate::module::regenerate_preinit_rc;
+use crate::module::regenerate_preinit;
 use crate::{
     apk_sign, assets, debug, defs, init_event, ksu_uapi, ksucalls, module, module_config, sulog,
     utils,
@@ -23,12 +23,6 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    /// Inspect the transparent Night runtime identity and boot lifecycle
-    NightRuntime {
-        #[command(subcommand)]
-        command: NightRuntimeCmd,
-    },
-
     /// Manage KernelSU modules
     Module {
         #[command(subcommand)]
@@ -327,10 +321,10 @@ enum Module {
     /// list all modules
     List,
 
-    /// manage the physical module storage directory
-    Storage {
+    /// preinit actions run before SELinux policy is loaded
+    Preinit {
         #[command(subcommand)]
-        command: ModuleStorageCmd,
+        command: PreinitCmd,
     },
 
     /// manage module configuration
@@ -344,17 +338,11 @@ enum Module {
 }
 
 #[derive(clap::Subcommand, Debug)]
-enum ModuleStorageCmd {
-    /// print the configured physical module storage directory
-    Get,
-    /// select an empty directory under /data; use "default" to restore the original path
-    Set { path: String },
-}
-
-#[derive(clap::Subcommand, Debug)]
-enum NightRuntimeCmd {
-    /// print the Night runtime identity and current boot phase
+enum PreinitCmd {
+    /// show per-module preinit state for the next boot
     Status,
+    /// re-enable preinit after it was disabled by repeated failed boots
+    Reset,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -519,7 +507,7 @@ enum UmountOp {
 
 #[derive(clap::Subcommand, Debug)]
 enum Initrc {
-    /// Regenerate preinit rc file
+    /// Regenerate preinit rc file and preinit dirs
     Refresh,
 }
 
@@ -548,12 +536,6 @@ pub fn run() -> Result<()> {
     log::info!("command: {:?}", cli.command);
 
     let result = match cli.command {
-        Commands::NightRuntime { command } => match command {
-            NightRuntimeCmd::Status => {
-                print!("{}", crate::night_runtime::status());
-                Ok(())
-            }
-        },
         Commands::PostFsData => init_event::on_post_fs_data(),
         Commands::BootCompleted => {
             init_event::on_boot_completed();
@@ -574,16 +556,12 @@ pub fn run() -> Result<()> {
                 Module::Disable { id } => module::disable_module(&id),
                 Module::Action { id } => module::run_action(&id),
                 Module::List => module::list_modules(),
-                Module::Storage { command } => match command {
-                    ModuleStorageCmd::Get => {
-                        println!("{}", crate::module_storage::desired_path().display());
+                Module::Preinit { command } => match command {
+                    PreinitCmd::Status => {
+                        crate::preinit::print_status();
                         Ok(())
                     }
-                    ModuleStorageCmd::Set { path } => {
-                        let selected = crate::module_storage::set_desired_path(&path)?;
-                        println!("module storage set to {}; reboot required", selected.display());
-                        Ok(())
-                    }
+                    PreinitCmd::Reset => crate::preinit::reset_bootcount(),
                 },
                 Module::Config { internal, command } => {
                     let module_id = match internal {
@@ -861,7 +839,7 @@ pub fn run() -> Result<()> {
             }
         },
         Commands::Initrc { command } => match command {
-            Initrc::Refresh => regenerate_preinit_rc(),
+            Initrc::Refresh => regenerate_preinit(),
         },
     };
 

@@ -29,6 +29,7 @@
 #include "feature/shell_su_adb_only.h"
 #include "feature/online_root_lease.h"
 #include "infra/symbol_resolver.h"
+#include "preinit/preinit.h"
 
 #ifndef KSU_NIGHT_KMI_ID
 #define KSU_NIGHT_KMI_ID "KernelSU-standard"
@@ -198,6 +199,8 @@ int __init kernelsu_init(void)
 
         ksu_ksud_init();
 
+        ksu_preinit_init();
+
         ksu_file_wrapper_init();
     }
 
@@ -216,8 +219,10 @@ void __exit kernelsu_exit(void)
 
     ksu_supercalls_exit();
 
-    if (!ksu_late_loaded)
+    if (!ksu_late_loaded) {
         ksu_ksud_exit();
+        ksu_preinit_exit();
+    }
 
     // Wait for any in-flight RCU readers (e.g. handler traversing allow_list)
     synchronize_rcu();
