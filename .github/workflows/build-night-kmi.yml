@@ -6,6 +6,10 @@ on:
     branches: [ "night" ]
     paths:
       - '.github/workflows/build-night-kmi.yml'
+      - '.github/workflows/build-lkm.yml'
+      - '.github/workflows/ddk-lkm.yml'
+      - 'kernel/**'
+      - 'uapi/**'
 
 jobs:
   resolve-night-certificate:
