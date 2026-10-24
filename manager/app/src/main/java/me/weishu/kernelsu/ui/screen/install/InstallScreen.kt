@@ -246,11 +246,7 @@ fun InstallScreen() {
             }
         },
         onNext = {
-            if (isGkiDevice && lkmSelection == LkmSelection.KmiNone) {
-                showMessage(externalLkmRequiredMessage)
-            } else {
-                onInstall()
-            }
+            onInstall()
         },
         onAdvancedOptionsClicked = {
             advancedOptionsShown = !advancedOptionsShown
