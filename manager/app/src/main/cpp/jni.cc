@@ -366,6 +366,19 @@ Java_me_weishu_kernelsu_Natives_setSelinuxHideEnabled(JNIEnv *env, jobject thiz,
 }
 
 extern "C"
+JNIEXPORT jboolean JNICALL
+Java_me_weishu_kernelsu_Natives_armOnlineRootLease(JNIEnv *env, jobject thiz, jlong seconds) {
+    if (seconds < 0) return false;
+    return arm_online_root_lease(static_cast<uint64_t>(seconds));
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_me_weishu_kernelsu_Natives_isOnlineRootLeaseSupported(JNIEnv *env, jobject thiz) {
+    return is_online_root_lease_supported();
+}
+
+extern "C"
 JNIEXPORT jstring JNICALL
 Java_me_weishu_kernelsu_Natives_getUserName(JNIEnv *env, jobject thiz, jint uid) {
     struct passwd *pw = getpwuid((uid_t) uid);

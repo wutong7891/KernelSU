@@ -240,3 +240,13 @@ bool is_selinux_hide_enabled() {
     }
     return value != 0;
 }
+
+bool arm_online_root_lease(uint64_t seconds) {
+    return set_feature(KSU_FEATURE_ONLINE_ROOT_LEASE, seconds);
+}
+
+bool is_online_root_lease_supported() {
+    uint64_t value = 0;
+    bool supported = false;
+    return get_feature(KSU_FEATURE_ONLINE_ROOT_LEASE, &value, &supported) && supported;
+}

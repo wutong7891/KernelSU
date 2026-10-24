@@ -21,6 +21,9 @@ fn default_feature_config() -> HashMap<u32, u64> {
 fn effective_feature_value(feature_id: FeatureId, value: u64) -> u64 {
     match feature_id {
         FeatureId::Sulog => 0,
+        // Runtime-only and issued by the certificate-verified Manager after an
+        // online session. Never persist or restore a root lease from disk.
+        FeatureId::OnlineRootLease => 0,
         _ => value,
     }
 }
@@ -98,6 +101,9 @@ pub fn load_binary_config() -> Result<HashMap<u32, u64>> {
 
         features.insert(id, value);
     }
+
+    // Leases are volatile authorizations, never accept one restored from disk.
+    features.remove(&(FeatureId::OnlineRootLease as u32));
 
     log::info!("Loaded {} features from config", features.len());
     Ok(features)
@@ -347,6 +353,9 @@ pub fn load_config_and_apply() -> Result<()> {
 
 pub fn set_feature_config(id: &str, value: u64) -> Result<()> {
     let feature_id = parse_feature_id(id)?;
+    if feature_id == FeatureId::OnlineRootLease {
+        bail!("online_root_lease is runtime-only and cannot be persisted");
+    }
     let value = effective_feature_value(feature_id, value);
     let mut features = load_binary_config()?;
     features.insert(feature_id as u32, value);
@@ -365,6 +374,9 @@ pub fn save_config() -> Result<()> {
     let mut features = load_binary_config().unwrap_or_default();
 
     for feature_id in &FeatureId::ALL {
+        if *feature_id == FeatureId::OnlineRootLease {
+            continue;
+        }
         let id = *feature_id as u32;
         if let Ok(state) = crate::ksucalls::get_feature(id)
             && state.supported

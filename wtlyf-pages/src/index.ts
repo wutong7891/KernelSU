@@ -1611,7 +1611,10 @@ async function activateNight(request: Request, env: Env, expectedAction: "activa
   await ensureNightEphemeralSessions(env);
   const consumed = await env.DB.prepare("DELETE FROM night_ephemeral_sessions WHERE session_hash=? AND code_hash=? AND device_hash=? AND action=? AND client_nonce=? AND proof_hash=? AND key_issued=1 AND expires_at>? RETURNING session_hash").bind(await nightSessionHash(sessionId), await nightCodeHash(code), deviceHash, action, clientNonce, sessionProof, Math.floor(Date.now() / 1000)).first();
   if (!consumed) return reply({ ok: false, error: "session_mismatch", message: "会话不一致、已使用或已过期" }, 403);
-  return activateLicense(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, deviceHash }) }), env, "night");
+  const licenseResponse = await activateLicense(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, deviceHash }) }), env, "night");
+  if (!licenseResponse.ok) return licenseResponse;
+  const licenseBody: any = await licenseResponse.json();
+  return reply({ ...licenseBody, rootLeaseSeconds: 120 });
 }
 
 type PushItem = {

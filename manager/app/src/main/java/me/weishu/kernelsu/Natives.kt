@@ -93,6 +93,10 @@ object Natives {
     external fun isSelinuxHideEnabled(): Boolean
     external fun setSelinuxHideEnabled(enabled: Boolean): Int
 
+    /** Arms a short, volatile root lease after an authenticated online check. */
+    external fun armOnlineRootLease(seconds: Long): Boolean
+    external fun isOnlineRootLeaseSupported(): Boolean
+
     /**
      * Get the user name for the uid.
      */

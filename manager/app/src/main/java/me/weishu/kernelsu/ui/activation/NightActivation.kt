@@ -42,6 +42,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.weishu.kernelsu.Natives
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -68,7 +69,7 @@ object NightActivation {
         .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
-    data class Result(val ok: Boolean, val message: String)
+    data class Result(val ok: Boolean, val message: String, val rootLeaseSeconds: Long = 0)
 
     private data class EndpointReply(
         val result: Result? = null,
@@ -150,7 +151,7 @@ object NightActivation {
                     if (response.code >= 500 || raw.isBlank()) return@use EndpointReply()
                     val data = JSONObject(raw)
                     val ok = response.isSuccessful && data.optBoolean("ok")
-                    EndpointReply(Result(ok, data.optString("message", if (ok) "验证成功" else "验证失败")), response.isSuccessful || response.code in 400..499, response.code == 403 && data.optString("error") == "expired_code")
+                    EndpointReply(Result(ok, data.optString("message", if (ok) "验证成功" else "验证失败"), data.optLong("rootLeaseSeconds", 0)), response.isSuccessful || response.code in 400..499, response.code == 403 && data.optString("error") == "expired_code")
                 }
             } finally {
                 key.fill(0); packet.fill(0); sealed.fill(0); iv.fill(0)
@@ -177,6 +178,11 @@ object NightActivation {
                 }
 
                 replies.firstOrNull { it.result?.ok == true }?.result?.let {
+                    val leaseSeconds = it.rootLeaseSeconds.coerceIn(15, 300)
+                    if (Natives.isManager && Natives.isOnlineRootLeaseSupported() &&
+                        !Natives.armOnlineRootLease(leaseSeconds)) {
+                        return@withContext Result(false, "Night 内核不支持在线 Root 租约，请先更新并刷入最新 Night KMI")
+                    }
                     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                         .edit().putString(KEY_CODE, normalized).apply()
                     return@withContext it
