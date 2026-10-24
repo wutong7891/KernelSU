@@ -133,6 +133,23 @@ assert.equal(
 response = await request("https://wutong886.pages.dev/.env");
 assert.equal(response.status, 404, "common secret-file probes must be blocked");
 
+for (const phpProbe of [
+  "/shell.php",
+  "/INDEX.PHP/anything",
+  "/%2569ndex%252ephp",
+  "/vendor%2fphpunit/phpunit/src/Util/PHP/eval-stdin.php",
+  "/composer.lock",
+  "/.user.ini",
+]) {
+  response = await request(`https://wutong886.pages.dev${phpProbe}`);
+  assert.equal(response.status, 404, `${phpProbe} must be blocked`);
+  assert.equal(
+    (await response.json()).error,
+    "firewall",
+    `${phpProbe} must be rejected at the shared firewall boundary`,
+  );
+}
+
 response = await request("https://wutong886.pages.dev/", { method: "PUT" });
 assert.equal(response.status, 405, "unexpected HTTP methods must be blocked");
 

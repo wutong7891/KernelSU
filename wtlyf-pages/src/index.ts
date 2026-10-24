@@ -63,6 +63,24 @@ const ADMIN_PAGE_PATHS = new Set([
 const ADMIN_ALLOWED_COUNTRIES = new Set(["CN", "HK", "MO", "TW"]);
 const SUSPICIOUS_PATH =
   /(?:^|\/)(?:\.env|\.git|wp-admin|wp-login\.php|phpmyadmin|server-status|actuator|cgi-bin)(?:\/|$)/i;
+const PHP_PROBE_PATH =
+  /(?:^|\/)(?:[^/]*\.php[^/]*|composer\.(?:json|lock)|\.user\.ini|\.htaccess)(?:\/|$)|(?:^|\/)vendor\/phpunit(?:\/|$)/i;
+const isSuspiciousPath = (path: string) => {
+  let candidate = path;
+  for (let pass = 0; pass < 3; pass++) {
+    const normalized = candidate.replace(/\\/g, "/");
+    if (SUSPICIOUS_PATH.test(normalized) || PHP_PROBE_PATH.test(normalized))
+      return true;
+    try {
+      const decoded = decodeURIComponent(candidate);
+      if (decoded === candidate) return false;
+      candidate = decoded;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+};
 const GITHUB_REPO = "wutong7891/KernelSU";
 const KMI_SET = new Set([
   "android12-5.10",
@@ -188,7 +206,7 @@ async function firewall(
   const path = url.pathname.replace(/\/+$/, "") || "/",
     rawLength = request.headers.get("content-length"),
     length = Number(rawLength ?? 0);
-  if (SUSPICIOUS_PATH.test(path)) {
+  if (isSuspiciousPath(path)) {
     context?.waitUntil(recordAdminAccess(request, env, path, "scanner"));
     return firewallReply("资源不存在", 404);
   }
