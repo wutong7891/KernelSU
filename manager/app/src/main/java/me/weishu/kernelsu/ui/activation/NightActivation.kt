@@ -36,9 +36,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -134,11 +131,28 @@ object NightActivation {
                 val keyPayload = JSONObject(payload).put("action", action).put("clientNonce", clientNonce).put("sessionId", sessionId).toString()
                 val keyRequest = Request.Builder().url("$endpoint/session/key")
                     .post(keyPayload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                var keyFailure: EndpointReply? = null
                 key = client.newCall(keyRequest).execute().use { response ->
-                    if (!response.isSuccessful) return@use ByteArray(0)
+                    if (!response.isSuccessful) {
+                        val raw = response.body?.string().orEmpty()
+                        val data = runCatching { JSONObject(raw) }.getOrNull()
+                        val message = data?.optString("message")?.takeIf { it.isNotBlank() }
+                            ?: "Night 会话密钥请求失败（HTTP ${response.code}）"
+                        keyFailure = EndpointReply(
+                            Result(false, message),
+                            response.code in 400..499,
+                            response.code == 403 && data?.optString("error") == "expired_code",
+                        )
+                        return@use ByteArray(0)
+                    }
                     response.body?.bytes() ?: ByteArray(0)
                 }
-                if (key.size != 32) return@runCatching EndpointReply()
+                keyFailure?.let { return@runCatching it }
+                if (key.size != 32) {
+                    return@runCatching EndpointReply(
+                        Result(false, "Night 服务器返回了无效的会话密钥，请稍后重试"),
+                    )
+                }
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
                 packet = cipher.doFinal(sealed)
@@ -166,30 +180,30 @@ object NightActivation {
                 .put("deviceHash", deviceHash(context))
                 .toString()
             var lastAuthoritativeFailure: Result? = null
+            var lastTransientFailure: Result? = null
             var shouldClearSavedCode = false
 
             repeat(2) { round ->
-                val replies = coroutineScope {
-                    ENDPOINTS.map { endpoint ->
-                        async {
-                            requestEndpoint(endpoint, action, payload)
+                for (endpoint in ENDPOINTS) {
+                    val reply = requestEndpoint(endpoint, action, payload)
+                    reply.result?.let { result ->
+                        if (result.ok) {
+                            val leaseSeconds = result.rootLeaseSeconds.coerceIn(15, 300)
+                            if (Natives.isManager && Natives.isOnlineRootLeaseSupported() &&
+                                !Natives.armOnlineRootLease(leaseSeconds)) {
+                                return@withContext Result(false, "Night 内核不支持在线 Root 租约，请先更新并刷入最新 Night KMI")
+                            }
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                .edit().putString(KEY_CODE, normalized).apply()
+                            return@withContext result
                         }
-                    }.awaitAll()
-                }
-
-                replies.firstOrNull { it.result?.ok == true }?.result?.let {
-                    val leaseSeconds = it.rootLeaseSeconds.coerceIn(15, 300)
-                    if (Natives.isManager && Natives.isOnlineRootLeaseSupported() &&
-                        !Natives.armOnlineRootLease(leaseSeconds)) {
-                        return@withContext Result(false, "Night 内核不支持在线 Root 租约，请先更新并刷入最新 Night KMI")
+                        if (reply.authoritative) {
+                            lastAuthoritativeFailure = result
+                            shouldClearSavedCode = shouldClearSavedCode || reply.clearSavedCode
+                        } else {
+                            lastTransientFailure = result
+                        }
                     }
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit().putString(KEY_CODE, normalized).apply()
-                    return@withContext it
-                }
-                replies.firstOrNull { it.authoritative && it.result != null }?.let {
-                    lastAuthoritativeFailure = it.result
-                    shouldClearSavedCode = shouldClearSavedCode || it.clearSavedCode
                 }
                 if (lastAuthoritativeFailure != null) {
                     if (shouldClearSavedCode) {
@@ -201,7 +215,8 @@ object NightActivation {
                 if (round == 0) delay(350)
             }
 
-            Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
+            lastTransientFailure
+                ?: Result(false, "无法连接 Night 卡密服务器，请切换网络后重试")
         }
 
     suspend fun activate(context: Context, code: String): Result = request(context, "activate", code)

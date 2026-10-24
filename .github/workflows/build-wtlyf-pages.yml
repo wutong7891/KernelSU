@@ -39,6 +39,7 @@ jobs:
         run: |
           node wtlyf-pages/tests/security-regression.mjs
           node wtlyf-pages/tests/security-behavior.mjs
+          node wtlyf-pages/tests/night-login-success.mjs
 
       - name: Verify administrator username policy
         run: |
