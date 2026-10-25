@@ -18,7 +18,6 @@ static const char *const feature_names[KSU_FEATURE_MAX] = {
     [KSU_FEATURE_ADB_ROOT] = "adb_root",
     [KSU_FEATURE_SELINUX_HIDE] = "selinux_hide",
     [KSU_FEATURE_SHELL_SU_ADB_ONLY] = "shell_su_adb_only",
-    [KSU_FEATURE_ONLINE_ROOT_LEASE] = "online_root_lease",
 };
 
 // Features forced by boot config. Written only while parsing module params
@@ -33,7 +32,7 @@ static int parse_feature_id(const char *name, u32 *id)
     u32 i;
 
     if (!kstrtou32(name, 10, id)) {
-        return *id < KSU_FEATURE_MAX ? 0 : -EINVAL;
+        return *id < KSU_FEATURE_MAX && feature_names[*id] ? 0 : -EINVAL;
     }
 
     for (i = 0; i < KSU_FEATURE_MAX; i++) {

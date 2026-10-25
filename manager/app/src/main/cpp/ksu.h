@@ -53,9 +53,6 @@ int set_selinux_hide_enabled(bool enabled);
 
 bool is_selinux_hide_enabled();
 
-bool arm_online_root_lease(uint64_t seconds);
-bool is_online_root_lease_supported();
-
 bool get_allow_list(struct ksu_new_get_allow_list_cmd *);
 
 inline std::pair<int, int> legacy_get_info() {

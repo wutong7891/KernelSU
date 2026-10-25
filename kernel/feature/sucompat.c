@@ -21,7 +21,6 @@
 #include "klog.h" // IWYU pragma: keep
 #include "runtime/ksud.h"
 #include "feature/sucompat.h"
-#include "feature/online_root_lease.h"
 #include "policy/app_profile.h"
 #include "hook/syscall_hook.h"
 #include "supercall/supercall.h"
@@ -172,12 +171,6 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
 
     if (!ksu_is_allow_uid_for_current(current_uid().val))
         goto do_orig_execve;
-
-    if (!ksu_online_root_lease_allows_current()) {
-        pr_warn_ratelimited("sucompat: online root lease missing or expired for uid %u\n",
-                            current_uid().val);
-        goto do_orig_execve;
-    }
 
     addr = untagged_addr((unsigned long)*filename_user);
     fn = (const char __user *)addr;

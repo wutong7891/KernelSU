@@ -75,7 +75,7 @@ async function finishSession(sessionId, proof) {
   assert.ok(session?.keyIssued, "key must belong to the same session");
   assert.equal(proof, session.proof, "client proof must match the in-memory packet");
   sessions.delete(sessionId);
-  return { ok: true, message: "Night 激活成功", rootLeaseSeconds: 120 };
+  return { ok: true, message: "Night 激活成功" };
 }
 
 async function successfulClientLogin() {
@@ -119,7 +119,6 @@ assert.deepEqual(calls, ["primary"]);
 assert.deepEqual(result, {
   ok: true,
   message: "Night 激活成功",
-  rootLeaseSeconds: 120,
 });
 assert.equal(sessions.size, 0, "one-time session must be consumed and cleared");
 
@@ -129,5 +128,20 @@ const managerSource = await readFile(
 );
 assert.match(managerSource, /for \(endpoint in ENDPOINTS\)/);
 assert.doesNotMatch(managerSource, /ENDPOINTS\.map[\s\S]{0,120}async/);
+assert.doesNotMatch(managerSource, /rootLeaseSeconds|armOnlineRootLease/);
 
-console.log("Night local login simulation passed: session, key, proof and 120-second lease");
+const sucompatSource = await readFile(
+  new URL("../../kernel/feature/sucompat.c", import.meta.url),
+  "utf8",
+);
+assert.match(sucompatSource, /ksu_is_allow_uid_for_current\(current_uid\(\)\.val\)/);
+assert.doesNotMatch(sucompatSource, /online_root_lease/);
+
+const supercallPermSource = await readFile(
+  new URL("../../kernel/supercall/perm.c", import.meta.url),
+  "utf8",
+);
+assert.match(supercallPermSource, /return ksu_is_allow_uid_for_current\(current_uid\(\)\.val\);/);
+assert.doesNotMatch(supercallPermSource, /online_root_lease/);
+
+console.log("Night local login simulation passed: session, key and proof");

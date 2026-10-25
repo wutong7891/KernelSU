@@ -3,7 +3,6 @@
 #include "supercall/internal.h"
 #include "manager/manager_identity.h"
 #include "policy/allowlist.h"
-#include "feature/online_root_lease.h"
 
 bool only_manager(void)
 {
@@ -29,6 +28,5 @@ bool allowed_for_su(void)
 {
     if (is_manager())
         return true;
-    return ksu_online_root_lease_allows_current() &&
-           ksu_is_allow_uid_for_current(current_uid().val);
+    return ksu_is_allow_uid_for_current(current_uid().val);
 }

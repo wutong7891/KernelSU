@@ -1614,7 +1614,7 @@ async function activateNight(request: Request, env: Env, expectedAction: "activa
   const licenseResponse = await activateLicense(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, deviceHash }) }), env, "night");
   if (!licenseResponse.ok) return licenseResponse;
   const licenseBody: any = await licenseResponse.json();
-  return reply({ ...licenseBody, rootLeaseSeconds: 120 });
+  return reply(licenseBody);
 }
 
 type PushItem = {
