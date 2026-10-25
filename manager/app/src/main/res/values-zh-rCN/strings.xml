@@ -373,7 +373,8 @@
     <string name="foreground_watcher_title">前台应用监听</string>
     <string name="foreground_watcher_settings_summary">选择前台应用与执行文件，进入前台时自动执行</string>
     <string name="foreground_watcher_enable">启用监听</string>
-    <string name="foreground_watcher_enable_summary">以可见服务运行，每次进入前台只触发一次</string>
+    <string name="foreground_watcher_enable_summary">启动独立 Root Shell 进程，每次进入前台只触发一次</string>
+    <string name="foreground_watcher_developer_notice">个人开发爱好与自动化功能；Night 退出后，已脱离的进程仍可继续运行。</string>
     <string name="foreground_watcher_target">被监听应用</string>
     <string name="foreground_watcher_choose_app">选择应用</string>
     <string name="foreground_watcher_script">需要执行的文件</string>
@@ -387,13 +388,10 @@
     <string name="foreground_watcher_stop">停止</string>
     <string name="foreground_watcher_started">前台监听已启动</string>
     <string name="foreground_watcher_stopped">前台监听已停止</string>
+    <string name="foreground_watcher_working">正在应用监听状态…</string>
     <string name="foreground_watcher_incomplete">请先选择应用和需要执行的文件</string>
     <string name="foreground_watcher_script_imported">文件已导入 Night 私有目录</string>
     <string name="foreground_watcher_log">最近执行记录</string>
     <string name="foreground_watcher_refresh_log">刷新记录</string>
     <string name="foreground_watcher_no_log">暂无执行记录</string>
-    <string name="foreground_watcher_channel">前台应用监听</string>
-    <string name="foreground_watcher_channel_summary">Night 正在监听用户选择的前台应用</string>
-    <string name="foreground_watcher_notification_title">Night 前台应用监听</string>
-    <string name="foreground_watcher_notification_text">正在监听所选应用，点击打开 Night</string>
 </resources>

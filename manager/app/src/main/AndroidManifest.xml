@@ -8,7 +8,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <uses-permission
@@ -108,24 +107,6 @@
             android:name=".ui.util.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <service
-            android:name=".ui.foregroundwatcher.ForegroundWatcherService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled foreground app watcher that runs a selected local script" />
-        </service>
-
-        <receiver
-            android:name=".ui.foregroundwatcher.ForegroundWatcherBootReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
 
         <receiver
             android:name=".magica.BootCompletedReceiver"

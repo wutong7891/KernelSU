@@ -1,9 +1,6 @@
 package me.weishu.kernelsu.ui.foregroundwatcher
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
@@ -66,6 +65,7 @@ fun ForegroundWatcherScreen() {
     var showAppPicker by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var logs by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
@@ -80,12 +80,19 @@ fun ForegroundWatcherScreen() {
                 .distinctBy { it.packageName }
                 .sortedBy { it.label.lowercase() }
         }
-        logs = ForegroundWatcherStore.logFile(context).takeIf { it.isFile }?.readText().orEmpty()
+        val running = withContext(Dispatchers.IO) {
+            if (config.enabled && !ForegroundWatcherDaemon.isRunning()) {
+                ForegroundWatcherDaemon.start(context)
+            }
+            ForegroundWatcherDaemon.isRunning()
+        }
+        if (config.enabled != running) {
+            config = config.copy(enabled = running)
+            ForegroundWatcherStore.write(context, config)
+        }
+        logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() }
     }
 
-    val notificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
     val scriptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -114,14 +121,21 @@ fun ForegroundWatcherScreen() {
             status = context.getString(R.string.foreground_watcher_incomplete)
             return
         }
-        if (enabled && Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        status = context.getString(R.string.foreground_watcher_working)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                if (enabled) ForegroundWatcherDaemon.start(context) else ForegroundWatcherDaemon.stop()
+            }
+            if (result.isSuccess) {
+                persist(config.copy(enabled = enabled))
+                status = context.getString(
+                    if (enabled) R.string.foreground_watcher_started else R.string.foreground_watcher_stopped
+                )
+                logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() }
+            } else {
+                status = result.exceptionOrNull()?.message.orEmpty()
+            }
         }
-        persist(config.copy(enabled = enabled))
-        ForegroundWatcherService.setEnabled(context, enabled)
-        status = context.getString(if (enabled) R.string.foreground_watcher_started else R.string.foreground_watcher_stopped)
     }
 
     if (showAppPicker) {
@@ -183,6 +197,11 @@ fun ForegroundWatcherScreen() {
                                 Text(
                                     stringResource(R.string.foreground_watcher_enable_summary),
                                     style = MaterialTheme.typography.bodySmall,
+                                )
+                                Text(
+                                    stringResource(R.string.foreground_watcher_developer_notice),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             }
                             Switch(checked = config.enabled, onCheckedChange = { setListening(it) })
@@ -261,9 +280,7 @@ fun ForegroundWatcherScreen() {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        onClick = {
-                            logs = ForegroundWatcherStore.logFile(context).takeIf { it.isFile }?.readText().orEmpty()
-                        },
+                        onClick = { scope.launch { logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() } } },
                         modifier = Modifier.weight(1f),
                     ) { Text(stringResource(R.string.foreground_watcher_refresh_log)) }
                     Button(
