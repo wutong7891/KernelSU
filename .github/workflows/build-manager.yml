@@ -230,7 +230,7 @@ jobs:
           echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pk8
 
       - name: Validate detached watcher shell
-        run: sh -n manager/app/src/main/assets/foreground_watcher/watcher.sh
+        run: sh -n app/src/main/assets/foreground_watcher/watcher.sh
 
       - name: Build with Gradle
         run: |
