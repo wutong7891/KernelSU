@@ -169,7 +169,7 @@ class ForegroundWatcherService : Service() {
         private const val MAX_LOG_BYTES = 256 * 1024L
         private val LOG_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
         private const val FOREGROUND_PACKAGE_COMMAND =
-            "dumpsys activity activities 2>/dev/null | sed -n 's/.*mResumedActivity:.* u[0-9]* \\([^/ ]*\\)\/.*/\\1/p' | head -n 1"
+            "dumpsys activity activities 2>/dev/null | sed -n 's/.*mResumedActivity:.* u[0-9]* \\([^/ ]*\\)\\/.*/\\1/p' | head -n 1"
 
         fun setEnabled(context: Context, enabled: Boolean) {
             val current = ForegroundWatcherStore.read(context)
