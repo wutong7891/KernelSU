@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -63,6 +65,10 @@ fun ForegroundWatcherScreen() {
     var config by remember { mutableStateOf(ForegroundWatcherStore.read(context)) }
     var apps by remember { mutableStateOf(emptyList<SelectableApp>()) }
     var showAppPicker by remember { mutableStateOf(false) }
+    var showRootPicker by remember { mutableStateOf(false) }
+    var rootPath by remember { mutableStateOf("/") }
+    var rootEntries by remember { mutableStateOf(emptyList<ForegroundWatcherDaemon.RootEntry>()) }
+    var rootError by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var logs by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -138,6 +144,19 @@ fun ForegroundWatcherScreen() {
         }
     }
 
+    fun loadRootDirectory(path: String) {
+        rootPath = path
+        rootError = ""
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.listDirectory(path) }
+            result.onSuccess { rootEntries = it }
+                .onFailure {
+                    rootEntries = emptyList()
+                    rootError = it.message.orEmpty()
+                }
+        }
+    }
+
     if (showAppPicker) {
         AlertDialog(
             onDismissRequest = { showAppPicker = false },
@@ -163,6 +182,71 @@ fun ForegroundWatcherScreen() {
             },
             confirmButton = {
                 OutlinedButton(onClick = { showAppPicker = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showRootPicker) {
+        AlertDialog(
+            onDismissRequest = { showRootPicker = false },
+            title = { Text(stringResource(R.string.foreground_watcher_root_browser)) },
+            text = {
+                Column {
+                    Text(rootPath, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                    if (rootError.isNotBlank()) {
+                        Text(rootError, color = MaterialTheme.colorScheme.error)
+                    }
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+                        if (rootPath != "/") {
+                            item {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { loadRootDirectory(parentRootPath(rootPath)) }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Filled.Folder, null)
+                                    Text("..", Modifier.padding(start = 10.dp))
+                                }
+                                HorizontalDivider()
+                            }
+                        }
+                        items(rootEntries, key = { it.path }) { entry ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (entry.directory) {
+                                            loadRootDirectory(entry.path)
+                                        } else {
+                                            scope.launch {
+                                                val result = withContext(Dispatchers.IO) {
+                                                    ForegroundWatcherDaemon.importRootScript(context, entry.path)
+                                                }
+                                                result.onSuccess {
+                                                    config = ForegroundWatcherStore.read(context)
+                                                    status = context.getString(R.string.foreground_watcher_script_imported)
+                                                    showRootPicker = false
+                                                }.onFailure { rootError = it.message.orEmpty() }
+                                            }
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(if (entry.directory) Icons.Filled.Folder else Icons.Filled.Description, null)
+                                Text(entry.path.substringAfterLast('/'), Modifier.padding(start = 10.dp))
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                OutlinedButton(onClick = { showRootPicker = false }) {
                     Text(stringResource(android.R.string.cancel))
                 }
             },
@@ -240,6 +324,16 @@ fun ForegroundWatcherScreen() {
                             Icon(Icons.Filled.Description, null)
                             Text(stringResource(R.string.foreground_watcher_choose_script), Modifier.padding(start = 8.dp))
                         }
+                        OutlinedButton(
+                            onClick = {
+                                showRootPicker = true
+                                loadRootDirectory("/")
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Folder, null)
+                            Text(stringResource(R.string.foreground_watcher_browse_root), Modifier.padding(start = 8.dp))
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(R.string.foreground_watcher_use_root))
@@ -312,4 +406,10 @@ fun ForegroundWatcherScreen() {
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
+}
+
+private fun parentRootPath(path: String): String {
+    val normalized = path.trimEnd('/')
+    if (normalized.isEmpty()) return "/"
+    return normalized.substringBeforeLast('/', "").ifEmpty { "/" }
 }

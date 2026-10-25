@@ -395,6 +395,8 @@
     <string name="foreground_watcher_choose_app">Choose app</string>
     <string name="foreground_watcher_script">File to execute</string>
     <string name="foreground_watcher_choose_script">Choose shell file</string>
+    <string name="foreground_watcher_browse_root">Browse root directory</string>
+    <string name="foreground_watcher_root_browser">Root file browser</string>
     <string name="foreground_watcher_not_selected">Not selected</string>
     <string name="foreground_watcher_use_root">Execute with su</string>
     <string name="foreground_watcher_use_root_summary">Enabled by default. Disable to run with the manager app identity.</string>

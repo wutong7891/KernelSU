@@ -229,6 +229,9 @@ jobs:
           echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pem
           echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pk8
 
+      - name: Validate detached watcher shell
+        run: sh -n manager/app/src/main/assets/foreground_watcher/watcher.sh
+
       - name: Build with Gradle
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then

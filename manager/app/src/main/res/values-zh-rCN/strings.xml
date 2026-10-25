@@ -379,6 +379,8 @@
     <string name="foreground_watcher_choose_app">选择应用</string>
     <string name="foreground_watcher_script">需要执行的文件</string>
     <string name="foreground_watcher_choose_script">选择 Shell 文件</string>
+    <string name="foreground_watcher_browse_root">浏览 Root 根目录</string>
+    <string name="foreground_watcher_root_browser">Root 文件浏览器</string>
     <string name="foreground_watcher_not_selected">尚未选择</string>
     <string name="foreground_watcher_use_root">默认使用 su 执行</string>
     <string name="foreground_watcher_use_root_summary">默认开启；关闭后使用面具自身身份执行。</string>

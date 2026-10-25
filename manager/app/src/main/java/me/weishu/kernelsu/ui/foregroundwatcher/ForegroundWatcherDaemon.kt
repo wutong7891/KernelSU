@@ -7,6 +7,9 @@ import java.io.File
 object ForegroundWatcherDaemon {
     private const val ROOT_DIR = "/data/adb/night_foreground_watcher"
     private const val PID_FILE = "$ROOT_DIR/watcher.pid"
+    private const val LAUNCH_LOG = "$ROOT_DIR/launcher.log"
+
+    data class RootEntry(val path: String, val directory: Boolean)
 
     fun start(context: Context): Result<Unit> = runCatching {
         val config = ForegroundWatcherStore.read(context)
@@ -34,11 +37,16 @@ object ForegroundWatcherDaemon {
                 .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
                 .append(quote("$ROOT_DIR/config/pre_input")).append("; ")
-            append("if command -v setsid >/dev/null 2>&1; then ")
-            append("nohup setsid /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
-            append(" </dev/null >/dev/null 2>&1 & ")
-            append("else nohup /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
-            append(" </dev/null >/dev/null 2>&1 & fi")
+            append(": > ").append(quote(LAUNCH_LOG)).append("; ")
+            append("(if command -v setsid >/dev/null 2>&1; then ")
+            append("exec setsid /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
+            append("; else exec /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
+            append("; fi) </dev/null >>").append(quote(LAUNCH_LOG)).append(" 2>&1 & ")
+            append("sleep 1; pid=\$(cat ").append(quote(PID_FILE)).append(" 2>/dev/null); ")
+            append("if [ -z \"\$pid\" ] || ! kill -0 \"\$pid\" 2>/dev/null || ")
+            append("! tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ")
+                .append(quote("$ROOT_DIR/watcher.sh")).append(" >/dev/null; then ")
+            append("cat ").append(quote(LAUNCH_LOG)).append(" >&2; exit 1; fi")
         }
         val result = getRootShell().newJob().add(command).exec()
         check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot start watcher" } }
@@ -59,9 +67,40 @@ object ForegroundWatcherDaemon {
 
     fun readLog(): String {
         val out = ArrayList<String>()
-        getRootShell().newJob().add("tail -n 200 ${quote("$ROOT_DIR/events.log")} 2>/dev/null")
+        getRootShell().newJob().add(
+            "{ tail -n 40 ${quote(LAUNCH_LOG)} 2>/dev/null; " +
+                "tail -n 200 ${quote("$ROOT_DIR/events.log")} 2>/dev/null; }"
+        )
             .to(out, null).exec()
         return out.joinToString("\n")
+    }
+
+    fun listDirectory(path: String): Result<List<RootEntry>> = runCatching {
+        requireValidAbsolutePath(path)
+        val out = ArrayList<String>()
+        val command = "find ${quote(path)} -mindepth 1 -maxdepth 1 -print 2>/dev/null | " +
+            "sort | head -n 300 | while IFS= read -r item; do " +
+            "if [ -d \"\$item\" ]; then printf 'd\\t%s\\n' \"\$item\"; " +
+            "elif [ -f \"\$item\" ]; then printf 'f\\t%s\\n' \"\$item\"; fi; done"
+        val result = getRootShell().newJob().add(command).to(out, null).exec()
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot read directory" } }
+        out.mapNotNull { line ->
+            val separator = line.indexOf('\t')
+            if (separator != 1) return@mapNotNull null
+            RootEntry(line.substring(2), line[0] == 'd')
+        }
+    }
+
+    fun importRootScript(context: Context, path: String): Result<Unit> = runCatching {
+        requireValidAbsolutePath(path)
+        val target = ForegroundWatcherStore.scriptFile(context)
+        target.parentFile?.mkdirs()
+        val command = "test -f ${quote(path)} && cp ${quote(path)} ${quote(target.absolutePath)} && " +
+            "chmod 0644 ${quote(target.absolutePath)}"
+        val result = getRootShell().newJob().add(command).exec()
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot import selected root file" } }
+        val current = ForegroundWatcherStore.read(context)
+        ForegroundWatcherStore.write(context, current.copy(scriptName = path))
     }
 
     private fun stopCommand(): String =
@@ -73,4 +112,10 @@ object ForegroundWatcherDaemon {
             "rmdir ${quote("$ROOT_DIR/watcher.lock")} 2>/dev/null || true"
 
     private fun quote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
+    private fun requireValidAbsolutePath(path: String) {
+        require(path.startsWith('/') && path.length <= 1024 && path.none { it == '\u0000' || it == '\n' || it == '\r' }) {
+            "Invalid root path"
+        }
+    }
 }
