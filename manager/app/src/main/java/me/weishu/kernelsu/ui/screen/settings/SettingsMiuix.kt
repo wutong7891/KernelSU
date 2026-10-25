@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -201,6 +202,29 @@ fun SettingPagerMiuix(
                                     )
                                 },
                                 onClick = actions.onOpenProfileTemplate
+                            )
+                        }
+                    }
+
+                    KsuIsValid {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            val watcherTitle = stringResource(id = R.string.foreground_watcher_title)
+                            ArrowPreference(
+                                title = watcherTitle,
+                                summary = stringResource(id = R.string.foreground_watcher_settings_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Visibility,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = watcherTitle,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onOpenForegroundWatcher,
                             )
                         }
                     }

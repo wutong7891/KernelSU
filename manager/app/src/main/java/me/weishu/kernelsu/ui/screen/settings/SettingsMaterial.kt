@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LayersClear
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -171,6 +172,22 @@ fun SettingPagerMaterial(
                             }
                         )
                     }
+                )
+            }
+
+            KsuIsValid {
+                val watcherTitle = stringResource(id = R.string.foreground_watcher_title)
+                SegmentedColumn(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                    content = listOf {
+                        SegmentedListItem(
+                            onClick = actions.onOpenForegroundWatcher,
+                            headlineContent = { Text(watcherTitle) },
+                            supportingContent = { Text(stringResource(id = R.string.foreground_watcher_settings_summary)) },
+                            leadingContent = { Icon(Icons.Filled.Visibility, watcherTitle) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                        )
+                    },
                 )
             }
 
