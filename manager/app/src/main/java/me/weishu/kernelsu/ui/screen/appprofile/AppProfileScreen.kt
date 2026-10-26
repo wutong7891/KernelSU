@@ -22,6 +22,7 @@ import me.weishu.kernelsu.ui.LocalUiMode
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Route
+import me.weishu.kernelsu.ui.util.execKsud
 import me.weishu.kernelsu.ui.util.forceStopApp
 import me.weishu.kernelsu.ui.util.getSepolicy
 import me.weishu.kernelsu.ui.util.launchApp
@@ -116,6 +117,15 @@ fun AppProfileScreen(uid: Int) {
                 }
                 if (profileToSave.allowSu) {
                     if (uid < 2000 && uid != 1000) {
+                        showMessage(suNotAllowed)
+                        return@launch
+                    }
+                    // An allowlist entry alone is not enough for apps that request root through
+                    // /system/bin/su. Keep su compatibility enabled and persistent whenever the
+                    // user grants Superuser access, so the UI cannot show an unusable grant.
+                    if ((!Natives.isSuEnabled() && !Natives.setSuEnabled(true)) ||
+                        !execKsud("feature set-config su_compat 1", true)
+                    ) {
                         showMessage(suNotAllowed)
                         return@launch
                     }
