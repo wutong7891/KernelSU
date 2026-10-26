@@ -118,6 +118,8 @@ fun InstallScreen() {
         }
     }
 
+    val externalLkmRequiredMessage = stringResource(R.string.install_external_lkm_required)
+
     val onInstall = {
         installMethod?.let { method ->
             navigator.push(
@@ -246,7 +248,11 @@ fun InstallScreen() {
             }
         },
         onNext = {
-            onInstall()
+            if (isGkiDevice && lkmSelection == LkmSelection.KmiNone) {
+                showMessage(externalLkmRequiredMessage)
+            } else {
+                onInstall()
+            }
         },
         onAdvancedOptionsClicked = {
             advancedOptionsShown = !advancedOptionsShown
