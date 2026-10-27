@@ -42,7 +42,12 @@ object ForegroundWatcherDaemon {
             append("exec setsid /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
             append("; else exec /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
             append("; fi) </dev/null >>").append(quote(LAUNCH_LOG)).append(" 2>&1 & ")
-            append("sleep 1; pid=\$(cat ").append(quote(PID_FILE)).append(" 2>/dev/null); ")
+            append("attempt=0; while [ \"\$attempt\" -lt 5 ]; do ")
+            append("pid=\$(cat ").append(quote(PID_FILE)).append(" 2>/dev/null || true); ")
+            append("if [ -n \"\$pid\" ] && kill -0 \"\$pid\" 2>/dev/null && ")
+            append("tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ")
+                .append(quote("$ROOT_DIR/watcher.sh")).append(" >/dev/null; then break; fi; ")
+            append("attempt=\$((attempt + 1)); sleep 1; done; ")
             append("if [ -z \"\$pid\" ] || ! kill -0 \"\$pid\" 2>/dev/null || ")
             append("! tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ")
                 .append(quote("$ROOT_DIR/watcher.sh")).append(" >/dev/null; then ")
@@ -95,16 +100,23 @@ object ForegroundWatcherDaemon {
         requireValidAbsolutePath(path)
         val target = ForegroundWatcherStore.scriptFile(context)
         target.parentFile?.mkdirs()
-        val command = "test -f ${quote(path)} && cp ${quote(path)} ${quote(target.absolutePath)} && " +
-            "chmod 0644 ${quote(target.absolutePath)}"
+        val temporary = File(target.parentFile, "${target.name}.root-import")
+        val appUid = android.os.Process.myUid()
+        val command = "rm -f ${quote(temporary.absolutePath)}; " +
+            "test -f ${quote(path)} && test -r ${quote(path)} && " +
+            "cp ${quote(path)} ${quote(temporary.absolutePath)} && " +
+            "chown $appUid:$appUid ${quote(temporary.absolutePath)} && " +
+            "chmod 0600 ${quote(temporary.absolutePath)} && " +
+            "mv -f ${quote(temporary.absolutePath)} ${quote(target.absolutePath)}"
         val result = getRootShell().newJob().add(command).exec()
         check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot import selected root file" } }
+        check(target.isFile && target.canRead()) { "Imported script is not readable by Night" }
         val current = ForegroundWatcherStore.read(context)
         ForegroundWatcherStore.write(context, current.copy(scriptName = path))
     }
 
     private fun stopCommand(): String =
-        "pid=\$(cat ${quote(PID_FILE)} 2>/dev/null); " +
+        "pid=\$(cat ${quote(PID_FILE)} 2>/dev/null || true); " +
             "if [ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && " +
             "tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ${quote("$ROOT_DIR/watcher.sh")} >/dev/null; " +
             "then kill \$pid 2>/dev/null || true; fi; " +

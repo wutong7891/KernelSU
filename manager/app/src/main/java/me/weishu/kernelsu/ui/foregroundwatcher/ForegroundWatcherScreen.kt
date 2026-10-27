@@ -194,7 +194,22 @@ fun ForegroundWatcherScreen() {
             title = { Text(stringResource(R.string.foreground_watcher_root_browser)) },
             text = {
                 Column {
-                    Text(rootPath, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = rootPath,
+                            onValueChange = { rootPath = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                        Button(onClick = { loadRootDirectory(rootPath) }) {
+                            Text(stringResource(R.string.foreground_watcher_open_path))
+                        }
+                    }
                     if (rootError.isNotBlank()) {
                         Text(rootError, color = MaterialTheme.colorScheme.error)
                     }
