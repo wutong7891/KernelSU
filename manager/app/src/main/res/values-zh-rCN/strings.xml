@@ -396,5 +396,8 @@
     <string name="foreground_watcher_script_imported">文件已导入 Night 私有目录</string>
     <string name="foreground_watcher_log">最近执行记录</string>
     <string name="foreground_watcher_refresh_log">刷新记录</string>
+    <string name="foreground_watcher_test_script">立即测试脚本</string>
+    <string name="foreground_watcher_testing">正在测试所选脚本…</string>
+    <string name="foreground_watcher_test_success">脚本测试执行成功</string>
     <string name="foreground_watcher_no_log">暂无执行记录</string>
 </resources>

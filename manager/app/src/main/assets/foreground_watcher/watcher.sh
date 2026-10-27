@@ -40,10 +40,15 @@ trap cleanup EXIT
 trap 'exit 0' INT TERM
 
 foreground_package() {
-  pkg=$(dumpsys activity activities 2>/dev/null \
-    | sed -n -e '/mResumedActivity/s/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
-             -e '/topResumedActivity/s/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
+  pkg=$(cmd activity get-foreground-activities 2>/dev/null \
+    | sed -n 's/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
     | head -n 1)
+  if [ -z "$pkg" ]; then
+    pkg=$(dumpsys activity activities 2>/dev/null \
+      | sed -n -e '/mResumedActivity/s/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
+               -e '/topResumedActivity/s/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
+      | head -n 1)
+  fi
   if [ -z "$pkg" ]; then
     pkg=$(dumpsys activity top 2>/dev/null \
       | sed -n 's/^[[:space:]]*ACTIVITY[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
@@ -53,6 +58,8 @@ foreground_package() {
     pkg=$(dumpsys window windows 2>/dev/null \
       | sed -n -e '/mCurrentFocus=/s/.*[[:space:]]\([A-Za-z0-9._]*\)\/[^[:space:]]*.*/\1/p' \
                -e '/mFocusedApp=/s/.*[[:space:]]u[0-9][0-9]*[[:space:]]\([A-Za-z0-9._]*\)\/.*/\1/p' \
+               -e '/mFocusedWindow=/s/.*[[:space:]]\([A-Za-z0-9._]*\)\/[^[:space:]]*.*/\1/p' \
+               -e '/mTopFullscreenOpaqueWindowState=/s/.*[[:space:]]\([A-Za-z0-9._]*\)\/[^[:space:]]*.*/\1/p' \
       | head -n 1)
   fi
   printf '%s' "$pkg"
@@ -68,23 +75,40 @@ append_log() {
 }
 
 append_log "Detached watcher started, pid=$$"
-last_foreground=
+export PATH="/data/adb/ksu/bin:/system/bin:/system/xbin:$PATH"
+last_observed=
+target_active=0
+away_samples=0
 
 while true; do
-  target=$(cat "$CONFIG_DIR/package" 2>/dev/null)
-  [ -n "$target" ] || { sleep 2; continue; }
+  target=$(tr -d '\r\n' < "$CONFIG_DIR/package" 2>/dev/null)
+  [ -n "$target" ] || { sleep 0.5; continue; }
   current=$(foreground_package)
-  if [ "$current" = "$target" ] && [ "$last_foreground" != "$target" ]; then
-    append_log "App entered foreground: $target"
-    if [ -f "$ROOT_DIR/selected_script.sh" ]; then
-      export KSU_TRIGGER_TYPE=app_foreground
-      export KSU_TRIGGER_PACKAGE="$target"
-      (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
-      append_log "Script finished, exit=$?"
-    else
-      append_log "Selected script is missing"
+  if [ "$current" != "$last_observed" ]; then
+    append_log "Foreground observed: ${current:-unknown}"
+    last_observed="$current"
+  fi
+  if [ "$current" = "$target" ]; then
+    away_samples=0
+    if [ "$target_active" = "0" ]; then
+      target_active=1
+      append_log "App entered foreground: $target"
+      if [ -f "$ROOT_DIR/selected_script.sh" ]; then
+        export KSU_TRIGGER_TYPE=app_foreground
+        export KSU_TRIGGER_PACKAGE="$target"
+        (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
+        code=$?
+        append_log "Script finished, exit=$code"
+      else
+        append_log "Selected script is missing"
+      fi
+    fi
+  elif [ -n "$current" ] && [ "$target_active" = "1" ]; then
+    away_samples=$((away_samples + 1))
+    if [ "$away_samples" -ge 2 ]; then
+      target_active=0
+      away_samples=0
     fi
   fi
-  last_foreground="$current"
-  sleep 2
+  sleep 0.5
 done

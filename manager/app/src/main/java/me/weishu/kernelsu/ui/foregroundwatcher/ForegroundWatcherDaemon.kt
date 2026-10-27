@@ -33,6 +33,7 @@ object ForegroundWatcherDaemon {
             append("cp ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append("; ")
             append("cp ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append("; ")
             append("cp ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("chmod 0700 ").append(quote("$ROOT_DIR/watcher.sh")).append(' ')
                 .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
@@ -55,6 +56,31 @@ object ForegroundWatcherDaemon {
         }
         val result = getRootShell().newJob().add(command).exec()
         check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot start watcher" } }
+    }
+
+    fun testScript(context: Context): Result<Unit> = runCatching {
+        val selectedScript = ForegroundWatcherStore.scriptFile(context)
+        require(selectedScript.isFile) { "Selected script is missing" }
+        val config = ForegroundWatcherStore.read(context)
+        val stage = File(context.cacheDir, "foreground_watcher_test").apply { mkdirs() }
+        val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
+        listOf(selectedScript, preInputFile).forEach { it.setReadable(true, false) }
+        val command = buildString {
+            append("mkdir -p ").append(quote("$ROOT_DIR/config")).append("; ")
+            append("cp ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            append("cp ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append("; ")
+            append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            append("chmod 0700 ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            append("export PATH=/data/adb/ksu/bin:/system/bin:/system/xbin:\$PATH; ")
+            append("echo '[manual-test] start' >> ").append(quote("$ROOT_DIR/events.log")).append("; ")
+            append("cd / && /system/bin/sh ").append(quote("$ROOT_DIR/selected_script.sh"))
+                .append(" < ").append(quote("$ROOT_DIR/config/pre_input"))
+                .append(" >> ").append(quote("$ROOT_DIR/events.log")).append(" 2>&1; ")
+            append("code=\$?; echo \"[manual-test] exit=\$code\" >> ")
+                .append(quote("$ROOT_DIR/events.log")).append("; exit \$code")
+        }
+        val result = getRootShell().newJob().add(command).exec()
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Script test failed" } }
     }
 
     fun stop(): Result<Unit> = runCatching {

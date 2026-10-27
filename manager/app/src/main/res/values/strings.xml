@@ -412,5 +412,8 @@
     <string name="foreground_watcher_script_imported">File imported into Night private storage</string>
     <string name="foreground_watcher_log">Recent executions</string>
     <string name="foreground_watcher_refresh_log">Refresh log</string>
+    <string name="foreground_watcher_test_script">Test script</string>
+    <string name="foreground_watcher_testing">Testing selected script…</string>
+    <string name="foreground_watcher_test_success">Script test completed successfully</string>
     <string name="foreground_watcher_no_log">No executions yet</string>
 </resources>
