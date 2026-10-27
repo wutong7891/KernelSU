@@ -104,25 +104,6 @@ fun ForegroundWatcherScreen() {
         logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() }
     }
 
-    val scriptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val displayName = runCatching {
-                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                }
-            }.getOrNull() ?: "selected_script.sh"
-            runCatching {
-                ForegroundWatcherStore.importScript(context, uri, displayName)
-                config = ForegroundWatcherStore.read(context)
-                status = context.getString(R.string.foreground_watcher_script_imported)
-                if (config.enabled) setListening(true)
-            }.onFailure { status = it.message.orEmpty() }
-        }
-    }
-
     fun persist(updated: ForegroundWatcherConfig) {
         config = updated
         ForegroundWatcherStore.write(context, updated)
@@ -147,6 +128,25 @@ fun ForegroundWatcherScreen() {
             } else {
                 status = result.exceptionOrNull()?.message.orEmpty()
             }
+        }
+    }
+
+    val scriptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val displayName = runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull() ?: "selected_script.sh"
+            runCatching {
+                ForegroundWatcherStore.importScript(context, uri, displayName)
+                config = ForegroundWatcherStore.read(context)
+                status = context.getString(R.string.foreground_watcher_script_imported)
+                if (config.enabled) setListening(true)
+            }.onFailure { status = it.message.orEmpty() }
         }
     }
 
