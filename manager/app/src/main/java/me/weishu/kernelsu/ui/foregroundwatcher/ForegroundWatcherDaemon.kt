@@ -145,7 +145,9 @@ object ForegroundWatcherDaemon {
         "pid=\$(cat ${quote(PID_FILE)} 2>/dev/null || true); " +
             "if [ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && " +
             "tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ${quote("$ROOT_DIR/watcher.sh")} >/dev/null; " +
-            "then kill \$pid 2>/dev/null || true; fi; " +
+            // A setsid-launched watcher owns its process group. Stop the group first so a
+            // currently running selected script cannot outlive the controlled watcher.
+            "then kill -TERM -\$pid 2>/dev/null || true; kill \$pid 2>/dev/null || true; fi; " +
             "rm -f ${quote(PID_FILE)} ${quote("$ROOT_DIR/watcher.lock/pid")}; " +
             "rmdir ${quote("$ROOT_DIR/watcher.lock")} 2>/dev/null || true"
 

@@ -1,6 +1,8 @@
 #!/system/bin/sh
 
-ROOT_DIR=/data/adb/night_foreground_watcher
+# Standalone Android root-shell watcher. It does not call ksud, KernelSU
+# ioctls, module commands, or any root-manager-specific executable.
+ROOT_DIR=${NIGHT_WATCHER_ROOT:-/data/adb/night_foreground_watcher}
 CONFIG_DIR="$ROOT_DIR/config"
 LOG_FILE="$ROOT_DIR/events.log"
 PID_FILE="$ROOT_DIR/watcher.pid"
@@ -74,8 +76,8 @@ append_log() {
   fi
 }
 
-append_log "Detached watcher started, pid=$$"
-export PATH="/data/adb/ksu/bin:/system/bin:/system/xbin:$PATH"
+append_log "Standalone detached watcher started, pid=$$"
+export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 last_observed=
 target_active=0
 away_samples=0
@@ -94,8 +96,8 @@ while true; do
       target_active=1
       append_log "App entered foreground: $target"
       if [ -f "$ROOT_DIR/selected_script.sh" ]; then
-        export KSU_TRIGGER_TYPE=app_foreground
-        export KSU_TRIGGER_PACKAGE="$target"
+        export NIGHT_TRIGGER_TYPE=app_foreground
+        export NIGHT_TRIGGER_PACKAGE="$target"
         (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
         code=$?
         append_log "Script finished, exit=$code"
