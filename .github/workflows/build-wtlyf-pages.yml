@@ -57,7 +57,9 @@ jobs:
           grep -F 'Clear-Site-Data' wtlyf-pages/src/index.ts
           grep -F 'admin_access_audit' wtlyf-pages/src/index.ts
           grep -F 'recordAdminAccess(request, env, path, "scanner")' wtlyf-pages/src/index.ts
-          grep -F 'Number(row?.ip_hour_count ?? 0) >= 30' wtlyf-pages/src/index.ts
+          grep -F 'Number(row?.account_count ?? 0) >= 20' wtlyf-pages/src/index.ts
+          grep -F 'Number(row?.pair_hour_count ?? 0) >= 30' wtlyf-pages/src/index.ts
+          grep -F 'subject += `:${await failedUsernameFingerprint(loginUsername, env)}`' wtlyf-pages/src/index.ts
           grep -F 'ADMIN_ALLOWED_COUNTRIES' wtlyf-pages/src/index.ts
           grep -F 'recordAdminAccess(request, env, path, "geo-block")' wtlyf-pages/src/index.ts
           test -s wtlyf-pages/dist/_worker.js

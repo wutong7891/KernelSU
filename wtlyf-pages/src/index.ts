@@ -131,18 +131,17 @@ const firewallReply = (
     ...extra,
   });
 async function cacheRateLimit(
-  request: Request,
   url: URL,
   scope: string,
+  subject: string,
   limit: number,
   period: number,
 ) {
   try {
-    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
     const keyHash = hex(
       await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(`${scope}:${ip}`),
+        new TextEncoder().encode(`${scope}:${subject}`),
       ),
     );
     const key = new Request(
@@ -283,14 +282,20 @@ async function firewall(
     limiter = env.API_RATE_LIMITER;
   }
   if (!scope) return null;
-  const ip = request.headers.get("cf-connecting-ip") ?? "unknown",
-    ipHash = hex(
+  let subject = requestIp(request);
+  if (path === "/api/admin/session" && request.method === "POST") {
+    const loginBody: any = await request.clone().json().catch(() => ({})),
+      loginUsername = normalizeUsername(loginBody.username);
+    if (loginUsername)
+      subject += `:${await failedUsernameFingerprint(loginUsername, env)}`;
+  }
+  const subjectHash = hex(
       await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(`${scope}:${ip}`),
+        new TextEncoder().encode(`${scope}:${subject}`),
       ),
     ),
-    scopeKey = `${scope}:${ipHash}`,
+    scopeKey = `${scope}:${subjectHash}`,
     native = limiter ? await limiter.limit({ key: scopeKey }) : null;
   if (native && !native.success)
     return firewallReply("请求过于频繁，请一分钟后再试", 429);
@@ -300,7 +305,7 @@ async function firewall(
       return firewallReply("请求过于频繁，请一分钟后再试", 429);
     if (
       durable === null &&
-      !(await cacheRateLimit(request, url, scope, limit, 60))
+      !(await cacheRateLimit(url, scope, subject, limit, 60))
     )
       return firewallReply("请求过于频繁，请一分钟后再试", 429);
   }
@@ -949,14 +954,23 @@ async function loginBlocked(request: Request, env: Env, username: string) {
   const ip = requestIp(request),
     protectedUsername = await failedUsernameFingerprint(username, env);
   const row = await env.DB.prepare(
-    "SELECT SUM(CASE WHEN ip_address=? AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS ip_count, SUM(CASE WHEN ip_address=? AND username IN (?,?) AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS pair_count, SUM(CASE WHEN ip_address=? THEN 1 ELSE 0 END) AS ip_hour_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-1 hour')",
+    "SELECT SUM(CASE WHEN ip_address=? AND username IN (?,?) AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS pair_count, SUM(CASE WHEN username IN (?,?) AND created_at>=datetime('now','-15 minutes') THEN 1 ELSE 0 END) AS account_count, SUM(CASE WHEN ip_address=? AND username IN (?,?) THEN 1 ELSE 0 END) AS pair_hour_count FROM admin_login_audit WHERE success=0 AND created_at>=datetime('now','-1 hour')",
   )
-    .bind(ip, ip, username, protectedUsername, ip)
+    .bind(
+      ip,
+      username,
+      protectedUsername,
+      username,
+      protectedUsername,
+      ip,
+      username,
+      protectedUsername,
+    )
     .first<any>();
   return (
-    Number(row?.ip_count ?? 0) >= 12 ||
     Number(row?.pair_count ?? 0) >= 5 ||
-    Number(row?.ip_hour_count ?? 0) >= 30
+    Number(row?.account_count ?? 0) >= 20 ||
+    Number(row?.pair_hour_count ?? 0) >= 30
   );
 }
 async function recordAdminLogin(

@@ -50,7 +50,7 @@ class Statement {
         password_iterations: 100000,
       };
     if (this.sql.includes("SELECT SUM(CASE WHEN ip_address="))
-      return { ip_count: 0, pair_count: 0, ip_hour_count: 0 };
+      return { pair_count: 0, account_count: 0, pair_hour_count: 0 };
     if (this.sql.includes("INSERT INTO security_rate_limits")) return { count: 1 };
     return { count: 1 };
   }
