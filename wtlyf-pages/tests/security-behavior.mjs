@@ -227,13 +227,13 @@ response = await request(
     },
     body: JSON.stringify({ username: "wutong", password: "correct-password" }),
   },
-  { country: "CN", colo: "SHA" },
+  { country: "US", colo: "LAX" },
   { ...env, WTLYF_ADMIN_TOKEN: "different-project-admin-token" },
 );
 assert.equal(
   response.status,
   200,
-  "ordinary administrator login must remain available on the public service host",
+  "ordinary administrator login must remain available through foreign or misclassified network egress",
 );
 assert.match(response.headers.get("set-cookie") || "", /__Host-wtlyf_admin=v6\./);
 

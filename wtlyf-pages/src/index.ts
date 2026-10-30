@@ -1941,7 +1941,7 @@ export default {
       legacyAccountHost = url.hostname === LEGACY_ADMIN_HOST;
     const country = String((request as any).cf?.country ?? "").toUpperCase();
     if (
-      (accountHost || path.startsWith("/api/admin/")) &&
+      accountHost &&
       country &&
       !ADMIN_ALLOWED_COUNTRIES.has(country)
     ) {
