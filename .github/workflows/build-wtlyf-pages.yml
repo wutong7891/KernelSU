@@ -76,3 +76,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Deploy Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy wtlyf-pages/dist --project-name=wtlyf-night-license --branch=main
+
