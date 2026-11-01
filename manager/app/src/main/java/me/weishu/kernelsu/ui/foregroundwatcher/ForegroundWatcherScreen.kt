@@ -111,7 +111,8 @@ fun ForegroundWatcherScreen() {
     }
 
     fun setListening(enabled: Boolean) {
-        if (enabled && (config.packageName.isBlank() || !ForegroundWatcherStore.scriptFile(context).isFile)) {
+        val hasScript = config.rootScriptPath.isNotBlank() || ForegroundWatcherStore.scriptFile(context).isFile
+        if (enabled && (config.packageName.isBlank() || !hasScript)) {
             status = context.getString(R.string.foreground_watcher_incomplete)
             return
         }
