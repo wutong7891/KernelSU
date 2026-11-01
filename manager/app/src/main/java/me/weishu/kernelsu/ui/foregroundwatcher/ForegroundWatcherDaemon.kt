@@ -9,6 +9,11 @@ object ForegroundWatcherDaemon {
     private const val PID_FILE = "$ROOT_DIR/watcher.pid"
     private const val LAUNCH_LOG = "$ROOT_DIR/launcher.log"
 
+    // KernelSU 在开机阶段执行 /data/adb/service.d/*.sh，与管理器进程无关。
+    // 监听器要满足「面具不在后台、甚至被卸载之后仍然活着」，就必须在这里登记自启。
+    private const val BOOT_DIR = "/data/adb/service.d"
+    private const val BOOT_HOOK = "$BOOT_DIR/night_foreground_watcher.sh"
+
     data class RootEntry(val path: String, val directory: Boolean)
 
     fun start(context: Context): Result<Unit> = runCatching {
@@ -33,7 +38,24 @@ object ForegroundWatcherDaemon {
             writeText((rootScriptPath.ifBlank { "$ROOT_DIR/selected_script.sh" }) + "\n")
         }
         val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
-        val stagedFiles = mutableListOf(watcher, packageFile, managerPackageFile, scriptPathFile, preInputFile)
+        val bootHook = File(stage, "boot_hook.sh").apply {
+            writeText(
+                """
+                #!/system/bin/sh
+                # Night foreground watcher autostart. Runs from /data/adb, independent of the manager app.
+                DIR=/data/adb/night_foreground_watcher
+                [ -f "${'$'}DIR/watcher.sh" ] || exit 0
+                pid=${'$'}(cat "${'$'}DIR/watcher.pid" 2>/dev/null)
+                if [ -n "${'$'}pid" ] && [ -r "/proc/${'$'}pid/cmdline" ] && \
+                   tr '\000' ' ' < "/proc/${'$'}pid/cmdline" | grep -F "${'$'}DIR/watcher.sh" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                mkdir -p "${'$'}DIR/config"
+                setsid /system/bin/sh "${'$'}DIR/watcher.sh" </dev/null >>"${'$'}DIR/launcher.log" 2>&1 &
+                """.trimIndent() + "\n"
+            )
+        }
+        val stagedFiles = mutableListOf(watcher, packageFile, managerPackageFile, scriptPathFile, preInputFile, bootHook)
         if (rootScriptPath.isBlank()) stagedFiles += selectedScript
         stagedFiles.forEach {
             it.setReadable(true, false)
@@ -60,6 +82,9 @@ object ForegroundWatcherDaemon {
                 append("rm -f ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             }
             append("chmod 0700 ").append(quote("$ROOT_DIR/watcher.sh")).append("; ")
+            append("mkdir -p ").append(quote(BOOT_DIR)).append("; ")
+            append("cp ").append(quote(bootHook.absolutePath)).append(' ').append(quote(BOOT_HOOK)).append("; ")
+            append("chmod 0755 ").append(quote(BOOT_HOOK)).append("; ")
             append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
                 .append(quote("$ROOT_DIR/config/manager_package")).append(' ')
                 .append(quote("$ROOT_DIR/config/script_path")).append(' ')
@@ -185,7 +210,7 @@ object ForegroundWatcherDaemon {
             // A setsid-launched watcher owns its process group. Stop the group first so a
             // currently running selected script cannot outlive the controlled watcher.
             "then kill -TERM -\$pid 2>/dev/null || true; kill \$pid 2>/dev/null || true; fi; " +
-            "rm -f ${quote(PID_FILE)} ${quote("$ROOT_DIR/watcher.lock/pid")}; " +
+            "rm -f ${quote(PID_FILE)} ${quote("$ROOT_DIR/watcher.lock/pid")} ${quote(BOOT_HOOK)}; " +
             "rmdir ${quote("$ROOT_DIR/watcher.lock")} 2>/dev/null || true"
 
     private fun purgeCommand(): String =
