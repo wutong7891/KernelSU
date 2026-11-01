@@ -46,8 +46,13 @@ object ForegroundWatcherDaemon {
                 DIR=/data/adb/night_foreground_watcher
                 [ -f "${'$'}DIR/watcher.sh" ] || exit 0
                 pid=${'$'}(cat "${'$'}DIR/watcher.pid" 2>/dev/null)
-                if [ -n "${'$'}pid" ] && [ -r "/proc/${'$'}pid/cmdline" ] && \
-                   tr '\000' ' ' < "/proc/${'$'}pid/cmdline" | grep -F "${'$'}DIR/watcher.sh" >/dev/null 2>&1; then
+                # 只用 kill -0 判活，不解析 cmdline：部分机型 grep 对 NUL 分隔的
+                # /proc/pid/cmdline 处理不一致，会把活着的实例误判成死掉。
+                if [ -n "${'$'}pid" ] && kill -0 "${'$'}pid" 2>/dev/null; then
+                  exit 0
+                fi
+                # watcher.sh 自己用 mkdir 抢锁，锁还在说明有实例在跑。
+                if [ -d "${'$'}DIR/watcher.lock" ]; then
                   exit 0
                 fi
                 mkdir -p "${'$'}DIR/config"
