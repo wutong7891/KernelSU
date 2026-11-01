@@ -97,6 +97,8 @@ module_param_named(bundled, ksu_bundled, bool, 0);
 
 int __init kernelsu_init(void)
 {
+    int ret;
+
     pr_info("welcome to KernelSU version " __stringify(KERNEL_SU_VERSION) ", package name " KSU_PACKAGE_NAME "\n");
     pr_info("Night exclusive KMI identity: %s (personal hobby, KernelSU-derived)\n",
             KSU_NIGHT_KMI_ID);
@@ -141,7 +143,16 @@ int __init kernelsu_init(void)
         return -ENOSYS;
     }
 
+    pr_info("initializing symbol resolver\n");
     ksu_init_symbol_resolver();
+
+    ret = ksu_selinux_inode_init();
+    if (ret) {
+        put_cred(ksu_cred);
+        ksu_cred = NULL;
+        return ret;
+    }
+
     ksu_syscall_hook_init();
 
     // Block modules early, before vendor modules are loaded in second stage.
