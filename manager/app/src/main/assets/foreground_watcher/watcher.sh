@@ -9,6 +9,7 @@ PID_FILE="$ROOT_DIR/watcher.pid"
 LOCK_DIR="$ROOT_DIR/watcher.lock"
 MANAGER_PACKAGE_FILE="$CONFIG_DIR/manager_package"
 SCRIPT_PATH_FILE="$CONFIG_DIR/script_path"
+SHELL_BIN=${NIGHT_WATCHER_SHELL:-/system/bin/sh}
 
 mkdir -p "$CONFIG_DIR"
 
@@ -130,7 +131,7 @@ while true; do
         export NIGHT_TRIGGER_PACKAGE="$target"
         script_dir=${script_path%/*}
         [ -n "$script_dir" ] || script_dir=/
-        (cd "$script_dir" && /system/bin/sh "$script_path" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
+        (cd "$script_dir" && "$SHELL_BIN" "$script_path" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
         code=$?
         append_log "Script finished, exit=$code"
       else
