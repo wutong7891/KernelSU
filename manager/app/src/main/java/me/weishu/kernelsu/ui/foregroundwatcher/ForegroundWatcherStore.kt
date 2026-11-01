@@ -9,6 +9,7 @@ data class ForegroundWatcherConfig(
     val packageName: String = "",
     val appLabel: String = "",
     val scriptName: String = "",
+    val rootScriptPath: String = "",
     val useRoot: Boolean = true,
     val preInput: String = "",
 )
@@ -20,11 +21,18 @@ object ForegroundWatcherStore {
 
     fun read(context: Context): ForegroundWatcherConfig {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val scriptName = prefs.getString("script_name", "").orEmpty()
+        val rootScriptPath = if (prefs.contains("root_script_path")) {
+            prefs.getString("root_script_path", "").orEmpty()
+        } else {
+            scriptName.takeIf { it.startsWith('/') }.orEmpty()
+        }
         return ForegroundWatcherConfig(
             enabled = prefs.getBoolean("enabled", false),
             packageName = prefs.getString("package_name", "").orEmpty(),
             appLabel = prefs.getString("app_label", "").orEmpty(),
-            scriptName = prefs.getString("script_name", "").orEmpty(),
+            scriptName = scriptName,
+            rootScriptPath = rootScriptPath,
             useRoot = prefs.getBoolean("use_root", true),
             preInput = prefs.getString("pre_input", "").orEmpty(),
         )
@@ -36,6 +44,7 @@ object ForegroundWatcherStore {
             .putString("package_name", config.packageName)
             .putString("app_label", config.appLabel)
             .putString("script_name", config.scriptName)
+            .putString("root_script_path", config.rootScriptPath)
             .putBoolean("use_root", config.useRoot)
             .putString("pre_input", config.preInput)
             .apply()
@@ -58,7 +67,13 @@ object ForegroundWatcherStore {
         target.setReadable(true, true)
         target.setExecutable(true, true)
         val current = read(context)
-        write(context, current.copy(scriptName = displayName))
+        write(context, current.copy(scriptName = displayName, rootScriptPath = ""))
+    }
+
+    fun clear(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        scriptFile(context).delete()
+        File(context.filesDir, SCRIPT_DIRECTORY).delete()
     }
 
     fun clear(context: Context) {

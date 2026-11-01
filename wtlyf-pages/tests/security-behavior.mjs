@@ -50,7 +50,7 @@ class Statement {
         password_iterations: 100000,
       };
     if (this.sql.includes("SELECT SUM(CASE WHEN ip_address="))
-      return { ip_count: 0, pair_count: 0, ip_hour_count: 0 };
+      return { pair_count: 0, account_count: 0, pair_hour_count: 0 };
     if (this.sql.includes("INSERT INTO security_rate_limits")) return { count: 1 };
     return { count: 1 };
   }
@@ -227,13 +227,13 @@ response = await request(
     },
     body: JSON.stringify({ username: "wutong", password: "correct-password" }),
   },
-  { country: "CN", colo: "SHA" },
+  { country: "US", colo: "LAX" },
   { ...env, WTLYF_ADMIN_TOKEN: "different-project-admin-token" },
 );
 assert.equal(
   response.status,
   200,
-  "ordinary administrator login must remain available on the public service host",
+  "ordinary administrator login must remain available through foreign or misclassified network egress",
 );
 assert.match(response.headers.get("set-cookie") || "", /__Host-wtlyf_admin=v6\./);
 

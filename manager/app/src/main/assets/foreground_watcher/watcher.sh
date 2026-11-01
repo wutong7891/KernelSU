@@ -8,6 +8,8 @@ LOG_FILE="$ROOT_DIR/events.log"
 PID_FILE="$ROOT_DIR/watcher.pid"
 LOCK_DIR="$ROOT_DIR/watcher.lock"
 MANAGER_PACKAGE_FILE="$CONFIG_DIR/manager_package"
+SCRIPT_PATH_FILE="$CONFIG_DIR/script_path"
+SHELL_BIN=${NIGHT_WATCHER_SHELL:-/system/bin/sh}
 
 mkdir -p "$CONFIG_DIR"
 
@@ -39,7 +41,7 @@ cleanup() {
     rmdir "$LOCK_DIR" 2>/dev/null
   fi
   if [ "${PURGE_ON_EXIT:-0}" = "1" ]; then
-    rm -f "$CONFIG_DIR/package" "$CONFIG_DIR/manager_package" "$CONFIG_DIR/pre_input"
+    rm -f "$CONFIG_DIR/package" "$CONFIG_DIR/manager_package" "$CONFIG_DIR/script_path" "$CONFIG_DIR/pre_input"
     rm -f "$ROOT_DIR/selected_script.sh" "$ROOT_DIR/watcher.sh" "$ROOT_DIR/events.log" "$ROOT_DIR/launcher.log"
     rmdir "$CONFIG_DIR" 2>/dev/null || true
     rmdir "$ROOT_DIR" 2>/dev/null || true
@@ -119,14 +121,21 @@ while true; do
     if [ "$target_active" = "0" ]; then
       target_active=1
       append_log "App entered foreground: $target"
-      if [ -f "$ROOT_DIR/selected_script.sh" ]; then
+      script_path=$(tr -d '\r\n' < "$SCRIPT_PATH_FILE" 2>/dev/null)
+      case "$script_path" in
+        /*) ;;
+        *) script_path= ;;
+      esac
+      if [ -n "$script_path" ] && [ -f "$script_path" ] && [ -r "$script_path" ]; then
         export NIGHT_TRIGGER_TYPE=app_foreground
         export NIGHT_TRIGGER_PACKAGE="$target"
-        (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
+        script_dir=${script_path%/*}
+        [ -n "$script_dir" ] || script_dir=/
+        (cd "$script_dir" && "$SHELL_BIN" "$script_path" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
         code=$?
         append_log "Script finished, exit=$code"
       else
-        append_log "Selected script is missing"
+        append_log "Selected script is missing or unreadable: ${script_path:-not configured}"
       fi
     fi
   elif [ -n "$current" ] && [ "$target_active" = "1" ]; then

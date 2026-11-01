@@ -15,7 +15,12 @@ object ForegroundWatcherDaemon {
         val config = ForegroundWatcherStore.read(context)
         require(config.packageName.matches(Regex("^[A-Za-z0-9._]+$"))) { "Invalid package name" }
         val selectedScript = ForegroundWatcherStore.scriptFile(context)
-        require(selectedScript.isFile) { "Selected script is missing" }
+        val rootScriptPath = config.rootScriptPath
+        if (rootScriptPath.isNotBlank()) {
+            requireValidAbsolutePath(rootScriptPath)
+        } else {
+            require(selectedScript.isFile) { "Selected script is missing" }
+        }
 
         val stage = File(context.cacheDir, "foreground_watcher_stage").apply { mkdirs() }
         val watcher = File(stage, "watcher.sh")
@@ -24,8 +29,13 @@ object ForegroundWatcherDaemon {
         }
         val packageFile = File(stage, "package").apply { writeText(config.packageName + "\n") }
         val managerPackageFile = File(stage, "manager_package").apply { writeText(context.packageName + "\n") }
+        val scriptPathFile = File(stage, "script_path").apply {
+            writeText((rootScriptPath.ifBlank { "$ROOT_DIR/selected_script.sh" }) + "\n")
+        }
         val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
-        listOf(watcher, packageFile, managerPackageFile, preInputFile, selectedScript).forEach {
+        val stagedFiles = mutableListOf(watcher, packageFile, managerPackageFile, scriptPathFile, preInputFile)
+        if (rootScriptPath.isBlank()) stagedFiles += selectedScript
+        stagedFiles.forEach {
             it.setReadable(true, false)
         }
 
@@ -36,13 +46,23 @@ object ForegroundWatcherDaemon {
             append("cp ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append("; ")
             append("cp ").append(quote(managerPackageFile.absolutePath)).append(' ')
                 .append(quote("$ROOT_DIR/config/manager_package")).append("; ")
+            append("cp ").append(quote(scriptPathFile.absolutePath)).append(' ')
+                .append(quote("$ROOT_DIR/config/script_path")).append("; ")
             append("cp ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append("; ")
-            append("cp ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
-            append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
-            append("chmod 0700 ").append(quote("$ROOT_DIR/watcher.sh")).append(' ')
-                .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            if (rootScriptPath.isBlank()) {
+                append("cp ").append(quote(selectedScript.absolutePath)).append(' ')
+                    .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+                append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+                append("chmod 0700 ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            } else {
+                append("test -f ").append(quote(rootScriptPath)).append(" && test -r ")
+                    .append(quote(rootScriptPath)).append("; ")
+                append("rm -f ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            }
+            append("chmod 0700 ").append(quote("$ROOT_DIR/watcher.sh")).append("; ")
             append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
                 .append(quote("$ROOT_DIR/config/manager_package")).append(' ')
+                .append(quote("$ROOT_DIR/config/script_path")).append(' ')
                 .append(quote("$ROOT_DIR/config/pre_input")).append("; ")
             append(": > ").append(quote(LAUNCH_LOG)).append("; ")
             append("(if command -v setsid >/dev/null 2>&1; then ")
@@ -66,20 +86,34 @@ object ForegroundWatcherDaemon {
 
     fun testScript(context: Context): Result<Unit> = runCatching {
         val selectedScript = ForegroundWatcherStore.scriptFile(context)
-        require(selectedScript.isFile) { "Selected script is missing" }
         val config = ForegroundWatcherStore.read(context)
+        val rootScriptPath = config.rootScriptPath
+        if (rootScriptPath.isNotBlank()) {
+            requireValidAbsolutePath(rootScriptPath)
+        } else {
+            require(selectedScript.isFile) { "Selected script is missing" }
+        }
+        val scriptToRun = rootScriptPath.ifBlank { "$ROOT_DIR/selected_script.sh" }
+        val scriptWorkingDirectory = scriptToRun.substringBeforeLast('/', "").ifEmpty { "/" }
         val stage = File(context.cacheDir, "foreground_watcher_test").apply { mkdirs() }
         val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
         listOf(selectedScript, preInputFile).forEach { it.setReadable(true, false) }
         val command = buildString {
             append("mkdir -p ").append(quote("$ROOT_DIR/config")).append("; ")
-            append("cp ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            if (rootScriptPath.isBlank()) {
+                append("cp ").append(quote(selectedScript.absolutePath)).append(' ')
+                    .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+                append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+                append("chmod 0700 ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
+            } else {
+                append("test -f ").append(quote(rootScriptPath)).append(" && test -r ")
+                    .append(quote(rootScriptPath)).append("; ")
+            }
             append("cp ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append("; ")
-            append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
-            append("chmod 0700 ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("export PATH=/data/adb/ksu/bin:/system/bin:/system/xbin:\$PATH; ")
             append("echo '[manual-test] start' >> ").append(quote("$ROOT_DIR/events.log")).append("; ")
-            append("cd / && /system/bin/sh ").append(quote("$ROOT_DIR/selected_script.sh"))
+            append("cd ").append(quote(scriptWorkingDirectory)).append(" && /system/bin/sh ")
+                .append(quote(scriptToRun))
                 .append(" < ").append(quote("$ROOT_DIR/config/pre_input"))
                 .append(" >> ").append(quote("$ROOT_DIR/events.log")).append(" 2>&1; ")
             append("code=\$?; echo \"[manual-test] exit=\$code\" >> ")
@@ -136,21 +170,12 @@ object ForegroundWatcherDaemon {
 
     fun importRootScript(context: Context, path: String): Result<Unit> = runCatching {
         requireValidAbsolutePath(path)
-        val target = ForegroundWatcherStore.scriptFile(context)
-        target.parentFile?.mkdirs()
-        val temporary = File(target.parentFile, "${target.name}.root-import")
-        val appUid = android.os.Process.myUid()
-        val command = "rm -f ${quote(temporary.absolutePath)}; " +
-            "test -f ${quote(path)} && test -r ${quote(path)} && " +
-            "cp ${quote(path)} ${quote(temporary.absolutePath)} && " +
-            "chown $appUid:$appUid ${quote(temporary.absolutePath)} && " +
-            "chmod 0600 ${quote(temporary.absolutePath)} && " +
-            "mv -f ${quote(temporary.absolutePath)} ${quote(target.absolutePath)}"
+        val command = "test -f ${quote(path)} && test -r ${quote(path)}"
         val result = getRootShell().newJob().add(command).exec()
-        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot import selected root file" } }
-        check(target.isFile && target.canRead()) { "Imported script is not readable by Night" }
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Selected root script is not readable" } }
         val current = ForegroundWatcherStore.read(context)
-        ForegroundWatcherStore.write(context, current.copy(scriptName = path))
+        ForegroundWatcherStore.write(context, current.copy(scriptName = path, rootScriptPath = path))
+        ForegroundWatcherStore.scriptFile(context).delete()
     }
 
     private fun stopCommand(): String =
@@ -165,6 +190,7 @@ object ForegroundWatcherDaemon {
 
     private fun purgeCommand(): String =
         "rm -f ${quote("$ROOT_DIR/config/package")} ${quote("$ROOT_DIR/config/manager_package")} " +
+            "${quote("$ROOT_DIR/config/script_path")} " +
             "${quote("$ROOT_DIR/config/pre_input")} ${quote("$ROOT_DIR/selected_script.sh")} " +
             "${quote("$ROOT_DIR/watcher.sh")} ${quote("$ROOT_DIR/events.log")} ${quote(LAUNCH_LOG)}; " +
             "rmdir ${quote("$ROOT_DIR/config")} 2>/dev/null || true; " +
