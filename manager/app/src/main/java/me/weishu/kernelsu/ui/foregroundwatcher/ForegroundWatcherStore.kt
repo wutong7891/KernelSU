@@ -61,5 +61,11 @@ object ForegroundWatcherStore {
         write(context, current.copy(scriptName = displayName))
     }
 
+    fun clear(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        scriptFile(context).delete()
+        File(context.filesDir, SCRIPT_DIRECTORY).delete()
+    }
+
     fun logFile(context: Context): File = File(context.filesDir, "$SCRIPT_DIRECTORY/events.log")
 }

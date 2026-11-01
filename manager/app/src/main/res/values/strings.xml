@@ -389,8 +389,8 @@
     <string name="foreground_watcher_title">Foreground app watcher</string>
     <string name="foreground_watcher_settings_summary">Run a selected script when a chosen app enters the foreground</string>
     <string name="foreground_watcher_enable">Enable watcher</string>
-    <string name="foreground_watcher_enable_summary">Starts a detached root shell process and triggers once per foreground session</string>
-    <string name="foreground_watcher_developer_notice">Personal development and automation feature. The detached process keeps running after Night is closed.</string>
+    <string name="foreground_watcher_enable_summary">Starts a managed background root shell and triggers once per foreground session</string>
+    <string name="foreground_watcher_developer_notice">The watcher keeps running after Night leaves the foreground. It stops when disabled and removes staged data if Night is uninstalled.</string>
     <string name="foreground_watcher_target">Watched app</string>
     <string name="foreground_watcher_choose_app">Choose app</string>
     <string name="foreground_watcher_script">File to execute</string>
@@ -416,4 +416,7 @@
     <string name="foreground_watcher_testing">Testing selected script…</string>
     <string name="foreground_watcher_test_success">Script test completed successfully</string>
     <string name="foreground_watcher_no_log">No executions yet</string>
+    <string name="foreground_watcher_remove_data">Stop and remove watcher data</string>
+    <string name="foreground_watcher_remove_data_confirm">Stop the watcher and remove its selected script, configuration and logs?</string>
+    <string name="foreground_watcher_data_removed">Watcher stopped and its staged data was removed</string>
 </resources>
