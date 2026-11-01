@@ -23,20 +23,26 @@ object ForegroundWatcherDaemon {
             watcher.outputStream().use { output -> input.copyTo(output) }
         }
         val packageFile = File(stage, "package").apply { writeText(config.packageName + "\n") }
+        val managerPackageFile = File(stage, "manager_package").apply { writeText(context.packageName + "\n") }
         val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
-        listOf(watcher, packageFile, preInputFile, selectedScript).forEach { it.setReadable(true, false) }
+        listOf(watcher, packageFile, managerPackageFile, preInputFile, selectedScript).forEach {
+            it.setReadable(true, false)
+        }
 
         val command = buildString {
             append("set -e; mkdir -p ").append(quote("$ROOT_DIR/config")).append("; ")
             append(stopCommand()).append("; ")
             append("cp ").append(quote(watcher.absolutePath)).append(' ').append(quote("$ROOT_DIR/watcher.sh")).append("; ")
             append("cp ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append("; ")
+            append("cp ").append(quote(managerPackageFile.absolutePath)).append(' ')
+                .append(quote("$ROOT_DIR/config/manager_package")).append("; ")
             append("cp ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append("; ")
             append("cp ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("sed -i 's/\\r$//' ").append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("chmod 0700 ").append(quote("$ROOT_DIR/watcher.sh")).append(' ')
                 .append(quote("$ROOT_DIR/selected_script.sh")).append("; ")
             append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
+                .append(quote("$ROOT_DIR/config/manager_package")).append(' ')
                 .append(quote("$ROOT_DIR/config/pre_input")).append("; ")
             append(": > ").append(quote(LAUNCH_LOG)).append("; ")
             append("(if command -v setsid >/dev/null 2>&1; then ")
@@ -86,6 +92,12 @@ object ForegroundWatcherDaemon {
     fun stop(): Result<Unit> = runCatching {
         val result = getRootShell().newJob().add(stopCommand()).exec()
         check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot stop watcher" } }
+    }
+
+    fun purge(): Result<Unit> = runCatching {
+        val command = stopCommand() + "; " + purgeCommand()
+        val result = getRootShell().newJob().add(command).exec()
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot remove watcher data" } }
     }
 
     fun isRunning(): Boolean {
@@ -150,6 +162,13 @@ object ForegroundWatcherDaemon {
             "then kill -TERM -\$pid 2>/dev/null || true; kill \$pid 2>/dev/null || true; fi; " +
             "rm -f ${quote(PID_FILE)} ${quote("$ROOT_DIR/watcher.lock/pid")}; " +
             "rmdir ${quote("$ROOT_DIR/watcher.lock")} 2>/dev/null || true"
+
+    private fun purgeCommand(): String =
+        "rm -f ${quote("$ROOT_DIR/config/package")} ${quote("$ROOT_DIR/config/manager_package")} " +
+            "${quote("$ROOT_DIR/config/pre_input")} ${quote("$ROOT_DIR/selected_script.sh")} " +
+            "${quote("$ROOT_DIR/watcher.sh")} ${quote("$ROOT_DIR/events.log")} ${quote(LAUNCH_LOG)}; " +
+            "rmdir ${quote("$ROOT_DIR/config")} 2>/dev/null || true; " +
+            "rmdir ${quote(ROOT_DIR)} 2>/dev/null || true"
 
     private fun quote(value: String): String = "'${value.replace("'", "'\\''")}'"
 

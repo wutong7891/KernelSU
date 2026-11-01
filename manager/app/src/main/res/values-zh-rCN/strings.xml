@@ -373,8 +373,8 @@
     <string name="foreground_watcher_title">前台应用监听</string>
     <string name="foreground_watcher_settings_summary">选择前台应用与执行文件，进入前台时自动执行</string>
     <string name="foreground_watcher_enable">启用监听</string>
-    <string name="foreground_watcher_enable_summary">启动独立 Root Shell 进程，每次进入前台只触发一次</string>
-    <string name="foreground_watcher_developer_notice">个人开发爱好与自动化功能；Night 退出后，已脱离的进程仍可继续运行。</string>
+    <string name="foreground_watcher_enable_summary">启动受控的独立 Root Shell 进程，每次进入前台只触发一次</string>
+    <string name="foreground_watcher_developer_notice">Night 退出前台后监听仍继续运行；关闭监听会停止进程，卸载 Night 后会自动停止并清理暂存数据。</string>
     <string name="foreground_watcher_target">被监听应用</string>
     <string name="foreground_watcher_choose_app">选择应用</string>
     <string name="foreground_watcher_script">需要执行的文件</string>
@@ -400,4 +400,7 @@
     <string name="foreground_watcher_testing">正在测试所选脚本…</string>
     <string name="foreground_watcher_test_success">脚本测试执行成功</string>
     <string name="foreground_watcher_no_log">暂无执行记录</string>
+    <string name="foreground_watcher_remove_data">停止并清除监听数据</string>
+    <string name="foreground_watcher_remove_data_confirm">停止监听，并删除已选择的脚本、配置和日志吗？</string>
+    <string name="foreground_watcher_data_removed">监听已停止，暂存数据已清除</string>
 </resources>

@@ -71,6 +71,7 @@ fun ForegroundWatcherScreen() {
     var apps by remember { mutableStateOf(emptyList<SelectableApp>()) }
     var showAppPicker by remember { mutableStateOf(false) }
     var showRootPicker by remember { mutableStateOf(false) }
+    var showPurgeConfirmation by remember { mutableStateOf(false) }
     var rootPath by remember { mutableStateOf("/") }
     var rootEntries by remember { mutableStateOf(emptyList<ForegroundWatcherDaemon.RootEntry>()) }
     var rootError by remember { mutableStateOf("") }
@@ -289,6 +290,38 @@ fun ForegroundWatcherScreen() {
         )
     }
 
+    if (showPurgeConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showPurgeConfirmation = false },
+            title = { Text(stringResource(R.string.foreground_watcher_remove_data)) },
+            text = { Text(stringResource(R.string.foreground_watcher_remove_data_confirm)) },
+            confirmButton = {
+                Button(onClick = {
+                    showPurgeConfirmation = false
+                    status = context.getString(R.string.foreground_watcher_working)
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.purge() }
+                        if (result.isSuccess) {
+                            ForegroundWatcherStore.clear(context)
+                            config = ForegroundWatcherStore.read(context)
+                            logs = ""
+                            status = context.getString(R.string.foreground_watcher_data_removed)
+                        } else {
+                            status = result.exceptionOrNull()?.message.orEmpty()
+                        }
+                    }
+                }) {
+                    Text(stringResource(R.string.foreground_watcher_remove_data))
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showPurgeConfirmation = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
     MiuixScaffold(
         topBar = {
             MiuixTopAppBar(
@@ -366,12 +399,6 @@ fun ForegroundWatcherScreen() {
                             loadRootDirectory("/")
                         },
                     )
-                    SwitchPreference(
-                        title = stringResource(R.string.foreground_watcher_use_root),
-                        summary = stringResource(R.string.foreground_watcher_use_root_summary),
-                        checked = config.useRoot,
-                        onCheckedChange = { persist(config.copy(useRoot = it)) },
-                    )
                 }
             }
             item {
@@ -417,6 +444,13 @@ fun ForegroundWatcherScreen() {
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
+            item {
+                MiuixTextButton(
+                    text = stringResource(R.string.foreground_watcher_remove_data),
+                    onClick = { showPurgeConfirmation = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             item {
                 MiuixCard(Modifier.fillMaxWidth()) {

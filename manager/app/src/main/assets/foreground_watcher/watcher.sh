@@ -1,12 +1,13 @@
 #!/system/bin/sh
 
-# Standalone Android root-shell watcher. It does not call ksud, KernelSU
-# ioctls, module commands, or any root-manager-specific executable.
+# Night-managed Android root-shell watcher. It remains alive when the UI leaves
+# the foreground, but stops and removes its staged data when Night is uninstalled.
 ROOT_DIR=${NIGHT_WATCHER_ROOT:-/data/adb/night_foreground_watcher}
 CONFIG_DIR="$ROOT_DIR/config"
 LOG_FILE="$ROOT_DIR/events.log"
 PID_FILE="$ROOT_DIR/watcher.pid"
 LOCK_DIR="$ROOT_DIR/watcher.lock"
+MANAGER_PACKAGE_FILE="$CONFIG_DIR/manager_package"
 
 mkdir -p "$CONFIG_DIR"
 
@@ -36,6 +37,12 @@ cleanup() {
   if [ "$owner" = "$$" ]; then
     rm -f "$LOCK_DIR/pid"
     rmdir "$LOCK_DIR" 2>/dev/null
+  fi
+  if [ "${PURGE_ON_EXIT:-0}" = "1" ]; then
+    rm -f "$CONFIG_DIR/package" "$CONFIG_DIR/manager_package" "$CONFIG_DIR/pre_input"
+    rm -f "$ROOT_DIR/selected_script.sh" "$ROOT_DIR/watcher.sh" "$ROOT_DIR/events.log" "$ROOT_DIR/launcher.log"
+    rmdir "$CONFIG_DIR" 2>/dev/null || true
+    rmdir "$ROOT_DIR" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -76,13 +83,30 @@ append_log() {
   fi
 }
 
-append_log "Standalone detached watcher started, pid=$$"
+append_log "Night-managed background watcher started, pid=$$"
 export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 last_observed=
 target_active=0
 away_samples=0
+manager_check_ticks=0
+manager_missing_samples=0
 
 while true; do
+  manager_check_ticks=$((manager_check_ticks + 1))
+  if [ "$manager_check_ticks" -ge 20 ]; then
+    manager_check_ticks=0
+    manager_package=$(tr -d '\r\n' < "$MANAGER_PACKAGE_FILE" 2>/dev/null)
+    if [ -z "$manager_package" ] || ! pm path "$manager_package" >/dev/null 2>&1; then
+      manager_missing_samples=$((manager_missing_samples + 1))
+    else
+      manager_missing_samples=0
+    fi
+    if [ "$manager_missing_samples" -ge 3 ]; then
+      append_log "Night package is unavailable; stopping watcher and removing staged data"
+      PURGE_ON_EXIT=1
+      exit 0
+    fi
+  fi
   target=$(tr -d '\r\n' < "$CONFIG_DIR/package" 2>/dev/null)
   [ -n "$target" ] || { sleep 0.5; continue; }
   current=$(foreground_package)
