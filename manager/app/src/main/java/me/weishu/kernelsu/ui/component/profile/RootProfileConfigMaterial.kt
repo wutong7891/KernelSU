@@ -99,17 +99,6 @@ fun RootProfileConfigMaterial(
             }
         )
 
-        SELinuxPanel(
-            enabled = enabled,
-            context = profile.context,
-            rules = profile.rules,
-            onContextChange = { domain ->
-                onProfileChange(profile.copy(context = domain, rootUseDefault = false))
-            },
-            onRulesChange = { rules ->
-                onProfileChange(profile.copy(rules = rules, rootUseDefault = false))
-            }
-        )
     }
 }
 
