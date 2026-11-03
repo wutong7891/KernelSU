@@ -138,6 +138,15 @@ fun RootProfileConfigMiuix(
             )
         }
 
+        SELinuxPanel(enabled = enabled, profile = profile, onSELinuxChange = { domain, rules ->
+            onProfileChange(
+                profile.copy(
+                    context = domain,
+                    rules = rules,
+                    rootUseDefault = false
+                )
+            )
+        })
     }
 }
 
