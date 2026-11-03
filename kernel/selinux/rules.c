@@ -90,24 +90,10 @@ void apply_kernelsu_rules()
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "netdomain");
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "bluetoothdomain");
 
-    // Keep KernelSU private files isolated from ordinary Android domains.
-    // In particular, do not grant the domain attribute access here: that
-    // expands to untrusted_app and lets any application probe/read the Night private-file type.
+    // Create unconstrained file type
     ksu_type(db, KERNEL_SU_FILE, "file_type");
-    ksu_allow(db, KERNEL_SU_DOMAIN, KERNEL_SU_FILE, ALL, ALL);
-
-    // Remove any access inherited through broad platform appdomain/file_type
-    // rules. The manager talks to ksud; it never needs to read the Night private-file type
-    // directly from its Android application domain.
-    ksu_deny(db, "appdomain", KERNEL_SU_FILE, ALL, ALL);
-
-    // init only needs to inspect and execute ksud during the explicit domain
-    // transition. All subsequent private-file access is performed by the Night Root domain.
-    ksu_allow(db, "init", KERNEL_SU_FILE, "file", "getattr");
-    ksu_allow(db, "init", KERNEL_SU_FILE, "file", "open");
-    ksu_allow(db, "init", KERNEL_SU_FILE, "file", "read");
-    ksu_allow(db, "init", KERNEL_SU_FILE, "file", "map");
-    ksu_allow(db, "init", KERNEL_SU_FILE, "file", "execute");
+    ksu_typeattribute(db, KERNEL_SU_FILE, "mlstrustedobject");
+    ksu_allow(db, "domain", KERNEL_SU_FILE, ALL, ALL);
 
     // allow all!
     ksu_allow(db, KERNEL_SU_DOMAIN, ALL, ALL, ALL);
