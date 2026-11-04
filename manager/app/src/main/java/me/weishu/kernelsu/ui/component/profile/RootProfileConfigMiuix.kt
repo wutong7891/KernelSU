@@ -450,14 +450,15 @@ private fun SELinuxPanel(
     var domain by remember(profile.context) { mutableStateOf(profile.context) }
     var rules by remember(profile.rules) { mutableStateOf(profile.rules) }
 
-    val isDomainValid = remember(domain) {
-        val regex = Regex("^[a-z_]+:[a-z0-9_]+:[a-z0-9_]+(:[a-z0-9_]+)?$")
-        domain.matches(regex)
-    }
-    val isRulesValid = remember(rules) { isSepolicyValid(rules) }
+    if (showDialog.value) {
+        val isDomainValid = remember(domain) {
+            val regex = Regex("^[a-z_]+:[a-z0-9_]+:[a-z0-9_]+(:[a-z0-9_]+)?$")
+            domain.matches(regex)
+        }
+        val isRulesValid = remember(rules) { isSepolicyValid(rules) }
 
-    OverlayDialog(
-        show = showDialog.value,
+        OverlayDialog(
+            show = true,
         title = stringResource(R.string.profile_selinux_context),
         onDismissRequest = { showDialog.value = false },
         content = {
@@ -526,7 +527,8 @@ private fun SELinuxPanel(
                 }
             }
         }
-    )
+        )
+    }
 
     ArrowPreference(
         enabled = enabled,

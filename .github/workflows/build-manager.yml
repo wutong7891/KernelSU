@@ -426,10 +426,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          rm -rf dist-night
-          mkdir -p dist-night/apk dist-night/kmi
+          rm -rf dist-night/apk
+          mkdir -p dist-night/apk
           gh run download "${{ github.run_id }}" -n manager -D dist-night/apk
-          gh run download "${{ github.run_id }}" -p '*-lkm' -D dist-night/kmi
           APK=$(find dist-night/apk -type f -name '*.apk' | head -n 1)
           test -n "$APK"
           mv "$APK" dist-night/apk/Night-${{ github.sha }}-actions.apk

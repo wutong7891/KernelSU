@@ -53,7 +53,7 @@ jobs:
             android12-5.10|android13-5.10|android13-5.15|android14-5.15|android14-6.1|android15-6.6|android16-6.12|android17-6.18) ;;
             *) echo "Unsupported KMI" >&2; exit 2 ;;
           esac
-          module="dist-night/kmi/aarch64-${KMI}-lkm/${KMI}_kernelsu.ko"
+          module="wtlyf-pages/dist/downloads/kmi/${KMI}_kernelsu.ko"
           test -s "$module"
           strings "$module" | grep -F "night_kmi=Night-KMI-v3-${KMI}"
           input_type="$(python3 scripts/validate_night_boot_image.py input.img | cut -d: -f1)"
