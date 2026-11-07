@@ -3,8 +3,14 @@ package me.weishu.kernelsu.ui.screen.cardkey
 import android.content.Context
 import android.provider.Settings
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.ksuApp
@@ -33,8 +39,15 @@ object CardKeyApi {
     private const val PREFS = "xhovo_su_cardkey"
     private const val KEY_API_BASE = "api_base"
 
-    /** 部署后用面板反代到本机 18080 即可，端口/域名不同改这里或运行时覆盖。 */
-    private const val DEFAULT_API_BASE = "http://82.158.231.234"
+    /** 服务器 443 上的自签证书，等域名与正式证书就绪后可换成真实域名。 */
+    private const val DEFAULT_API_BASE = "https://82.158.231.234"
+
+    /**
+     * 自签证书 X.509 DER 的 SHA-256。握手时只认这一张，换证书必须改这里，
+     * 否则请求会被拒绝——这比信任所有证书安全，能挡住中间人。
+     */
+    private const val PINNED_CERT_SHA256 =
+        "b74f7256f0c4f4773b6c49237b6deae1b88817fd555116d7cefece1bcb78ec8d"
 
     /**
      * 服务器上 nginx 只给 wutong.linux.cn 这个 Host 配了反代，用 IP 访问时
@@ -44,11 +57,35 @@ object CardKeyApi {
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
-        .writeTimeout(12, TimeUnit.SECONDS)
-        .build()
+    /** 只信任服务器那一张自签证书，握手时比对 DER 的 SHA-256。 */
+    private val trustManager = object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+            val certificate = chain.firstOrNull()
+                ?: throw CertificateException("服务器没有提供证书")
+            val digest = MessageDigest.getInstance("SHA-256").digest(certificate.encoded)
+            val hex = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            if (hex != PINNED_CERT_SHA256) {
+                throw CertificateException("服务器证书与内置指纹不一致，可能被劫持")
+            }
+        }
+
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+
+    private val client by lazy {
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            // 证书是签给 IP 的自签证书，主机名由上面的指纹校验替代。
+            .hostnameVerifier { _, _ -> true }
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(12, TimeUnit.SECONDS)
+            .build()
+    }
 
     data class Outcome(
         val ok: Boolean,
