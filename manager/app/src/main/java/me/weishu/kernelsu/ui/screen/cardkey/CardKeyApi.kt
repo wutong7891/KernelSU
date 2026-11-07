@@ -84,7 +84,7 @@ object CardKeyApi {
         }.getOrNull().orEmpty().trim().lowercase(Locale.ROOT)
         val digest = MessageDigest.getInstance("SHA-256")
             .digest("xhovo-device-v1:$androidId".toByteArray(Charsets.UTF_8))
-        digest.joinToString("") { "%02x".format(it and 0xFF) }
+        digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
     fun deviceTag(): String = deviceFingerprint.take(6)
@@ -92,7 +92,7 @@ object CardKeyApi {
     fun keyFingerprint(): String = runCatching {
         val der = Base64.decode(CardKeyKeys.PUBLIC_KEY_DER_BASE64, Base64.DEFAULT)
         MessageDigest.getInstance("SHA-256").digest(der)
-            .joinToString("") { "%02x".format(it and 0xFF) }
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
             .substring(0, 16)
             .uppercase(Locale.ROOT)
     }.getOrDefault("unknown")
@@ -188,7 +188,7 @@ object CardKeyApi {
             serial = serial,
             permanent = (flags and FLAG_PERMANENT) != 0,
             deviceBound = (flags and FLAG_DEVICE_BOUND) != 0,
-            deviceTag = (9..11).joinToString("") { "%02x".format(payload[it] and 0xFF) },
+            deviceTag = (9..11).joinToString("") { "%02x".format(payload[it].toInt() and 0xFF) },
             notAfter = notAfter,
         )
     }
