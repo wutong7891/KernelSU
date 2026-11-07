@@ -56,9 +56,10 @@ import javax.crypto.spec.SecretKeySpec
 object NightActivation {
     private const val PREFS = "night_activation"
     private const val KEY_CODE = "night_license_code"
+    // Self-hosted license center. Kept as a list so a future migration can
+    // overlap hosts without shipping a new APK.
     private val ENDPOINTS = listOf(
-        "https://wtlyf-night-license.pages.dev/api/v1/night",
-        "https://wutong886.pages.dev/api/v1/night",
+        "https://night.103.45.132.14.nip.io/api/v1/night",
     )
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
