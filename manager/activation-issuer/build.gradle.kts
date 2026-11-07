@@ -11,11 +11,11 @@ apksign {
 }
 
 android {
-    namespace = "com.Night.night.issuer"
+    namespace = "com.HxovoSU.yydsHx.issuer"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.Night.night.issuer"
+        applicationId = "com.HxovoSU.yydsHx.issuer"
         minSdk = 31
         targetSdk = 37
         versionCode = 2
@@ -28,4 +28,4 @@ android {
     }
 }
 
-base { archivesName.set("Night-Activation-Issuer") }
+base { archivesName.set("XhovoSU-CardKey-Issuer") }

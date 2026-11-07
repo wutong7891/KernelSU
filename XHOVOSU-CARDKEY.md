@@ -1,52 +1,113 @@
-# Night 卡密系统（离线）
+# XhovoSU 卡密系统（离线）
 
-Night 的卡密不再依赖服务器。旧系统让客户端连一台自建许可服务器（或 Cloudflare Worker），用一次性会话密钥换取授权；那套东西已经整体移除，替换为**离线签名卡密**：签发器持私钥签名，Night 安装包内置公钥，运行在本机验签。
+XhovoSU 的卡密不经过任何服务器。签发端用 ECDSA P-256 私钥给卡密签名，安装包内置公钥，运行时在本机验签：没有账号、没有接口、没有可被下线的后端，断网也能用。
 
-## 现在的结构
+## 品牌与构建参数
 
-| 组件 | 路径 | 职责 |
+| 项目 | 值 |
+|------|-----|
+| 应用名 | XhovoSU |
+| 版本 | 1.0（versionCode 1） |
+| 包名 | `com.HxovoSU.yydsHx` |
+| 图标 | 由 `drawable-nodpi/ic_launcher_sad*.png` 生成的自适应图标与启动图 |
+
+包名同时写进内核模块：`KernelSU` 的内核侧通过 `KSU_PACKAGE_NAME` 找管理器，ksud 通过同一常量默认拉起管理器，三处必须一致，否则装上了也认不出面具。
+
+## 组成
+
+| 路径 | 作用 |
+|------|------|
+| `manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/CardKeyApi.kt` | 验签引擎：解析、验签、绑定与到期检查 |
+| `.../CardKeyKeys.kt` | 内置验签公钥 |
+| `.../CardKeyStore.kt` | 本地记忆卡密与时间戳 |
+| `.../CardKeyScreen.kt` | 全屏卡密页与 `CardKeyGate` 组合闸门 |
+| `tools/xhovosu-cardkey/` | 密钥生成、批量签发、验签、格式与接线自测 |
+| `manager/activation-issuer/` | 手机端签发器（无网络权限） |
+
+## 闸门机制
+
+`CardKeyGate` 包在 `KernelSUTheme` 之内、管理器外壳之外：
+
+```kotlin
+KernelSUTheme(...) {
+    CardKeyGate(darkMode = darkMode, onContentReady = { contentReady = true }) {
+        // 未通过验证时，这里整块都不会进入组合
+    }
+}
+```
+
+未通过时，管理器的 ViewModel、导航栈、各个页面都不会被创建，因此不存在「跳过某页直接进主页」的路径。`passed` 只存在 `rememberSaveable` 里，冷启动必然重新验签；磁盘上只有「记住的卡密」与上次校验时间，改它们只会让校验失败。
+
+## 卡密格式
+
+76 字节令牌，Crockford Base32，`XHOVO-` 前缀，展示时每 5 字符分组：
+
+```
+XHOVO-080A2-E8EDC-BBTCG-00005-NT6VE-QT80T-…
+```
+
+| 偏移 | 长度 | 含义 |
 |------|------|------|
-| 客户端校验 | `manager/app/src/main/java/me/weishu/kernelsu/ui/activation/NightActivation.kt` | 解析卡密、验签、检查绑定与到期、记录本地状态 |
-| 内置公钥 | `manager/app/src/main/java/me/weishu/kernelsu/ui/activation/NightLicenseKeys.kt` | 唯一可信的验签公钥 |
-| 手机签发器 | `manager/activation-issuer/` | 持私钥签发卡密，无网络权限 |
-| 命令行签发器 | `tools/night-offline-issuer/` | 密钥生成、批量签发、验签、格式自测 |
+| 0 | 1 | 版本 `0x02` |
+| 1 | 1 | bit0 绑定设备，bit1 永久有效 |
+| 2 | 3 | 流水号 |
+| 5 | 4 | 到期时间（Unix 秒，永久卡为 0） |
+| 9 | 3 | 设备指纹前 3 字节 |
+| 12 | 64 | ECDSA 签名（覆盖前 12 字节，`r || s`） |
 
-被删除的部分：`license-server/`（Node 许可服务与其部署脚本）、`.github/workflows/night-license-server.yml`、客户端里的会话协议与全部 HTTP 调用、`tools/night-activation-issuer/`（旧的 RSA 桌面签发器）。
+前缀、分隔符、大小写都不参与校验，所以卡密可以折行粘贴。设备指纹 = `SHA-256("xhovo-device-v1:" + ANDROID_ID)`，卡密页可以直接点按复制，交给签发端即可发绑定卡。
 
-## 卡密长什么样
+## 发卡
 
+```bash
+# 30 天通用卡，一次 5 张
+node tools/xhovosu-cardkey/issue.mjs --key tools/xhovosu-cardkey/dev/dev_license_private_key.pk8 --days 30 --count 5
+
+# 永久卡
+node tools/xhovosu-cardkey/issue.mjs --key <私钥> --days 0
+
+# 绑定某台设备（--device 填卡密页显示的 64 位指纹）
+node tools/xhovosu-cardkey/issue.mjs --key <私钥> --days 0 --device <指纹>
 ```
-NIGHT-0807J-QW1DC-BBGRR-0000C-Q015Q-9JF47-…
+
+也可以装 `activation-issuer` APK 在手机上发卡：填设备指纹、天数、数量，直接出卡密。
+
+## 换成自己的密钥
+
+仓库自带一对公开的开发密钥（`tools/xhovosu-cardkey/dev/`），开箱可用，但私钥公开意味着谁都能伪造卡密。正式发版前：
+
+```bash
+node tools/xhovosu-cardkey/keygen.mjs --out xhovo-keys
 ```
 
-152 个字符，76 字节令牌的 Base32 编码，按 5 字符分组。它比旧卡密长，因为里面带着完整的 ECDSA P-256 签名——这是"离线、不可伪造"必须付出的长度代价。输入时前缀、分隔符、大小写都可以忽略。
+把私钥 base64 配到 `XHOVO_LICENSE_PRIVATE_KEY_B64`、公钥 base64 DER 配到 `XHOVO_LICENSE_PUBKEY_DER_B64`，CI 会覆盖源码里的公钥常量并写入签发器资源。卡密页底部显示公钥指纹，与签发器顶部一致才算配对成功。
 
-详细格式见 `tools/night-offline-issuer/README.md`。
+## KMI 与签名绑定
 
-## 发卡流程
+内核模块把管理器包名与签名证书指纹写死，只有「包名正确 + 签名证书匹配」的 XhovoSU 才能驱动它。
 
-1. 生成自己的密钥对：`node tools/night-offline-issuer/keygen.mjs --out night-license-keys`
-2. 把私钥的 base64 存为 GitHub secret `NIGHT_LICENSE_PRIVATE_KEY_B64`
-3. 把公钥的 base64 DER 存为 GitHub secret `NIGHT_LICENSE_PUBKEY_DER_B64`
-4. 跑 `Build Manager`（workflow_dispatch）或 `Build Night Offline Issuer`，CI 会把公钥写进 Manager 源码、把私钥写进签发器资源
-5. 用签发器发卡：手机 APK，或 `node tools/night-offline-issuer/issue.mjs --key <私钥> --days 30`
+| 参数 | 值 |
+|------|-----|
+| 包名 | `com.HxovoSU.yydsHx` |
+| 证书 DER 大小 | `0x02e9`（745 字节） |
+| 证书 SHA-256 | `0535626e3b585bb80a2cf564699b63807253c08efc949e6ddba1c46f8bf238df` |
 
-两个 secret 必须来自同一对密钥，否则卡密签得出来、验不过去。Night 激活页底部和签发器顶部都会显示公钥指纹（16 位十六进制），两处一致才算配对成功。
+签名密钥在 `xhovo-keys/`（仓库外，不要提交）：`xhovosu.p12` + 密码，别名 `xhovo`。Gradle 需要 JKS 时用：
 
-## 仓库自带的开发密钥
+```bash
+keytool -importkeystore -noprompt \
+  -srckeystore xhovosu.p12 -srcstoretype PKCS12 -srcstorepass xhovo2026 \
+  -destkeystore xhovosu.jks -deststoretype JKS -deststorepass xhovo2026 \
+  -srcalias xhovo -destalias xhovo -destkeypass xhovo2026
+```
 
-`tools/night-offline-issuer/dev/` 里有一对公开的开发密钥，用于本地测试和 CI 冒烟，所以 `node tools/night-offline-issuer/issue.mjs --key tools/night-offline-issuer/dev/dev_license_private_key.pk8` 开箱即可签出卡密。**它的私钥是公开的，任何人都能伪造对应卡密**；正式发布必须按上面的流程换成自己的密钥对。
+**换证书就必须重编 KMI**：证书哈希变了，旧模块会拒绝新的管理器。
 
-## 能力对照
+## 与旧系统的差别
 
-| 能力 | 旧系统 | 现在 |
-|------|--------|------|
-| 断网激活 | 不行 | 可以 |
-| 一卡一机 | 服务器记录绑定 | 卡密内嵌设备标签，本机比对 |
-| 有效期 | 服务器计时 | 签名载荷内嵌到期时间 |
-| 永久卡 | 支持 | 支持 |
-| 解绑换机 | 后台接口 | 重新签发一张卡 |
-| 撤销已发出的卡 | 后台删除 | 离线模式下无撤销，只能换密钥对重发版本 |
-| 多设备共用一张卡 | 服务器限制 | 通用卡不限制；绑定卡锁单机 |
-
-撤销能力是离线的固有代价：没有服务器，就没有"让某张已发出的卡失效"的通道。如果确实需要远程吊销，只能保留一个极小的可选校验服务——但那正是本次移除的东西，因此默认不做。
+| 能力 | 旧（服务器校验） | 现在（离线签名） |
+|------|------------------|------------------|
+| 断网使用 | 不行 | 可以 |
+| 一卡一机 | 服务器记录 | 卡密内嵌设备标签，本机比对 |
+| 吊销已发出的卡 | 后台删除 | 无（离线固有代价），只能换密钥重发版本 |
+| 服务器与密钥泄露面 | VPS、内存密钥、数据库 | 只有签发私钥，且不随包分发 |

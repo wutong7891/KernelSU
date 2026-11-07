@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:allowBackup="false"
-        android:label="Night 离线卡密签发器"
+        android:label="XhovoSU 卡密签发器"
         android:theme="@style/AppTheme">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>

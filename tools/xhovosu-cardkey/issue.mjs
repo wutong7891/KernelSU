@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Signs Night licences offline.
+// Signs XhovoSU licences offline.
 //
-//   node issue.mjs --key night_license_private_key.pk8 --days 30 --count 5
+//   node issue.mjs --key xhovo_license_private_key.pk8 --days 30 --count 5
 //   node issue.mjs --key key.pk8 --device <manager fingerprint> --days 0
 //
 // --days 0 issues a permanent licence. Passing --device binds the licence to
@@ -10,7 +10,7 @@
 import { createPublicKey } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { deviceTagOf, issue, keyFingerprint, publicKeyDer } from "./night-license.mjs";
+import { deviceTagOf, issue, keyFingerprint, publicKeyDer } from "./cardkey-format.mjs";
 
 const args = process.argv.slice(2);
 

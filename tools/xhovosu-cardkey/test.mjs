@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Format and crypto self-test for the Night offline licence.
+// Format and crypto self-test for the XhovoSU offline licence.
 // Runs in CI on every change to the issuer tooling or the Manager format.
 
 import { generateKeyPairSync, sign, verify } from "node:crypto";
@@ -21,7 +21,7 @@ import {
   normalizeCode,
   publicKeyDer,
   readClaims,
-} from "./night-license.mjs";
+} from "./cardkey-format.mjs";
 
 const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const spki = publicKeyDer(publicKey);

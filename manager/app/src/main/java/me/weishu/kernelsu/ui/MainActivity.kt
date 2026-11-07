@@ -71,8 +71,7 @@ import me.weishu.kernelsu.ui.component.bottombar.NavigationBadgeState
 import me.weishu.kernelsu.ui.component.bottombar.SideRail
 import me.weishu.kernelsu.ui.component.bottombar.rememberMainPagerState
 import me.weishu.kernelsu.ui.component.bottombar.useNavigationRail
-import me.weishu.kernelsu.ui.activation.NightActivation
-import me.weishu.kernelsu.ui.activation.NightActivationScreen
+import me.weishu.kernelsu.ui.screen.cardkey.CardKeyGate
 import me.weishu.kernelsu.ui.navigation3.IntentDispatcher
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Navigator
@@ -186,22 +185,11 @@ class MainActivity : ComponentActivity() {
                 LocalUiMode provides uiMode,
             ) {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
-                    var nightActivated by remember { mutableStateOf<Boolean?>(null) }
-                    LaunchedEffect(Unit) {
-                        nightActivated = NightActivation.isActivated(this@MainActivity)
-                    }
-                    if (nightActivated == null) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            androidx.compose.material3.CircularProgressIndicator()
-                        }
-                        SideEffect { contentReady = true }
-                    } else if (nightActivated != true) {
-                        NightActivationScreen(onActivated = { nightActivated = true })
-                        SideEffect { contentReady = true }
-                    } else {
+                    // XhovoSU 卡密闸门：未通过校验时，下面整块内容不会进入组合。
+                    CardKeyGate(
+                        darkMode = darkMode,
+                        onContentReady = { contentReady = true },
+                    ) {
                     IntentDispatcher(intentChannel = intentChannel)
                     val swipeDismiss = if (uiState.enableSwipeDismiss) {
                         if (LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) {

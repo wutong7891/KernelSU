@@ -1,13 +1,13 @@
-# Night 离线卡密签发工具
+# XhovoSU 卡密签发工具
 
-Night 卡密不再经过任何服务器。签发器用 ECDSA P-256 私钥给卡密签名，Night 安装包内置对应公钥，安装后在本机验签。没有账号、没有接口、没有可被下线的后端。
+XhovoSU 卡密不再经过任何服务器。签发器用 ECDSA P-256 私钥给卡密签名，XhovoSU 安装包内置对应公钥，安装后在本机验签。没有账号、没有接口、没有可被下线的后端。
 
 ## 卡密格式
 
 一张卡密是 76 字节的二进制令牌，用 Crockford Base32 编码，展示时按 5 字符分组：
 
 ```
-NIGHT-0807J-QW1DC-BBGRR-0000C-Q015Q-9JF47-…
+XHOVO-0807J-QW1DC-BBGRR-0000C-Q015Q-9JF47-…
 ```
 
 | 偏移 | 长度 | 含义 |
@@ -24,13 +24,13 @@ NIGHT-0807J-QW1DC-BBGRR-0000C-Q015Q-9JF47-…
 ## 生成密钥对
 
 ```bash
-node tools/night-offline-issuer/keygen.mjs --out night-license-keys
+node tools/xhovosu-cardkey/keygen.mjs --out xhovo-cardkey-keys
 ```
 
 输出：
 
-- `night_license_private_key.pk8`：签发私钥，只交给签发器或存成 GitHub secret `NIGHT_LICENSE_PRIVATE_KEY_B64`
-- 公钥 fingerprint 与 base64：写入 `NIGHT_LICENSE_PUBKEY_DER_B64`，CI 会用它覆盖 Manager 源码里的公钥常量
+- `xhovo_license_private_key.pk8`：签发私钥，只交给签发器或存成 GitHub secret `XHOVO_LICENSE_PRIVATE_KEY_B64`
+- 公钥 fingerprint 与 base64：写入 `XHOVO_LICENSE_PUBKEY_DER_B64`，CI 会用它覆盖 Manager 源码里的公钥常量
 
 仓库里已经带了一对**公开的开发密钥**（`dev/`），方便开箱测试。任何人都能拿它伪造卡密，正式发布前必须换成自己生成的密钥对。
 
@@ -38,13 +38,13 @@ node tools/night-offline-issuer/keygen.mjs --out night-license-keys
 
 ```bash
 # 30 天通用卡，一次签 5 张
-node tools/night-offline-issuer/issue.mjs --key night_license_private_key.pk8 --days 30 --count 5
+node tools/xhovosu-cardkey/issue.mjs --key xhovo_license_private_key.pk8 --days 30 --count 5
 
 # 永久卡
-node tools/night-offline-issuer/issue.mjs --key night_license_private_key.pk8 --days 0
+node tools/xhovosu-cardkey/issue.mjs --key xhovo_license_private_key.pk8 --days 0
 
-# 绑定设备：--device 传 Night 里显示的 64 位设备指纹
-node tools/night-offline-issuer/issue.mjs --key night_license_private_key.pk8 --days 0 \
+# 绑定设备：--device 传 XhovoSU 里显示的 64 位设备指纹
+node tools/xhovosu-cardkey/issue.mjs --key xhovo_license_private_key.pk8 --days 0 \
   --device 8f14e45fceea167a5a36dedd4bea2543a1b2c3d4e5f60718293a4b5c6d7e8f90
 ```
 
@@ -53,14 +53,14 @@ node tools/night-offline-issuer/issue.mjs --key night_license_private_key.pk8 --
 ## 验签
 
 ```bash
-node tools/night-offline-issuer/verify.mjs --pub dev/dev_public_key.der --code "NIGHT-…"
-node tools/night-offline-issuer/verify.mjs --pub dev/dev_public_key.der --code "NIGHT-…" --device <指纹>
+node tools/xhovosu-cardkey/verify.mjs --pub dev/dev_public_key.der --code "XHOVO-…"
+node tools/xhovosu-cardkey/verify.mjs --pub dev/dev_public_key.der --code "XHOVO-…" --device <指纹>
 ```
 
 ## 自测
 
 ```bash
-node tools/night-offline-issuer/test.mjs
+node tools/xhovosu-cardkey/test.mjs
 ```
 
 覆盖 Base32 往返、载荷布局、绑定/通用、到期拒绝、单字符篡改拒绝、截断拒绝、异密钥拒绝，以及 DER 与定宽签名的互转一致性。

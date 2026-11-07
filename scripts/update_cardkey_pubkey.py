@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embed the Night licence verification key into the Manager sources.
+"""Embed the XhovoSU card-key verification key into the Manager sources.
 
 The Manager trusts exactly one ECDSA P-256 public key. Development builds keep
 the public development key that ships with the repository; release builds call
@@ -7,8 +7,8 @@ this script with the base64 DER of the production public key so the compiled
 Manager only accepts licences minted by the matching private key.
 
 Usage:
-    python3 scripts/update_night_license_pubkey.py --key <base64 SPKI DER>
-    python3 scripts/update_night_license_pubkey.py --key-file pub.der --der
+    python3 scripts/update_cardkey_pubkey.py --key <base64 SPKI DER>
+    python3 scripts/update_cardkey_pubkey.py --key-file pub.der --der
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import pathlib
 import re
 import sys
 
-TARGET = pathlib.Path("manager/app/src/main/java/me/weishu/kernelsu/ui/activation/NightLicenseKeys.kt")
+TARGET = pathlib.Path("manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/CardKeyKeys.kt")
 CONSTANT = re.compile(r'(const val PUBLIC_KEY_DER_BASE64: String =\s*)"[^"]*"')
 P256_SPKI_LENGTH = 91
 
@@ -68,7 +68,7 @@ def main() -> int:
         fail(f"expected exactly one public key constant in {TARGET}, found {replacements}")
 
     TARGET.write_text(updated, encoding="utf-8")
-    print(f"embedded Night licence public key in {TARGET}")
+    print(f"embedded XhovoSU card-key public key in {TARGET}")
     print(f"fingerprint: {__import__('hashlib').sha256(der).hexdigest()[:16].upper()}")
     return 0
 

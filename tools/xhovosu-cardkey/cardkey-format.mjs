@@ -1,6 +1,6 @@
-// Night offline licence format, shared by the issuer CLI and the tests.
+// XhovoSU offline licence format, shared by the issuer CLI and the tests.
 //
-// Everything here mirrors NightActivation.kt and the Android issuer exactly:
+// Everything here mirrors XhovoSUActivation.kt and the Android issuer exactly:
 // same byte layout, same Crockford Base32 alphabet, same signature encoding.
 // If you change one of the three, change all three.
 
@@ -13,7 +13,7 @@ export const FLAG_PERMANENT = 0x02;
 export const PAYLOAD_SIZE = 12;
 export const SIGNATURE_SIZE = 64;
 export const TOKEN_SIZE = PAYLOAD_SIZE + SIGNATURE_SIZE;
-export const PREFIX = "NIGHT";
+export const PREFIX = "XHOVO";
 export const GROUP_SIZE = 5;
 
 export function encodeBase32(data) {
@@ -79,7 +79,7 @@ export function deviceTagOf(fingerprint) {
 
 /** Full fingerprint the Manager shows, so the admin never has to guess. */
 export function deviceFingerprintOf(androidId) {
-  return createHash("sha256").update(`night-device-v1:${String(androidId).trim().toLowerCase()}`).digest("hex");
+  return createHash("sha256").update(`xhovo-device-v1:${String(androidId).trim().toLowerCase()}`).digest("hex");
 }
 
 export function keyFingerprint(publicKeyDer) {

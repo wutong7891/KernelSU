@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Verifies a Night licence exactly the way the Manager does.
+// Verifies a XhovoSU licence exactly the way the Manager does.
 //
-//   node verify.mjs --pub night_license_public_key.der --code "NIGHT-..." [--device <fingerprint>]
+//   node verify.mjs --pub xhovo_public_key.der --code "XHOVO-..." [--device <fingerprint>]
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertP256Spki, checkLicence } from "./night-license.mjs";
+import { assertP256Spki, checkLicence } from "./cardkey-format.mjs";
 
 const args = process.argv.slice(2);
 
@@ -17,7 +17,7 @@ function flag(name, fallback) {
 const pubPath = flag("--pub");
 const code = flag("--code") ?? process.argv[process.argv.length - 1];
 if (!pubPath || !code) {
-  console.error("usage: node verify.mjs --pub <spki.der> --code <NIGHT-...> [--device <fingerprint>]");
+  console.error("usage: node verify.mjs --pub <spki.der> --code <XHOVO-...> [--device <fingerprint>]");
   process.exit(2);
 }
 

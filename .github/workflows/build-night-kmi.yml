@@ -41,7 +41,7 @@ jobs:
     with:
       expected_size: ${{ needs.resolve-night-certificate.outputs.expected_size }}
       expected_hash: ${{ needs.resolve-night-certificate.outputs.expected_hash }}
-      package_name: 'com.Night.night'
+      package_name: 'com.HxovoSU.yydsHx'
       build_identity: 'Night-KMI-v3'
       build_x86: false
 
@@ -64,7 +64,7 @@ jobs:
             echo 'Author: 无痛'
             echo 'Purpose: personal hobby development'
             echo 'Origin: Night exclusive derivative based on KernelSU'
-            echo 'Manager package: com.Night.night'
+            echo 'Manager package: com.HxovoSU.yydsHx'
             echo 'Manager certificate DER size: ${{ needs.resolve-night-certificate.outputs.expected_size }}'
             echo 'Manager certificate SHA-256: ${{ needs.resolve-night-certificate.outputs.expected_hash }}'
             echo 'Architecture: arm64'

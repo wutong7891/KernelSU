@@ -120,7 +120,7 @@ jobs:
     needs: generate-key
     uses: ./.github/workflows/build-lkm.yml
     with:
-      package_name: com.Night.night
+      package_name: com.HxovoSU.yydsHx
       expected_size: ${{ needs.generate-key.outputs.expected_size }}
       expected_hash: ${{ needs.generate-key.outputs.expected_hash }}
       build_identity: Night-KMI-v3
@@ -217,36 +217,36 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Embed Night licence keys
+      - name: Embed XhovoSU card-key signing key
         if: ${{ github.event_name == 'workflow_dispatch' }}
         working-directory: .
         env:
-          NIGHT_LICENSE_PRIVATE_KEY_B64: ${{ secrets.NIGHT_LICENSE_PRIVATE_KEY_B64 }}
-          NIGHT_LICENSE_PUBKEY_DER_B64: ${{ secrets.NIGHT_LICENSE_PUBKEY_DER_B64 }}
+          XHOVO_LICENSE_PRIVATE_KEY_B64: ${{ secrets.XHOVO_LICENSE_PRIVATE_KEY_B64 }}
+          XHOVO_LICENSE_PUBKEY_DER_B64: ${{ secrets.XHOVO_LICENSE_PUBKEY_DER_B64 }}
         run: |
-          test -n "$NIGHT_LICENSE_PRIVATE_KEY_B64"
-          test -n "$NIGHT_LICENSE_PUBKEY_DER_B64"
+          test -n "$XHOVO_LICENSE_PRIVATE_KEY_B64"
+          test -n "$XHOVO_LICENSE_PUBKEY_DER_B64"
           mkdir -p manager/activation-issuer/src/main/assets
-          echo "$NIGHT_LICENSE_PRIVATE_KEY_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_private_key.pk8
-          echo "$NIGHT_LICENSE_PUBKEY_DER_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_public_key.der
-          python3 scripts/update_night_license_pubkey.py --key "$NIGHT_LICENSE_PUBKEY_DER_B64"
+          echo "$XHOVO_LICENSE_PRIVATE_KEY_B64" | base64 -d > manager/activation-issuer/src/main/assets/xhovo_license_private_key.pk8
+          echo "$XHOVO_LICENSE_PUBKEY_DER_B64" | base64 -d > manager/activation-issuer/src/main/assets/xhovo_public_key.der
+          python3 scripts/update_cardkey_pubkey.py --key "$XHOVO_LICENSE_PUBKEY_DER_B64"
 
       - name: Assert licence verification stays offline
         working-directory: .
         run: |
-          if grep -rnE "https?://|okhttp3|OkHttpClient" manager/app/src/main/java/me/weishu/kernelsu/ui/activation/ ; then
-            echo "::error::Night licence verification must run on-device, never over the network"
+          if grep -rnE "https?://|okhttp3|OkHttpClient" manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/ ; then
+            echo "::error::XhovoSU card-key verification must run on-device, never over the network"
             exit 1
           fi
 
       - name: Build with Gradle
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            ./gradlew clean assembleRelease -PIS_PR_BUILD=true -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
+            ./gradlew clean assembleRelease -PIS_PR_BUILD=true -PKSU_NAME=XhovoSU -PKSU_PACKAGE_NAME=com.HxovoSU.yydsHx
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.ref }}" = "refs/heads/night" ]; then
-            ./gradlew clean assembleRelease -PIS_PR_BUILD=false -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
+            ./gradlew clean assembleRelease -PIS_PR_BUILD=false -PKSU_NAME=XhovoSU -PKSU_PACKAGE_NAME=com.HxovoSU.yydsHx
           else
-            ./gradlew clean assembleRelease -PKSU_NAME=Night -PKSU_PACKAGE_NAME=com.Night.night
+            ./gradlew clean assembleRelease -PKSU_NAME=XhovoSU -PKSU_PACKAGE_NAME=com.HxovoSU.yydsHx
           fi
 
       - name: Upload build artifact
@@ -260,7 +260,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v7
         with:
-          name: Night-Offline-Issuer-Android
+          name: XhovoSU-CardKey-Issuer-Android
           path: manager/activation-issuer/build/outputs/apk/release/*.apk
 
       - name: Upload WTLYF toolbox APK

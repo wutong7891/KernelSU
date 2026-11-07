@@ -1,4 +1,4 @@
-package com.Night.night.issuer;
+package com.HxovoSU.yydsHx.issuer;
 
 import android.app.Activity;
 import android.content.ClipData;
@@ -27,14 +27,14 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Locale;
 
 /**
- * Offline Night licence issuer.
+ * Offline XhovoSU licence issuer.
  *
  * Licences are ECDSA P-256 tokens signed here and verified inside the Manager.
  * The private key is bundled as a PKCS#8 asset by CI and never leaves the
  * issuer; the Manager ships the public half only. Everything happens offline:
  * no account, no server, no network permission needed.
  *
- * Token layout must stay byte-identical to NightActivation.kt.
+ * Token layout must stay byte-identical to CardKeyApi.kt.
  */
 public final class MainActivity extends Activity {
     private static final String ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -63,12 +63,12 @@ public final class MainActivity extends Activity {
         root.setPadding(pad(density, 24), pad(density, 40), pad(density, 24), pad(density, 24));
         root.setBackgroundColor(Color.rgb(7, 11, 20));
 
-        root.addView(text("NIGHT / OFFLINE ISSUER", 22, Color.rgb(153, 211, 255)));
+        root.addView(text("XHOVOSU / OFFLINE ISSUER", 22, Color.rgb(153, 211, 255)));
         root.addView(text("离线签发 ECDSA P-256 卡密，不联网", 13, Color.rgb(160, 174, 200)));
 
-        root.addView(label("目标设备指纹（Night 显示的那串 64 位十六进制；留空则通用卡）", density));
+        root.addView(label("目标设备指纹（XhovoSU 显示的那串 64 位十六进制；留空则通用卡）", density));
         androidId = new EditText(this);
-        androidId.setHint("粘贴 Night 激活页的设备指纹；留空=不绑定设备");
+        androidId.setHint("粘贴 XhovoSU 激活页的设备指纹；留空=不绑定设备");
         androidId.setTextColor(Color.WHITE);
         androidId.setHintTextColor(Color.GRAY);
         androidId.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -92,7 +92,7 @@ public final class MainActivity extends Activity {
         count.setInputType(InputType.TYPE_CLASS_NUMBER);
         root.addView(count, wide());
 
-        keyStatus = text("正在载入内置 Night 签发私钥…", 12, Color.rgb(160, 174, 200));
+        keyStatus = text("正在载入内置 XhovoSU 签发私钥…", 12, Color.rgb(160, 174, 200));
         keyStatus.setTextIsSelectable(true);
         root.addView(keyStatus, wide());
 
@@ -112,7 +112,7 @@ public final class MainActivity extends Activity {
         copy.setOnClickListener(v -> {
             if (output.getText().length() == 0) return;
             getSystemService(ClipboardManager.class)
-                .setPrimaryClip(ClipData.newPlainText("Night licence", output.getText()));
+                .setPrimaryClip(ClipData.newPlainText("XhovoSU licence", output.getText()));
             Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
         });
         root.addView(copy, wide());
@@ -191,7 +191,7 @@ public final class MainActivity extends Activity {
     private void loadBundledPrivateKey() {
         publicKeyFingerprint = loadPublicKeyFingerprint();
         try {
-            byte[] raw = readAsset("night_license_private_key.pk8");
+            byte[] raw = readAsset("xhovo_license_private_key.pk8");
             byte[] der = normalizePrivateKey(raw);
             privateKey = KeyFactory.getInstance("EC").generatePrivate(new PKCS8EncodedKeySpec(der));
             keyStatus.setText("签发私钥已载入 · 公钥指纹 " + publicKeyFingerprint);
@@ -208,7 +208,7 @@ public final class MainActivity extends Activity {
      */
     private String loadPublicKeyFingerprint() {
         try {
-            byte[] raw = readAsset("night_license_public_key.der");
+            byte[] raw = readAsset("xhovo_public_key.der");
             byte[] der = raw.length > 0 && (raw[0] & 0xFF) == 0x30 ? raw : Base64.decode(raw, Base64.DEFAULT);
             return fingerprintOf(der);
         } catch (Throwable error) {
@@ -281,7 +281,7 @@ public final class MainActivity extends Activity {
     }
 
     private static String group(String body) {
-        StringBuilder builder = new StringBuilder("NIGHT-");
+        StringBuilder builder = new StringBuilder("XHOVO-");
         for (int i = 0; i < body.length(); i++) {
             if (i > 0 && i % 5 == 0) builder.append('-');
             builder.append(body.charAt(i));
