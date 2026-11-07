@@ -46,5 +46,8 @@ const outPath = flag("--out");
 if (outPath) writeFileSync(resolve(outPath), `${codes.join("\n")}\n`);
 console.log(codes.join("\n"));
 
-const fingerprint = keyFingerprint(publicKeyDer(createPublicKey(key)));
+const publicKey = publicKeyDer(
+  createPublicKey(Buffer.isBuffer(key) ? { key, format: "der", type: "pkcs8" } : key),
+);
+const fingerprint = keyFingerprint(publicKey);
 console.error(`issued ${count} licence(s) · public key ${fingerprint} · ${bound ? `bound to ${deviceTag.toString("hex")}` : "unbound"} · ${days === 0 ? "permanent" : `${days} day(s)`}`);
