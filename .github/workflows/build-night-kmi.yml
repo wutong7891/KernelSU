@@ -1,4 +1,4 @@
-name: Build Night Exclusive KMI v3
+name: Build XhovoSU Exclusive KMI v1
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
       expected_size: ${{ needs.resolve-night-certificate.outputs.expected_size }}
       expected_hash: ${{ needs.resolve-night-certificate.outputs.expected_hash }}
       package_name: 'com.HxovoSU.yydsHx'
-      build_identity: 'Night-KMI-v3'
+      build_identity: 'XhovoSU-KMI-v1'
       build_x86: false
 
   package-night-kmi:
@@ -53,20 +53,21 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: aarch64-*-lkm
-          path: Night-exclusive-KMI-v3
+          path: XhovoSU-exclusive-KMI-v1
           merge-multiple: true
 
       - name: Create verification manifest
-        working-directory: Night-exclusive-KMI-v3
+        working-directory: XhovoSU-exclusive-KMI-v1
         run: |
           {
-            echo 'Night Exclusive KMI v3'
+            echo 'XhovoSU Exclusive KMI v1'
             echo 'Author: 无痛'
             echo 'Purpose: personal hobby development'
-            echo 'Origin: Night exclusive derivative based on KernelSU'
+            echo 'Origin: XhovoSU exclusive derivative based on KernelSU'
             echo 'Manager package: com.HxovoSU.yydsHx'
             echo 'Manager certificate DER size: ${{ needs.resolve-night-certificate.outputs.expected_size }}'
             echo 'Manager certificate SHA-256: ${{ needs.resolve-night-certificate.outputs.expected_hash }}'
+            echo 'Manager certificate DER size: ${{ needs.resolve-night-certificate.outputs.expected_size }}'
             echo 'Architecture: arm64'
             echo
             echo 'Each .ko is KMI-specific. Do not flash a module for a different Android/kernel KMI.'
@@ -77,5 +78,5 @@ jobs:
       - name: Upload complete Night KMI suite
         uses: actions/upload-artifact@v7
         with:
-          name: Night-exclusive-KMI-v3
-          path: Night-exclusive-KMI-v3/*
+          name: XhovoSU-exclusive-KMI-v1
+          path: XhovoSU-exclusive-KMI-v1/*
