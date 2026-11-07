@@ -1,8 +1,9 @@
-// Wiring contract for the XhovoSU 14-character card-key gate.
+// Wiring contract for the XhovoSU networked card-key gate.
 //
-// Fails if the Manager reintroduces networking, if the embedded secret drifts
-// away from the one the issuer prints with, or if the gate stops wrapping the
-// manager shell.
+// Guards three things:
+//   1. the Manager verifies against the server (not a local secret)
+//   2. the gate still wraps the whole manager shell
+//   3. the endpoint path matches what cardkey-server exposes
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -14,37 +15,25 @@ const repo = resolve(here, "../..");
 const read = (path) => readFileSync(resolve(repo, path), "utf8");
 
 const api = read("manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/CardKeyApi.kt");
-const keys = read("manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/CardKeyKeys.kt");
 const screen = read("manager/app/src/main/java/me/weishu/kernelsu/ui/screen/cardkey/CardKeyScreen.kt");
 const activity = read("manager/app/src/main/java/me/weishu/kernelsu/ui/MainActivity.kt");
 const manifest = read("manager/app/src/main/AndroidManifest.xml");
 
-// 1. Verification is offline and uses the 14-character format.
-assert.doesNotMatch(api, /okhttp3|OkHttpClient/, "card-key verification must not use HTTP");
-assert.doesNotMatch(api, /https?:\/\//, "card-key verification must not reference a server");
-assert.match(api, /CODE_LENGTH = 14/, "the code format must stay 14 characters");
-assert.match(api, /HmacSHA256/, "verification must use HMAC-SHA256");
-assert.match(api, /PAYLOAD_CHARS = 8/, "payload must stay 8 characters");
-assert.match(api, /CHECK_CHARS = 6/, "checksum must stay 6 characters");
-assert.match(api, /XHOVO/, "token prefix must be XHOVO");
+// 1. Verification is networked and points at the expected endpoint.
+assert.match(api, /okhttp3|OkHttpClient/, "verification must use HTTP");
+assert.match(api, /\/api\/license\/verify/, "must call the verify endpoint");
+assert.match(api, /deviceId/, "must send the device id for one-device binding");
+assert.doesNotMatch(api, /HmacSHA256/, "the local HMAC path must be gone");
+assert.doesNotMatch(api, /CARDKEY_SECRET|SECRET_BASE64/, "no shared secret in the client anymore");
 
-// 2. The embedded secret is the one the issuer signs with.
-const embedded = keys.match(/SECRET_BASE64: String =\s*\n?\s*"([^"]+)"/)?.[1];
-assert.ok(embedded, "CardKeyKeys must embed the MAC secret");
-const devSecret = readFileSync(resolve(here, "dev/cardkey_secret.bin")).toString("base64");
-assert.equal(
-  embedded,
-  devSecret,
-  "embedded secret must match dev/cardkey_secret.bin, otherwise the shipped issuer cannot print usable keys",
-);
-
-// 3. The gate wraps the whole manager shell.
+// 2. The gate wraps the whole manager shell and releases the splash.
 assert.match(activity, /CardKeyGate\(/, "MainActivity must wrap its content in CardKeyGate");
 assert.match(activity, /onContentReady = \{ contentReady = true \}/, "the gate must release the splash screen");
 assert.doesNotMatch(activity, /NightActivation/, "the old Night gate must be gone");
 
-// 4. Branding.
+// 3. Branding and UI wiring.
 assert.match(manifest, /android:label="@string\/app_name"/, "app label comes from the build config");
-assert.doesNotMatch(screen, /Pigeon|pigeon/, "the gate must not carry the upstream platform branding");
+assert.match(screen, /CardKeyApi\.apiBase\(\)/, "the gate shows the verification server");
+assert.doesNotMatch(screen, /Pigeon|pigeon/, "the gate must not carry upstream platform branding");
 
-console.log("XhovoSU 14-character card-key contract holds: offline HMAC, matching secret, gate wired");
+console.log("XhovoSU networked card-key contract holds: server verification, gate wired");

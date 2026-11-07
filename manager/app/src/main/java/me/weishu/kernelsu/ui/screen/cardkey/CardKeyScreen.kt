@@ -181,7 +181,7 @@ fun CardKeyScreen(
         val emptyMsg = "请输入 XhovoSU 卡密"
         val invalidMsg = "卡密无效"
         val fingerprint = remember { CardKeyApi.deviceFingerprint }
-        val keyFingerprint = remember { CardKeyApi.keyFingerprint() }
+        val apiBase = remember { CardKeyApi.apiBase() }
 
         val enter = remember { Animatable(0f) }
         LaunchedEffect(Unit) {
@@ -295,7 +295,7 @@ fun CardKeyScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "独家卡密系统 · 本机离线校验",
+                        text = "独家卡密系统 · 联网校验",
                         color = p.subtitle,
                         fontSize = 13.sp,
                         letterSpacing = 0.4.sp,
@@ -495,7 +495,7 @@ fun CardKeyScreen(
                     Spacer(Modifier.height(10.dp))
 
                     Text(
-                        text = "卡密由签发端离线生成，本机校验 · 密钥 $keyFingerprint",
+                        text = "一卡一机 · 校验服务器 $apiBase",
                         color = p.subtitle.copy(alpha = 0.72f),
                         fontSize = 10.sp,
                         letterSpacing = 0.6.sp,
