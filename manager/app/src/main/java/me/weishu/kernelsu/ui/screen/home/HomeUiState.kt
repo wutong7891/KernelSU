@@ -35,7 +35,10 @@ data class HomeUiState(
         get() = isManager &&
                 lkmMode == true &&
                 isLkmBundled &&
-                ksuVersion?.toLong() != currentManagerVersionCode &&
+                // Only nag when the installed module is genuinely older than the
+                // bundled one. Equality means "already up to date"; a newer kernel
+                // module (e.g. built from a higher commit count) must not trigger it.
+                (ksuVersion?.toLong() ?: 0L) < currentManagerVersionCode &&
                 !requiresNewKernel &&
                 !requiresNewManager
 
