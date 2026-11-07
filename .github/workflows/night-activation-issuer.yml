@@ -6,7 +6,7 @@ name: Build Night Offline Issuer
 on:
   workflow_dispatch:
   push:
-    branches: ["night"]
+    branches: ["night", "codex/night-offline-license"]
     paths:
       - '.github/workflows/night-activation-issuer.yml'
       - 'manager/activation-issuer/**'
