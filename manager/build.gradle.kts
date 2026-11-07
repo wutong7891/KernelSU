@@ -15,9 +15,26 @@ extra["androidTargetCompatibility"] = JavaVersion.VERSION_21
 extra["managerVersionCode"] = getVersionCode()
 extra["managerVersionName"] = getVersionName()
 
+/**
+ * The manager compares its own version code with the kernel module's KSU_VERSION
+ * to decide whether "a newer bundled LKM is available". KSU_VERSION is
+ * 30000 + git commit count, so the manager has to use the very same number,
+ * otherwise that prompt never goes away after installing the module.
+ *
+ * CI passes -PksuVersionCode=<same value> so both sides are guaranteed equal;
+ * local builds fall back to counting commits the same way the kernel Kbuild does.
+ */
 fun getVersionCode(): Int {
-    // XhovoSU starts its own version line at 1.0; the Night build counters are irrelevant.
-    return 1
+    (findProperty("ksuVersionCode") as String?)?.toIntOrNull()?.let { return it }
+
+    val commitCount = try {
+        providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+        }.standardOutput.asText.get().trim().toIntOrNull()
+    } catch (_: Exception) {
+        null
+    }
+    return 30000 + (commitCount ?: 1)
 }
 
 fun getVersionName(): String {
