@@ -31,16 +31,12 @@ data class HomeUiState(
     val showGkiWarning: Boolean
         get() = ksuVersion != null && lkmMode == false
 
+    /**
+     * 内置 KMI 的分发方式下，模块与面具是配套打包的，不存在“单独更新 LKM”这回事，
+     * 所以这个提示永久关闭，避免装完模块后一直挂在首页。
+     */
     val showLkmUpdate: Boolean
-        get() = isManager &&
-                lkmMode == true &&
-                isLkmBundled &&
-                // Only nag when the installed module is genuinely older than the
-                // bundled one. Equality means "already up to date"; a newer kernel
-                // module (e.g. built from a higher commit count) must not trigger it.
-                (ksuVersion?.toLong() ?: 0L) < currentManagerVersionCode &&
-                !requiresNewKernel &&
-                !requiresNewManager
+        get() = false
 
     // Jailbreak mode runs on locked bootloaders, so flashing a boot image would brick the device.
     val canInstallKernelUpdate: Boolean
@@ -58,8 +54,12 @@ data class HomeUiState(
     val showKernelPrBuildWarning: Boolean
         get() = isManager && !isManagerPrBuild && isKernelPrBuild
 
+    /**
+     * XhovoSU 是独立分发线，版本号与官方 release 不在同一序列上，
+     * 拿官方版本号来比较只会误报，这里直接关闭更新检测提示。
+     */
     val hasUpdate: Boolean
-        get() = latestVersionInfo.versionCode > currentManagerVersionCode
+        get() = false
 }
 
 @Immutable
