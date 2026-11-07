@@ -66,9 +66,9 @@ public final class MainActivity extends Activity {
         root.addView(text("NIGHT / OFFLINE ISSUER", 22, Color.rgb(153, 211, 255)));
         root.addView(text("离线签发 ECDSA P-256 卡密，不联网", 13, Color.rgb(160, 174, 200)));
 
-        root.addView(label("目标设备指纹（留空则签发通用卡）", density));
+        root.addView(label("目标设备指纹（Night 显示的那串 64 位十六进制；留空则通用卡）", density));
         androidId = new EditText(this);
-        androidId.setHint("设备指纹，例如 3f9a2b…；留空=不绑定设备");
+        androidId.setHint("粘贴 Night 激活页的设备指纹；留空=不绑定设备");
         androidId.setTextColor(Color.WHITE);
         androidId.setHintTextColor(Color.GRAY);
         androidId.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -131,9 +131,12 @@ public final class MainActivity extends Activity {
             boolean bound = !fingerprint.isEmpty();
             byte deviceTag[] = new byte[3];
             if (bound) {
-                byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(("night-device-v1:" + fingerprint).getBytes(StandardCharsets.UTF_8));
-                System.arraycopy(hash, 0, deviceTag, 0, 3);
+                // The fingerprint is already the SHA-256 device hash that the
+                // Manager shows, so the tag is simply its first three bytes.
+                if (fingerprint.length() < 6) throw new IllegalArgumentException("设备指纹至少需要 6 位十六进制字符");
+                for (int i = 0; i < 3; i++) {
+                    deviceTag[i] = (byte) Integer.parseInt(fingerprint.substring(i * 2, i * 2 + 2), 16);
+                }
             }
 
             long notAfter = validDays == 0
@@ -229,8 +232,9 @@ public final class MainActivity extends Activity {
         }
     }
 
-    /** Accepts either a raw PKCS#8 DER file or a PEM/base64 text file. */
+    /** Accepts a raw PKCS#8 DER file, a PEM file, or a base64 text file. */
     private byte[] normalizePrivateKey(byte[] raw) {
+        if (raw.length > 0 && (raw[0] & 0xFF) == 0x30) return raw;
         String text = new String(raw, StandardCharsets.US_ASCII);
         if (text.contains("BEGIN PRIVATE KEY")) {
             text = text.replace("-----BEGIN PRIVATE KEY-----", "")
@@ -238,7 +242,7 @@ public final class MainActivity extends Activity {
                 .replaceAll("\\s", "");
             return Base64.decode(text, Base64.DEFAULT);
         }
-        if (!text.contains("\u0000") && text.trim().matches("^[A-Za-z0-9+/=\\s]+$")) {
+        if (text.trim().matches("^[A-Za-z0-9+/=\\s]+$")) {
             return Base64.decode(text.trim(), Base64.DEFAULT);
         }
         return raw;
@@ -333,7 +337,7 @@ public final class MainActivity extends Activity {
 
     private static String hex(byte[] data) {
         StringBuilder builder = new StringBuilder(data.length * 2);
-        for (byte value : data) builder.append(String.format(Locale.ROOT, "%02x", value));
+        for (byte value : data) builder.append(String.format(Locale.ROOT, "%02x", value & 0xFF));
         return builder.toString();
     }
 

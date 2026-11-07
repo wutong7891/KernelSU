@@ -159,7 +159,7 @@ object NightActivation {
 
         val payload = token.copyOfRange(0, PAYLOAD_SIZE)
         val signature = token.copyOfRange(PAYLOAD_SIZE, TOKEN_SIZE)
-        if (payload[0].toInt() and 0xFF != VERSION) {
+        if ((payload[0].toInt() and 0xFF) != VERSION) {
             return Result(false, "卡密版本不受支持，请使用新格式卡密")
         }
         if (!verifySignature(payload, signature)) {
@@ -211,12 +211,12 @@ object NightActivation {
             ((payload[6].toLong() and 0xFF) shl 16) or
             ((payload[7].toLong() and 0xFF) shl 8) or
             (payload[8].toLong() and 0xFF)
-        val deviceTag = (9..11).joinToString("") { "%02x".format(payload[it]) }
+        val deviceTag = (9..11).joinToString("") { "%02x".format(payload[it] and 0xFF) }
         val flags = payload[1].toInt() and 0xFF
         return Claims(
             serial = serial,
-            permanent = flags and FLAG_PERMANENT != 0,
-            deviceBound = flags and FLAG_DEVICE_BOUND != 0,
+            permanent = (flags and FLAG_PERMANENT) != 0,
+            deviceBound = (flags and FLAG_DEVICE_BOUND) != 0,
             deviceTag = deviceTag,
             notAfter = notAfter,
         )
@@ -266,15 +266,15 @@ object NightActivation {
         var start = 0
         while (start < value.size - 1 && value[start].toInt() == 0) start++
         val stripped = value.copyOfRange(start, value.size)
-        val padded = if (stripped[0].toInt() and 0x80 != 0) byteArrayOf(0) + stripped else stripped
-        return byteArrayOf(0x02, padded.size.toByte()) + padded
+        val padded = if ((stripped[0].toInt() and 0x80) != 0) byteArrayOf(0.toByte()) + stripped else stripped
+        return byteArrayOf(0x02.toByte(), padded.size.toByte()) + padded
     }
 
     private fun rsToDer(signature: ByteArray): ByteArray {
         val r = derInteger(signature.copyOfRange(0, 32))
         val s = derInteger(signature.copyOfRange(32, 64))
         val body = r + s
-        return byteArrayOf(0x30, body.size.toByte()) + body
+        return byteArrayOf(0x30.toByte(), body.size.toByte()) + body
     }
 
     private fun formatTime(epochSeconds: Long): String =
