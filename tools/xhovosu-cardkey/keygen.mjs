@@ -1,43 +1,35 @@
 #!/usr/bin/env node
-// Generates the XhovoSU licence key pair.
+// Generates the XhovoSU card-key secret.
 //
-// The private key signs licences and belongs to the issuer only; the public key
-// is embedded in the Manager. Run this once, keep the private key in a password
-// manager or the XHOVO_LICENSE_PRIVATE_KEY_B64 secret, and never commit it.
+// A 14-character code can only carry a truncated MAC, so the secret is shared:
+// the issuer signs with it, the Manager verifies with it. Treat it like a
+// password and rotate it by rebuilding the Manager.
 
-import { generateKeyPairSync } from "node:crypto";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { keyFingerprint, publicKeyDer } from "./cardkey-format.mjs";
 
 const args = process.argv.slice(2);
-const outDir = resolve(readFlag(args, "--out") ?? "xhovo-cardkey-keys");
+const readFlag = (name) => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+};
 
-function readFlag(argv, name) {
-  const index = argv.indexOf(name);
-  return index >= 0 ? argv[index + 1] : undefined;
-}
-
-const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-const spki = publicKeyDer(publicKey);
-const pkcs8 = privateKey.export({ format: "der", type: "pkcs8" });
-const pkcs8Base64 = pkcs8.toString("base64");
-const spkiBase64 = spki.toString("base64");
+const outDir = resolve(readFlag("--out") ?? "xhovo-cardkey-keys");
+const secret = randomBytes(32);
 
 mkdirSync(outDir, { recursive: true });
-const privatePath = resolve(outDir, "xhovo_license_private_key.pk8");
-const publicPath = resolve(outDir, "xhovo_public_key.der");
-writeFileSync(privatePath, pkcs8);
-writeFileSync(publicPath, spki);
+const binPath = resolve(outDir, "cardkey_secret.bin");
+const b64Path = resolve(outDir, "cardkey_secret.b64");
+writeFileSync(binPath, secret);
+writeFileSync(b64Path, `${secret.toString("base64")}\n`, "ascii");
 
-const fingerprint = keyFingerprint(spki);
-console.log(`key pair written to ${dirname(privatePath)}`);
-console.log(`public key fingerprint: ${fingerprint}`);
+console.log(`secret written to ${dirname(binPath)}`);
 console.log("");
-console.log("Manager constant (CardKeyKeys.PUBLIC_KEY_DER_BASE64):");
-console.log(spkiBase64);
+console.log("Manager constant (CardKeyKeys.SECRET_BASE64):");
+console.log(secret.toString("base64"));
 console.log("");
-console.log("Issuer secret (GitHub secret XHOVO_LICENSE_PRIVATE_KEY_B64):");
-console.log(pkcs8Base64);
+console.log("Issuer secret (GitHub secret XHOVO_CARDKEY_SECRET_B64):");
+console.log(secret.toString("base64"));
 console.log("");
-console.log("Keep the private key secret. Anyone holding it can mint licences.");
+console.log("Keep it private: anyone holding it can print valid card keys.");

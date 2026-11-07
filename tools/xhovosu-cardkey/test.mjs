@@ -1,30 +1,29 @@
 #!/usr/bin/env node
-// Format and crypto self-test for the XhovoSU offline licence.
-// Runs in CI on every change to the issuer tooling or the Manager format.
+// Format and MAC self-test for the 14-character XhovoSU card key.
 
-import { generateKeyPairSync, sign, verify } from "node:crypto";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import {
-  FLAG_PERMANENT,
-  PAYLOAD_SIZE,
-  TOKEN_SIZE,
-  buildPayload,
+  ALPHABET,
+  CHECK_BITS,
+  CHECK_CHARS,
+  CODE_LENGTH,
+  MAX_DAY_CODE,
+  PAYLOAD_BITS,
+  PAYLOAD_CHARS,
   checkLicence,
+  dayCodeFor,
   decodeBase32,
-  deviceFingerprintOf,
   deviceTagOf,
   encodeBase32,
   groupCode,
   inspectCode,
   issue,
-  keyFingerprint,
   normalizeCode,
-  publicKeyDer,
-  readClaims,
+  notAfterFromDayCode,
 } from "./cardkey-format.mjs";
 
-const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-const spki = publicKeyDer(publicKey);
+const secret = randomBytes(32);
 const now = Math.floor(Date.now() / 1000);
 
 let passed = 0;
@@ -34,168 +33,108 @@ function check(name, fn) {
   console.log(`ok - ${name}`);
 }
 
-check("base32 round-trips arbitrary bytes", () => {
-  const bytes = Buffer.from(Array.from({ length: TOKEN_SIZE }, (_, i) => (i * 37 + 11) & 0xff));
-  assert.deepEqual(decodeBase32(encodeBase32(bytes)), bytes);
+check("base32 round-trips a 40-bit payload", () => {
+  for (const value of [0, 1, 32, 123456789, 2 ** 40 - 1]) {
+    assert.equal(decodeBase32(encodeBase32(value, PAYLOAD_BITS), PAYLOAD_BITS), value);
+  }
 });
 
-check("token is 76 bytes of base32 in 25 groups", () => {
-  const code = issue(privateKey, { serial: 1, notAfter: now + 86400 });
-  const body = normalizeCode(code);
-  const token = decodeBase32(body);
-  assert.equal(token.length, TOKEN_SIZE);
-  assert.equal(body.length, 122);
-  assert.equal(code.split("-").length, 26);
+check("a card key is exactly 14 characters in 4 groups", () => {
+  const code = issue(secret, { serial: 1, notAfter: 0 });
+  assert.equal(code.length, CODE_LENGTH + 3, "14 chars plus 3 separators");
+  assert.equal(normalizeCode(code).length, CODE_LENGTH);
+  assert.equal(code.split("-").length, 4);
+  assert.deepEqual(code.split("-").map((part) => part.length), [4, 4, 4, 2]);
 });
 
-check("payload layout matches the documented offsets", () => {
-  const payload = buildPayload({ serial: 0x123456, notAfter: now + 60, deviceTag: Buffer.from("aabbcc", "hex"), deviceBound: true });
-  assert.equal(payload.length, PAYLOAD_SIZE);
-  assert.equal(payload[0], 0x02);
-  const claims = readClaims(payload);
-  assert.equal(claims.serial, 0x123456);
-  assert.equal(claims.notAfter, now + 60);
-  assert.equal(claims.deviceTag, "aabbcc");
+check("every character comes from the Crockford alphabet", () => {
+  const code = normalizeCode(issue(secret, { serial: 9, notAfter: 0 }));
+  for (const char of code) assert.ok(ALPHABET.includes(char), `unexpected char ${char}`);
+});
+
+check("fields survive the round trip", () => {
+  const notAfter = now + 86400 * 17;
+  const code = issue(secret, { serial: 0xabcd, notAfter, deviceTag: 0x123, deviceBound: true });
+  const claims = inspectCode(secret, code);
+  assert.equal(claims.serial, 0xabcd);
+  assert.equal(claims.deviceTag, "123");
   assert.equal(claims.deviceBound, true);
   assert.equal(claims.permanent, false);
 });
 
-check("unbound licence verifies on any device", () => {
-  const code = issue(privateKey, { notAfter: now + 86400 });
-  const claims = checkLicence(spki, code, { deviceFingerprint: "deadbeefcafebabe" });
-  assert.equal(claims.deviceBound, false);
-});
-
-check("permanent licence carries the permanent flag", () => {
-  const code = issue(privateKey, { notAfter: 0 });
-  const claims = inspectCode(spki, code);
+check("permanent keys carry dayCode 0", () => {
+  const claims = inspectCode(secret, issue(secret, { serial: 3, notAfter: 0 }));
   assert.equal(claims.permanent, true);
-  assert.equal((decodeBase32(normalizeCode(code))[1] & 0x02) !== 0, true);
+  assert.equal(claims.notAfter, 0);
 });
 
-check("bound licence accepts its own device only", () => {
-  const fingerprint = "0123456789abcdef0123456789abcdef01234567";
-  const code = issue(privateKey, {
+check("expiry is day-granular and matches the request", () => {
+  const notAfter = now + 86400 * 10;
+  const code = issue(secret, { serial: 5, notAfter });
+  const claims = inspectCode(secret, code);
+  assert.ok(Math.abs(claims.notAfter - notAfter) <= 86400);
+});
+
+check("day codes clamp inside 12 bits", () => {
+  assert.equal(dayCodeFor(0), 0);
+  assert.throws(() => dayCodeFor(2 ** 40), /outside the 12-bit/);
+  assert.equal(notAfterFromDayCode(0), 0);
+  assert.ok(MAX_DAY_CODE === 0xfff);
+});
+
+check("a single changed character breaks the checksum", () => {
+  const body = normalizeCode(issue(secret, { serial: 7, notAfter: 0 }));
+  const index = 5;
+  const replaced = body[index] === "A" ? "B" : "A";
+  const tampered = body.slice(0, index) + replaced + body.slice(index + 1);
+  assert.throws(() => inspectCode(secret, tampered), /checksum does not match/);
+});
+
+check("wrong length or bad letters are rejected", () => {
+  const code = normalizeCode(issue(secret, { serial: 1, notAfter: 0 }));
+  assert.throws(() => inspectCode(secret, code.slice(0, 13)), /must be 14 characters/);
+  assert.throws(() => inspectCode(secret, `${code.slice(0, 13)}!`), /must be 14 characters|invalid characters|checksum/);
+  const withBadLetter = `${code.slice(0, 13)}U`;
+  assert.throws(() => inspectCode(secret, withBadLetter), /invalid characters|checksum/);
+});
+
+check("a different secret cannot validate the key", () => {
+  const code = issue(secret, { serial: 11, notAfter: 0 });
+  assert.throws(() => inspectCode(randomBytes(32), code), /checksum does not match/);
+});
+
+check("separators and the XHOVO prefix are cosmetic", () => {
+  const code = issue(secret, { serial: 13, notAfter: 0 });
+  const messy = `  xhovo${code.replace(/-/g, " ").toLowerCase()}  `;
+  assert.equal(inspectCode(secret, messy).serial, 13);
+});
+
+check("device binding accepts only the tagged device", () => {
+  const fingerprint = "8f14e45fceea167a5a36dedd4bea2543";
+  const code = issue(secret, {
+    serial: 17,
     notAfter: now + 86400,
     deviceBound: true,
     deviceTag: deviceTagOf(fingerprint),
   });
-  assert.equal(checkLicence(spki, code, { deviceFingerprint: fingerprint }).deviceBound, true);
-  assert.throws(() => checkLicence(spki, code, { deviceFingerprint: "ffffffffffffffff" }), /bound to device/);
+  assert.equal(checkLicence(secret, code, { deviceFingerprint: fingerprint }).serial, 17);
+  assert.throws(() => checkLicence(secret, code, { deviceFingerprint: "00000000" }), /bound to device/);
 });
 
-check("expired licence is rejected", () => {
-  const code = issue(privateKey, { notAfter: now - 10 });
-  assert.throws(() => checkLicence(spki, code), /expired/);
+check("expired keys are refused", () => {
+  const code = issue(secret, { serial: 19, notAfter: now - 86400 * 3 });
+  assert.throws(() => checkLicence(secret, code), /expired/);
 });
 
-check("a single flipped character invalidates the signature", () => {
-  const code = issue(privateKey, { notAfter: now + 86400 });
-  const body = normalizeCode(code);
-  const index = 40;
-  const replacement = body[index] === "A" ? "B" : "A";
-  const tampered = body.slice(0, index) + replacement + body.slice(index + 1);
-  assert.throws(() => inspectCode(spki, tampered), /signature does not verify|base32/);
-});
-
-check("truncated or padded tokens are rejected", () => {
-  const code = issue(privateKey, { notAfter: now + 86400 });
-  const body = normalizeCode(code);
-  assert.throws(() => inspectCode(spki, body.slice(0, body.length - 10)), /must be 76 bytes/);
-});
-
-check("separators and prefix are cosmetic", () => {
-  const code = issue(privateKey, { notAfter: now + 86400 });
-  const messy = `  ${code.toLowerCase().replace(/-/g, " ")}  `;
-  assert.equal(inspectCode(spki, messy).serial > 0, true);
-});
-
-check("a foreign key cannot validate licences", () => {
-  const other = generateKeyPairSync("ec", { namedCurve: "P-256" });
-  const code = issue(other.privateKey, { notAfter: now + 86400 });
-  assert.throws(() => inspectCode(spki, code), /signature does not verify/);
-});
-
-check("grouping is reversible and stable", () => {
-  const code = issue(privateKey, { serial: 7, notAfter: now + 86400 });
+check("grouping is reversible", () => {
+  const code = issue(secret, { serial: 23, notAfter: 0 });
   assert.equal(groupCode(normalizeCode(code)), code);
 });
 
-check("key fingerprint is stable and short", () => {
-  const first = keyFingerprint(spki);
-  assert.equal(first, keyFingerprint(Buffer.from(spki)));
-  assert.equal(first.length, 16);
-});
-
-check("flags encode bound plus permanent together", () => {
-  const code = issue(privateKey, { notAfter: 0, deviceBound: true, deviceTag: Buffer.from("010203", "hex") });
-  const claims = inspectCode(spki, code);
-  assert.equal(claims.permanent, true);
-  assert.equal(claims.deviceBound, true);
-  assert.equal(claims.deviceTag, "010203");
-  assert.equal((FLAG_PERMANENT & 0x02) !== 0, true);
-});
-
-// The Android issuer receives a DER signature from `Signature.sign()` and must
-// turn it into r || s; the Manager does the inverse before verifying. These two
-// helpers are the reference implementation of that conversion, and the test
-// proves they agree with Node's fixed-width output.
-function fit32(value) {
-  let start = 0;
-  while (start < value.length - 1 && value[start] === 0) start += 1;
-  const body = value.subarray(Math.max(start, value.length - 32));
-  const out = Buffer.alloc(32);
-  body.copy(out, 32 - body.length);
-  return out;
-}
-
-function derToRaw(der) {
-  let p = 0;
-  assert.equal(der[p++], 0x30);
-  let length = der[p++];
-  if (length & 0x80) p += length & 0x7f;
-  const readInt = () => {
-    assert.equal(der[p++], 0x02);
-    const len = der[p++];
-    const value = der.subarray(p, p + len);
-    p += len;
-    return value;
-  };
-  const r = readInt();
-  const s = readInt();
-  return Buffer.concat([fit32(r), fit32(s)]);
-}
-
-function rawToDer(raw) {
-  const int = (value) => {
-    let start = 0;
-    while (start < value.length - 1 && value[start] === 0) start += 1;
-    const body = value.subarray(start);
-    const padded = body[0] & 0x80 ? Buffer.concat([Buffer.from([0]), body]) : body;
-    return Buffer.concat([Buffer.from([0x02, padded.length]), padded]);
-  };
-  const body = Buffer.concat([int(raw.subarray(0, 32)), int(raw.subarray(32, 64))]);
-  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
-}
-
-check("DER and fixed-width signatures convert both ways", () => {
-  const payload = buildPayload({ serial: 42, notAfter: now + 600 });
-  const der = sign("sha256", payload, { key: privateKey });
-  const fixed = sign("sha256", payload, { key: privateKey, dsaEncoding: "ieee-p1363" });
-  assert.equal(derToRaw(der).length, 64);
-  // Same payload signed twice yields different signatures, so compare shapes and
-  // prove every DER signature converts into something the verifier accepts.
-  const rawFromDer = derToRaw(der);
-  assert.equal(verify("sha256", payload, { key: publicKey, dsaEncoding: "ieee-p1363" }, rawFromDer), true);
-  assert.equal(verify("sha256", payload, publicKey, rawToDer(fixed)), true);
-  assert.equal(rawToDer(fixed).length <= 72 && rawToDer(fixed).length >= 68, true);
-});
-
-check("the Manager path accepts licences produced from DER signatures", () => {
-  const payload = buildPayload({ serial: 9, notAfter: now + 900 });
-  const raw = derToRaw(sign("sha256", payload, { key: privateKey }));
-  const code = groupCode(encodeBase32(Buffer.concat([payload, raw])));
-  assert.equal(inspectCode(spki, code).serial, 9);
+check("payload and checksum split is 8 + 6 characters", () => {
+  assert.equal(PAYLOAD_CHARS, 8);
+  assert.equal(CHECK_CHARS, 6);
+  assert.equal(PAYLOAD_BITS + CHECK_BITS, CODE_LENGTH * 5);
 });
 
 console.log(`\n${passed} checks passed`);

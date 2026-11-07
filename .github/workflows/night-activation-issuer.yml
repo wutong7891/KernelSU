@@ -11,7 +11,7 @@ on:
       - '.github/workflows/night-activation-issuer.yml'
       - 'manager/activation-issuer/**'
       - 'tools/xhovosu-cardkey/**'
-      - 'scripts/update_cardkey_pubkey.py'
+      - 'scripts/update_cardkey_secret.py'
 
 permissions:
   contents: read
@@ -49,16 +49,14 @@ jobs:
       - name: Embed XhovoSU card-key signing key
         working-directory: .
         env:
-          XHOVO_LICENSE_PRIVATE_KEY_B64: ${{ secrets.XHOVO_LICENSE_PRIVATE_KEY_B64 }}
-          XHOVO_LICENSE_PUBKEY_DER_B64: ${{ secrets.XHOVO_LICENSE_PUBKEY_DER_B64 }}
+          XHOVO_CARDKEY_SECRET_B64: ${{ secrets.XHOVO_CARDKEY_SECRET_B64 }}
         run: |
-          if [ -n "$XHOVO_LICENSE_PRIVATE_KEY_B64" ] && [ -n "$XHOVO_LICENSE_PUBKEY_DER_B64" ]; then
+          if [ -n "$XHOVO_CARDKEY_SECRET_B64" ]; then
             mkdir -p manager/activation-issuer/src/main/assets
-            echo "$XHOVO_LICENSE_PRIVATE_KEY_B64" | base64 -d > manager/activation-issuer/src/main/assets/xhovo_license_private_key.pk8
-            echo "$XHOVO_LICENSE_PUBKEY_DER_B64" | base64 -d > manager/activation-issuer/src/main/assets/xhovo_public_key.der
-            python3 scripts/update_cardkey_pubkey.py --key "$XHOVO_LICENSE_PUBKEY_DER_B64"
+            echo "$XHOVO_CARDKEY_SECRET_B64" | base64 -d > manager/activation-issuer/src/main/assets/xhovo_cardkey_secret.bin
+            python3 scripts/update_cardkey_secret.py --secret "$XHOVO_CARDKEY_SECRET_B64"
           else
-            echo "::warning::XHOVO_LICENSE_PRIVATE_KEY_B64 / XHOVO_LICENSE_PUBKEY_DER_B64 not set; building a development issuer that cannot sign production licences"
+            echo "::warning::XHOVO_CARDKEY_SECRET_B64 not set; building a development issuer that only matches the repository default secret"
           fi
       - name: Write stable signing key
         env:

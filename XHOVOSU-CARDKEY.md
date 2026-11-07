@@ -43,44 +43,44 @@ KernelSUTheme(...) {
 76 字节令牌，Crockford Base32，`XHOVO-` 前缀，展示时每 5 字符分组：
 
 ```
-XHOVO-080A2-E8EDC-BBTCG-00005-NT6VE-QT80T-…
+XXXX-XXXX-XXXX-XX
 ```
 
-| 偏移 | 长度 | 含义 |
-|------|------|------|
-| 0 | 1 | 版本 `0x02` |
-| 1 | 1 | bit0 绑定设备，bit1 永久有效 |
-| 2 | 3 | 流水号 |
-| 5 | 4 | 到期时间（Unix 秒，永久卡为 0） |
-| 9 | 3 | 设备指纹前 3 字节 |
-| 12 | 64 | ECDSA 签名（覆盖前 12 字节，`r || s`） |
+14 个 Crockford Base32 字符 = 70 bit，分两段：
 
-前缀、分隔符、大小写都不参与校验，所以卡密可以折行粘贴。设备指纹 = `SHA-256("xhovo-device-v1:" + ANDROID_ID)`，卡密页可以直接点按复制，交给签发端即可发绑定卡。
+| 段 | 长度 | 含义 |
+|----|------|------|
+| 前 8 字符 | 40 bit | 流水号 16 + 到期日 12 + 设备标签 12 |
+| 后 6 字符 | 30 bit | 前 40 bit 的 HMAC-SHA256 截断 |
+
+到期日以 2024-01-01 为第 0 天、单位为天，0 表示永久；设备标签 0 表示通用卡，否则是设备指纹前 3 位的数值。前缀、分隔符、大小写都不参与校验。
+
+**强度要说清楚**：14 个字符装不下任何不可伪造的签名（ECDSA/Ed25519 签名本身就要 64 字节）。现在的方案能挡住抄错、乱猜，但密钥随面具一起分发，拆包就能拿到，因此它不是防逆向的授权体系。要真正不可伪造，卡密必须回到几十个字符的长度。
 
 ## 发卡
 
 ```bash
 # 30 天通用卡，一次 5 张
-node tools/xhovosu-cardkey/issue.mjs --key tools/xhovosu-cardkey/dev/dev_license_private_key.pk8 --days 30 --count 5
+node tools/xhovosu-cardkey/issue.mjs --key tools/xhovosu-cardkey/dev/cardkey_secret.bin --days 30 --count 5
 
 # 永久卡
-node tools/xhovosu-cardkey/issue.mjs --key <私钥> --days 0
+node tools/xhovosu-cardkey/issue.mjs --key <密钥> --days 0
 
 # 绑定某台设备（--device 填卡密页显示的 64 位指纹）
-node tools/xhovosu-cardkey/issue.mjs --key <私钥> --days 0 --device <指纹>
+node tools/xhovosu-cardkey/issue.mjs --key <密钥> --days 0 --device <指纹>
 ```
 
 也可以装 `activation-issuer` APK 在手机上发卡：填设备指纹、天数、数量，直接出卡密。
 
 ## 换成自己的密钥
 
-仓库自带一对公开的开发密钥（`tools/xhovosu-cardkey/dev/`），开箱可用，但私钥公开意味着谁都能伪造卡密。正式发版前：
+仓库自带一份公开的开发密钥（`tools/xhovosu-cardkey/dev/cardkey_secret.bin`），开箱可用，但它公开意味着谁都能印出能用的卡密。正式发版前：
 
 ```bash
-node tools/xhovosu-cardkey/keygen.mjs --out xhovo-keys
+node tools/xhovosu-cardkey/keygen.mjs --out xhovo-cardkey-keys
 ```
 
-把私钥 base64 配到 `XHOVO_LICENSE_PRIVATE_KEY_B64`、公钥 base64 DER 配到 `XHOVO_LICENSE_PUBKEY_DER_B64`，CI 会覆盖源码里的公钥常量并写入签发器资源。卡密页底部显示公钥指纹，与签发器顶部一致才算配对成功。
+把生成的 base64 配到 `XHOVO_CARDKEY_SECRET_B64`，CI 会覆盖 `CardKeyKeys.kt` 里的常量并写入签发器资源。卡密页底部显示密钥指纹，与签发器顶部一致才算配对成功。
 
 ## KMI 与签名绑定
 

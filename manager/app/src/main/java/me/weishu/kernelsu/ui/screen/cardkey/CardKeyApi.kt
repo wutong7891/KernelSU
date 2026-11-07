@@ -3,69 +3,59 @@ package me.weishu.kernelsu.ui.screen.cardkey
 import android.content.Context
 import android.provider.Settings
 import android.util.Base64
-import java.io.ByteArrayOutputStream
-import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.ksuApp
 
 /**
- * XhovoSU 独家卡密的校验引擎。
+ * XhovoSU 独家卡密的校验引擎（14 位格式）。
  *
- * 卡密是自包含的 ECDSA P-256 令牌，由签发端离线签名，管理器只做本机验签：
- * 没有账号、没有接口、没有可被下线的后端，断网也能用。
+ * 卡密 14 个 Crockford Base32 字符 = 70 bit，分成两段：
  *
- * 令牌 76 字节，Crockford Base32 编码，`XHOVO-` 前缀：
+ * | 段 | 长度 | 内容 |
+ * |----|------|------|
+ * | 前 8 字符 | 40 bit | 流水号 16 + 到期日 12 + 设备标签 12 |
+ * | 后 6 字符 | 30 bit | 前 40 bit 的 HMAC-SHA256 截断值 |
  *
- * | 偏移 | 长度 | 含义                                                   |
- * |------|------|--------------------------------------------------------|
- * | 0    | 1    | 版本，当前 0x02                                         |
- * | 1    | 1    | 标志位：bit0 绑定设备，bit1 永久有效                     |
- * | 2    | 3    | 流水号，大端                                            |
- * | 5    | 4    | 到期时间，大端 Unix 秒；永久卡为 0                       |
- * | 9    | 3    | 设备标签：设备指纹的前 3 字节                            |
- * | 12   | 64   | 签名：SHA-256 ECDSA，覆盖前 12 字节，r || s             |
+ * 到期日以 2024-01-01 为第 0 天，单位天，0 表示永久。设备标签为 0 表示通用卡，
+ * 否则是设备指纹（SHA-256 十六进制）前 3 位的数值。
  *
- * 签名只覆盖载荷，因此分组符、大小写、前后空白都不影响校验结果。
+ * 校验完全在本机完成，不联网。强度说明见 [CardKeyKeys]：30 bit 的截断 MAC 只能
+ * 防误输入，不是防逆向的授权体系。
  */
 object CardKeyApi {
 
     private const val KEY_LAST_SEEN = "last_seen_epoch"
 
     private const val PREFIX = "XHOVO"
-    private const val LEGACY_PREFIX = "NIGHT"
-    private const val VERSION = 0x02
-    private const val PAYLOAD_SIZE = 12
-    private const val SIGNATURE_SIZE = 64
-    private const val TOKEN_SIZE = PAYLOAD_SIZE + SIGNATURE_SIZE
+    private const val CODE_LENGTH = 14
+    private const val PAYLOAD_CHARS = 8
+    private const val CHECK_CHARS = 6
 
-    private const val FLAG_DEVICE_BOUND = 0x01
-    private const val FLAG_PERMANENT = 0x02
-
-    /** 允许的时钟回拨量，超过即认为设备时间被改过。 */
-    private const val CLOCK_SKEW_SECONDS = 2L * 24 * 60 * 60
+    /** 到期日历的第 0 天：2024-01-01（UTC）。 */
+    private const val DAY_EPOCH = 1704067200L
 
     private const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-    private val publicKey by lazy {
-        val der = Base64.decode(CardKeyKeys.PUBLIC_KEY_DER_BASE64, Base64.DEFAULT)
-        KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(der))
+    /** 超过这个回拨量就认为设备时间被改过。 */
+    private const val CLOCK_SKEW_SECONDS = 2L * 24 * 60 * 60
+
+    private val secret: ByteArray by lazy {
+        Base64.decode(CardKeyKeys.SECRET_BASE64, Base64.DEFAULT)
     }
 
-    /** 一次校验的结果，字段与旧版网络验证保持同名，便于界面复用。 */
     data class Outcome(
         val ok: Boolean,
         val code: Int,
         val msg: String,
         val expireAt: String? = null,
         val heartbeat: Int? = null,
-        /** true 表示卡密本身没问题、但读取本机状态失败（极罕见）。 */
         val networkError: Boolean = false,
     )
 
@@ -77,7 +67,7 @@ object CardKeyApi {
         val notAfter: Long,
     )
 
-    /** 设备指纹：SHA-256(Android ID)，管理器界面与签发器都显示这一串。 */
+    /** 设备指纹：SHA-256(Android ID)，卡密页显示的就是这一串。 */
     val deviceFingerprint: String by lazy {
         val androidId = runCatching {
             Settings.Secure.getString(ksuApp.contentResolver, Settings.Secure.ANDROID_ID)
@@ -87,17 +77,18 @@ object CardKeyApi {
         digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
-    fun deviceTag(): String = deviceFingerprint.take(6)
+    /** 12 bit 设备标签，与卡密里内嵌的值比较。 */
+    fun deviceTag(): Int = deviceFingerprint.take(3).toInt(16) and 0xFFF
+
+    fun deviceTagHex(): String = deviceTag().toString(16).padStart(3, '0')
 
     fun keyFingerprint(): String = runCatching {
-        val der = Base64.decode(CardKeyKeys.PUBLIC_KEY_DER_BASE64, Base64.DEFAULT)
-        MessageDigest.getInstance("SHA-256").digest(der)
+        MessageDigest.getInstance("SHA-256").digest(secret)
             .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
             .substring(0, 16)
             .uppercase(Locale.ROOT)
     }.getOrDefault("unknown")
 
-    /** 已记住的卡密，用于预填输入框。 */
     fun savedCode(context: Context = ksuApp): String =
         CardKeyStore.rememberedKey(context).orEmpty()
 
@@ -112,13 +103,11 @@ object CardKeyApi {
         evaluate(target)
     }
 
-    /** 离线模式下首次绑定不需要服务器参与，等同一次校验。 */
     suspend fun activate(code: String): Outcome = withContext(Dispatchers.Default) {
         if (code.isBlank()) return@withContext Outcome(false, 400, "请输入卡密")
         evaluate(code)
     }
 
-    /** 没有服务端就没有心跳；保留接口形状，避免调用方改动。 */
     fun startHeartbeat(intervalSeconds: Int) = Unit
 
     fun stopHeartbeat() = Unit
@@ -131,15 +120,15 @@ object CardKeyApi {
         }
 
         val now = System.currentTimeMillis() / 1000
-        if (claims.deviceBound && claims.deviceTag != deviceTag()) {
+        if (claims.deviceBound && claims.deviceTag != deviceTagHex()) {
             return Outcome(
                 false,
                 403,
-                "该卡密已绑定设备 ${claims.deviceTag.uppercase(Locale.ROOT)}，本机是 ${deviceTag().uppercase(Locale.ROOT)}",
+                "该卡密已绑定设备 ${claims.deviceTag.uppercase(Locale.ROOT)}，本机是 ${deviceTagHex().uppercase(Locale.ROOT)}",
             )
         }
         if (!claims.permanent && claims.notAfter <= now) {
-            return Outcome(false, 403, "卡密已于 ${formatTime(claims.notAfter)} 过期")
+            return Outcome(false, 403, "卡密已于 ${formatDate(claims.notAfter)} 过期")
         }
 
         val prefs = ksuApp.getSharedPreferences(CardKeyStore.PREFS_NAME, Context.MODE_PRIVATE)
@@ -153,104 +142,80 @@ object CardKeyApi {
             ok = true,
             code = 0,
             msg = "校验通过",
-            expireAt = if (claims.permanent) "永久有效" else formatTime(claims.notAfter),
+            expireAt = if (claims.permanent) "永久有效" else formatDate(claims.notAfter),
         )
     }
 
     private fun parse(rawCode: String): Claims {
         val body = normalize(rawCode)
-        require(body.isNotEmpty()) { "请输入卡密" }
-        val token = decodeBase32(body) ?: throw IllegalArgumentException("卡密格式无效，请确认复制完整")
-        if (token.size != TOKEN_SIZE) {
-            throw IllegalArgumentException("卡密长度无效（需要 $TOKEN_SIZE 字节，实际 ${token.size} 字节）")
-        }
-        val payload = token.copyOfRange(0, PAYLOAD_SIZE)
-        val signature = token.copyOfRange(PAYLOAD_SIZE, TOKEN_SIZE)
-        if ((payload[0].toInt() and 0xFF) != VERSION) {
-            throw IllegalArgumentException("卡密版本不受支持")
-        }
-        if (!verifySignature(payload, signature)) {
-            throw IllegalArgumentException("卡密签名无效，可能被修改或伪造")
+        require(body.length == CODE_LENGTH) { "卡密应为 $CODE_LENGTH 位，当前 ${body.length} 位" }
+
+        val payload = decode(body.substring(0, PAYLOAD_CHARS))
+            ?: throw IllegalArgumentException("卡密含有无效字符")
+        val checksum = decode(body.substring(PAYLOAD_CHARS))
+            ?: throw IllegalArgumentException("卡密含有无效字符")
+        if (mac(payload) != checksum) {
+            throw IllegalArgumentException("卡密校验失败，请确认没有抄错")
         }
         return readClaims(payload)
     }
 
-    private fun readClaims(payload: ByteArray): Claims {
-        val flags = payload[1].toInt() and 0xFF
-        val serial = ((payload[2].toInt() and 0xFF) shl 16) or
-            ((payload[3].toInt() and 0xFF) shl 8) or
-            (payload[4].toInt() and 0xFF)
-        val notAfter = ((payload[5].toLong() and 0xFF) shl 24) or
-            ((payload[6].toLong() and 0xFF) shl 16) or
-            ((payload[7].toLong() and 0xFF) shl 8) or
-            (payload[8].toLong() and 0xFF)
+    private fun readClaims(payload: Long): Claims {
+        val serial = ((payload ushr 24) and 0xFFFF).toInt()
+        val dayCode = ((payload ushr 12) and 0xFFF).toInt()
+        val tag = (payload and 0xFFF).toInt()
         return Claims(
             serial = serial,
-            permanent = (flags and FLAG_PERMANENT) != 0,
-            deviceBound = (flags and FLAG_DEVICE_BOUND) != 0,
-            deviceTag = (9..11).joinToString("") { "%02x".format(payload[it].toInt() and 0xFF) },
-            notAfter = notAfter,
+            permanent = dayCode == 0,
+            deviceBound = tag != 0,
+            deviceTag = tag.toString(16).padStart(3, '0'),
+            notAfter = if (dayCode == 0) 0L else DAY_EPOCH + dayCode * 86400L,
         )
     }
 
-    private fun verifySignature(payload: ByteArray, signature: ByteArray): Boolean = runCatching {
-        val verifier = Signature.getInstance("SHA256withECDSA")
-        verifier.initVerify(publicKey)
-        verifier.update(payload)
-        verifier.verify(rawToDer(signature))
-    }.getOrDefault(false)
+    /** 前 40 bit 的 HMAC-SHA256，取前 4 字节再右移 2 位，得到 30 bit。 */
+    private fun mac(payload: Long): Long {
+        val input = ByteArray(5)
+        input[0] = ((payload ushr 32) and 0xFF).toByte()
+        input[1] = ((payload ushr 24) and 0xFF).toByte()
+        input[2] = ((payload ushr 16) and 0xFF).toByte()
+        input[3] = ((payload ushr 8) and 0xFF).toByte()
+        input[4] = (payload and 0xFF).toByte()
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret, "HmacSHA256"))
+        val digest = mac.doFinal(input)
+        val head = ((digest[0].toInt() and 0xFF) shl 24) or
+            ((digest[1].toInt() and 0xFF) shl 16) or
+            ((digest[2].toInt() and 0xFF) shl 8) or
+            (digest[3].toInt() and 0xFF)
+        return (head ushr 2).toLong() and 0x3FFFFFFF
+    }
 
-    /** 去掉前缀、分隔符与空白，统一大写。旧品牌前缀也接受，方便平滑迁移。 */
     private fun normalize(input: String): String {
         val upper = input.trim().uppercase(Locale.ROOT)
-        val body = when {
-            upper.startsWith(PREFIX) -> upper.removePrefix(PREFIX)
-            upper.startsWith(LEGACY_PREFIX) -> upper.removePrefix(LEGACY_PREFIX)
-            else -> upper
-        }
+        val body = if (upper.startsWith(PREFIX)) upper.substring(PREFIX.length) else upper
         return body.filter { it.isLetterOrDigit() }
     }
 
-    private fun alphabetIndex(char: Char): Int? = when (char) {
+    private fun alphabetIndex(char: Char): Int = when (char) {
         in '0'..'9' -> char - '0'
         'O' -> 0
         'I', 'L' -> 1
-        in 'A'..'Z' -> ALPHABET.indexOf(char).takeIf { it >= 0 }
-        else -> null
+        in 'A'..'Z' -> ALPHABET.indexOf(char)
+        else -> -1
     }
 
-    private fun decodeBase32(text: String): ByteArray? {
-        val output = ByteArrayOutputStream(text.length * 5 / 8)
-        var buffer = 0
-        var bits = 0
+    /** 把若干个 5 bit 字符还原成数值；非法字符返回 null。 */
+    private fun decode(text: String): Long? {
+        var value = 0L
         for (char in text) {
-            val value = alphabetIndex(char) ?: return null
-            buffer = (buffer shl 5) or value
-            bits += 5
-            if (bits >= 8) {
-                bits -= 8
-                output.write((buffer shr bits) and 0xFF)
-            }
+            val digit = alphabetIndex(char)
+            if (digit < 0) return null
+            value = value * 32 + digit
         }
-        if (bits > 0 && (buffer and ((1 shl bits) - 1)) != 0) return null
-        return output.toByteArray()
+        return value
     }
 
-    private fun derInteger(value: ByteArray): ByteArray {
-        var start = 0
-        while (start < value.size - 1 && value[start].toInt() == 0) start++
-        val stripped = value.copyOfRange(start, value.size)
-        val padded = if ((stripped[0].toInt() and 0x80) != 0) byteArrayOf(0.toByte()) + stripped else stripped
-        return byteArrayOf(0x02.toByte(), padded.size.toByte()) + padded
-    }
-
-    private fun rawToDer(signature: ByteArray): ByteArray {
-        val r = derInteger(signature.copyOfRange(0, 32))
-        val s = derInteger(signature.copyOfRange(32, 64))
-        val body = r + s
-        return byteArrayOf(0x30.toByte(), body.size.toByte()) + body
-    }
-
-    private fun formatTime(epochSeconds: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1000))
+    private fun formatDate(epochSeconds: Long): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(epochSeconds * 1000))
 }

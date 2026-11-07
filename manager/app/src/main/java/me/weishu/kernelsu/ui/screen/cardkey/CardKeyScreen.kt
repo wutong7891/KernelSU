@@ -344,7 +344,7 @@ fun CardKeyScreen(
                             BasicTextField(
                                 value = input,
                                 onValueChange = { raw ->
-                                    input = raw.uppercase().take(200)
+                                    input = raw.uppercase().take(20)
                                     error = null
                                 },
                                 modifier = Modifier
@@ -368,7 +368,7 @@ fun CardKeyScreen(
                             )
                             if (input.isEmpty()) {
                                 Text(
-                                    text = "XHOVO-XXXXX-XXXXX-…",
+                                    text = "XXXX-XXXX-XXXX-XX",
                                     color = p.subtitle.copy(alpha = 0.55f),
                                     fontSize = 13.sp,
                                     letterSpacing = 1.sp,
@@ -495,7 +495,7 @@ fun CardKeyScreen(
                     Spacer(Modifier.height(10.dp))
 
                     Text(
-                        text = "卡密由签发端离线签名，本机验签 · 公钥 $keyFingerprint",
+                        text = "卡密由签发端离线生成，本机校验 · 密钥 $keyFingerprint",
                         color = p.subtitle.copy(alpha = 0.72f),
                         fontSize = 10.sp,
                         letterSpacing = 0.6.sp,

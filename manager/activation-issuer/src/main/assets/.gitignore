@@ -1,5 +1,5 @@
 # Licence signing keys are injected by CI from repository secrets.
 # Never commit the private half.
-xhovo_license_private_key.pk8
+xhovo_cardkey_secret.bin
 xhovo_activation_private_key.pem
 xhovo_activation_private_key.pk8
