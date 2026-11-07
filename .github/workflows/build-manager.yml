@@ -217,17 +217,27 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Embed Night activation PEM and PK8
+      - name: Embed Night licence keys
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        working-directory: .
         env:
-          NIGHT_ACTIVATION_PRIVATE_KEY_PEM: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PEM }}
-          NIGHT_ACTIVATION_PRIVATE_KEY_PK8: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PK8 }}
+          NIGHT_LICENSE_PRIVATE_KEY_B64: ${{ secrets.NIGHT_LICENSE_PRIVATE_KEY_B64 }}
+          NIGHT_LICENSE_PUBKEY_DER_B64: ${{ secrets.NIGHT_LICENSE_PUBKEY_DER_B64 }}
         run: |
-          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM"
-          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8"
-          mkdir -p activation-issuer/src/main/assets
-          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pem
-          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pk8
+          test -n "$NIGHT_LICENSE_PRIVATE_KEY_B64"
+          test -n "$NIGHT_LICENSE_PUBKEY_DER_B64"
+          mkdir -p manager/activation-issuer/src/main/assets
+          echo "$NIGHT_LICENSE_PRIVATE_KEY_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_private_key.pk8
+          echo "$NIGHT_LICENSE_PUBKEY_DER_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_public_key.der
+          python3 scripts/update_night_license_pubkey.py --key "$NIGHT_LICENSE_PUBKEY_DER_B64"
+
+      - name: Assert licence verification stays offline
+        working-directory: .
+        run: |
+          if grep -rnE "https?://|okhttp3|OkHttpClient" manager/app/src/main/java/me/weishu/kernelsu/ui/activation/ ; then
+            echo "::error::Night licence verification must run on-device, never over the network"
+            exit 1
+          fi
 
       - name: Build with Gradle
         run: |
@@ -250,7 +260,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v7
         with:
-          name: Night-Activation-Issuer-Android
+          name: Night-Offline-Issuer-Android
           path: manager/activation-issuer/build/outputs/apk/release/*.apk
 
       - name: Upload WTLYF toolbox APK

@@ -1,4 +1,7 @@
-name: Build Night Activation Issuers
+name: Build Night Offline Issuer
+
+# Builds the offline licence issuer. Licences are ECDSA P-256 tokens signed by
+# the issuer and verified inside the Manager; nothing here talks to a server.
 
 on:
   workflow_dispatch:
@@ -7,25 +10,27 @@ on:
     paths:
       - '.github/workflows/night-activation-issuer.yml'
       - 'manager/activation-issuer/**'
-      - 'tools/night-activation-issuer/**'
+      - 'tools/night-offline-issuer/**'
+      - 'scripts/update_night_license_pubkey.py'
 
 permissions:
   contents: read
 
 jobs:
-  windows-issuer:
-    runs-on: windows-latest
+  issuer-format:
+    name: Licence format self-test
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Build Windows issuer
-        run: dotnet build tools/night-activation-issuer/NightActivationIssuer.csproj -c Release
-      - name: Upload Windows issuer
-        uses: actions/upload-artifact@v7
+      - uses: actions/setup-node@v4
         with:
-          name: Night-Activation-Issuer-Windows
-          path: tools/night-activation-issuer/bin/Release/net48/Night-Activation-Issuer.exe
+          node-version: 22
+      - name: Run issuer self-test
+        working-directory: ./tools/night-offline-issuer
+        run: node test.mjs
 
   android-issuer:
+    needs: issuer-format
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,16 +43,20 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
       - uses: android-actions/setup-android@v4
-      - name: Embed Night activation PEM and PK8
+      - name: Embed Night licence signing key
+        working-directory: .
         env:
-          NIGHT_ACTIVATION_PRIVATE_KEY_PEM: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PEM }}
-          NIGHT_ACTIVATION_PRIVATE_KEY_PK8: ${{ secrets.NIGHT_ACTIVATION_PRIVATE_KEY_PK8 }}
+          NIGHT_LICENSE_PRIVATE_KEY_B64: ${{ secrets.NIGHT_LICENSE_PRIVATE_KEY_B64 }}
+          NIGHT_LICENSE_PUBKEY_DER_B64: ${{ secrets.NIGHT_LICENSE_PUBKEY_DER_B64 }}
         run: |
-          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM"
-          test -n "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8"
-          mkdir -p activation-issuer/src/main/assets
-          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PEM" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pem
-          echo "$NIGHT_ACTIVATION_PRIVATE_KEY_PK8" | base64 -d > activation-issuer/src/main/assets/night_activation_private_key.pk8
+          if [ -n "$NIGHT_LICENSE_PRIVATE_KEY_B64" ] && [ -n "$NIGHT_LICENSE_PUBKEY_DER_B64" ]; then
+            mkdir -p manager/activation-issuer/src/main/assets
+            echo "$NIGHT_LICENSE_PRIVATE_KEY_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_private_key.pk8
+            echo "$NIGHT_LICENSE_PUBKEY_DER_B64" | base64 -d > manager/activation-issuer/src/main/assets/night_license_public_key.der
+            python3 scripts/update_night_license_pubkey.py --key "$NIGHT_LICENSE_PUBKEY_DER_B64"
+          else
+            echo "::warning::NIGHT_LICENSE_PRIVATE_KEY_B64 / NIGHT_LICENSE_PUBKEY_DER_B64 not set; building a development issuer that cannot sign production licences"
+          fi
       - name: Write stable Night signing key
         env:
           NIGHT_KEYSTORE: ${{ secrets.NIGHT_KEYSTORE }}
@@ -68,5 +77,5 @@ jobs:
       - name: Upload Android issuer
         uses: actions/upload-artifact@v7
         with:
-          name: Night-Activation-Issuer-Android
+          name: Night-Offline-Issuer-Android
           path: manager/activation-issuer/build/outputs/apk/release/*.apk

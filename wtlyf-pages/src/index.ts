@@ -306,6 +306,18 @@ async function firewall(
   }
   return null;
 }
+// Night licences moved offline: the Manager verifies an ECDSA token locally and
+// never contacts this Worker. These endpoints stay registered so old clients get
+// an explicit, unmistakable answer instead of a generic 404.
+const RETIRED_NIGHT_LICENCE_PATHS = new Set([
+  "/api/v1/night/activate",
+  "/api/v1/night/check",
+  "/api/v1/night/session/start",
+  "/api/v1/night/session/key",
+  "/api/night/sign",
+]);
+const isRetiredNightLicencePath = (path: string) =>
+  RETIRED_NIGHT_LICENCE_PATHS.has(path) || path.startsWith("/api/admin/night/");
 const normalize = (value: unknown) => {
   const code = String(value ?? "")
     .normalize("NFKC")
@@ -1841,12 +1853,20 @@ const $=s=>document.querySelector(s);async function json(path,options={}){const 
 </script></body></html>`;
 }
 
-function nightLicenseSite(nonce: string) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070b18"><title>Night 独立卡密中心</title><style nonce="${nonce}">
-*{box-sizing:border-box}body{margin:0;min-height:100vh;color:#eef5ff;font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:radial-gradient(circle at 12% 8%,#174d75 0,transparent 34%),radial-gradient(circle at 88% 12%,#552b7e 0,transparent 30%),#070b18}main{width:min(960px,calc(100% - 28px));margin:auto;padding:24px 0 60px}.card{border:1px solid #ffffff2c;background:#101a31d8;box-shadow:0 22px 70px #0008;backdrop-filter:blur(24px);border-radius:26px;padding:24px;margin-bottom:18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}h1,h2{margin:0 0 14px}.back{display:inline-block;color:#dce9ff;text-decoration:none;margin-bottom:14px}label{display:block;margin:12px 0 6px;color:#c5d2e8}input,select,button,textarea{width:100%;border-radius:14px;border:1px solid #ffffff30;padding:13px 15px;font:inherit;color:#fff;background:#071022c7}textarea{min-height:145px;resize:vertical}button{cursor:pointer;margin-top:13px;font-weight:700;background:linear-gradient(120deg,#2f8cff,#8056e8)}button.danger{background:linear-gradient(120deg,#ad3157,#771d48)}.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.status{min-height:24px;margin-top:12px;color:#91d9ff;word-break:break-all}.muted{color:#9cabc4}.duration{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.grid{grid-template-columns:1fr}.card{padding:20px;border-radius:21px}.actions{grid-template-columns:1fr}}
-</style></head><body><main><a class="back" href="/">← 返回账户中心</a><section class="card"><h1>Night 独立卡密中心</h1><p class="muted">与 WTLYF 卡密完全分离。一台设备只能绑定一张 Night 卡密；支持查询、解绑和永久删除。</p></section><div class="grid"><section class="card"><h2>自定义生成</h2><label>自定义卡密（选填）</label><input id="custom" maxlength="128" placeholder="可输入任意文字；留空则随机生成"><label>随机生成数量</label><input id="count" type="number" min="1" max="100" value="1"><div class="duration"><div><label>设备使用上限</label><input id="deviceLimit" type="number" min="1" max="100000" value="1"></div><div><label>限制方式</label><select id="limitMode"><option value="limited">限制设备数量</option><option value="unlimited">无限设备</option></select></div></div><p class="muted">自定义时只生成一张；Night 卡密默认永久有效。</p><button id="generate">生成 Night 卡密</button><label>结果</label><textarea id="output" readonly></textarea></section><section class="card"><h2>管理卡密</h2><label>Night 卡密</label><input id="code" placeholder="输入随机卡密或自定义文字"><div class="actions"><button id="query">查询</button><button id="unbind">解绑</button><button id="delete" class="danger">删除</button></div><div id="status" class="status">独立 Night 卡密服务已连接</div><textarea id="details" readonly placeholder="查询结果"></textarea></section></div></main><script nonce="${nonce}">
-const $=s=>document.querySelector(s);async function api(path,body){const r=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(body)});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||'请求失败');return d}function code(){return $('#code').value.trim().toUpperCase()}$('#generate').onclick=async()=>{try{$('#status').textContent='正在生成…';const unlimited=$('#limitMode').value==='unlimited',deviceLimit=unlimited?null:Number($('#deviceLimit').value);const d=await api('/api/admin/night/generate',{count:Number($('#count').value),customCode:$('#custom').value,deviceLimit,unlimited});$('#output').value=d.codes.join('\\n');$('#status').textContent=d.custom?'Night 自定义卡密签发成功':'Night 卡密生成成功'}catch(e){$('#status').textContent=e.message}};$('#query').onclick=async()=>{try{const d=await api('/api/admin/night/status',{code:code()});$('#details').value=JSON.stringify(d.license,null,2);$('#status').textContent='查询成功'}catch(e){$('#status').textContent=e.message}};$('#unbind').onclick=async()=>{if(!confirm('确认解绑这张 Night 卡密？解绑后可绑定新设备。'))return;try{const d=await api('/api/admin/night/unbind',{code:code()});$('#status').textContent=d.message;$('#details').value=''}catch(e){$('#status').textContent=e.message}};$('#delete').onclick=async()=>{if(!confirm('确认永久删除这张 Night 卡密？'))return;try{const d=await api('/api/admin/night/delete',{code:code()});$('#status').textContent=d.message;$('#code').value='';$('#details').value=''}catch(e){$('#status').textContent=e.message}};
-</script></body></html>`;
+function nightLicenceRetiredSite(nonce: string) {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070b18"><title>Night 卡密已改为离线签名</title><style nonce="${nonce}">
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 10%,#16233b,#070b18 60%);color:#e7eefc;font:16px/1.7 "Segoe UI","Microsoft YaHei UI",sans-serif;padding:24px}
+main{max-width:660px;background:rgba(18,26,43,.88);border:1px solid rgba(120,170,255,.18);border-radius:22px;padding:32px}
+h1{margin:0 0 14px;font-size:24px;color:#99d3ff}
+p{margin:0 0 12px;color:#b9c6dd}
+code{background:rgba(120,170,255,.12);padding:2px 6px;border-radius:6px;color:#d7e6ff;word-break:break-all}
+a{color:#7fc4ff}
+</style></head><body><main><h1>Night 卡密已改为离线签名</h1>
+<p>本服务器不再签发、查询或解绑 Night 卡密。卡密现在由离线签发器签名，Night 安装包内置公钥并在本机校验，全程不联网。</p>
+<p>签发方式一：<code>node tools/night-offline-issuer/issue.mjs --key &lt;私钥&gt; --days 30 --count 5</code></p>
+<p>签发方式二：安装 Night 离线签发器 APK，输入设备指纹与有效天数即可生成。</p>
+<p><a href="/">← 返回账户中心</a></p></main></body></html>`;
 }
 
 async function serveAsset(
@@ -1925,6 +1945,15 @@ export default {
       path = url.pathname.replace(/\/+$/, "") || "/",
       accountHost = url.hostname === new URL(ADMIN_SITE_ORIGIN).hostname,
       legacyAccountHost = url.hostname === LEGACY_ADMIN_HOST;
+    if (isRetiredNightLicencePath(path))
+      return reply(
+        {
+          ok: false,
+          error: "night_license_retired",
+          message: "Night 卡密已改为离线签名，服务器不再签发或校验卡密",
+        },
+        410,
+      );
     const country = String((request as any).cf?.country ?? "").toUpperCase();
     if (
       (accountHost || path.startsWith("/api/admin/")) &&
@@ -2096,7 +2125,7 @@ export default {
         crypto.getRandomValues(new Uint8Array(18)),
         (b) => b.toString(16).padStart(2, "0"),
       ).join("");
-      return new Response(nightLicenseSite(nonce), {
+      return new Response(nightLicenceRetiredSite(nonce), {
         headers: {
           ...PAGE_HEADERS,
           "content-security-policy": `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
