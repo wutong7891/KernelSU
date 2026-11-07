@@ -33,8 +33,14 @@ object CardKeyApi {
     private const val PREFS = "xhovo_su_cardkey"
     private const val KEY_API_BASE = "api_base"
 
-    /** 部署后用面板反代到本机 8080 即可，端口/域名不同改这里或运行时覆盖。 */
-    private const val DEFAULT_API_BASE = "https://82.158.231.234:30452"
+    /** 部署后用面板反代到本机 18080 即可，端口/域名不同改这里或运行时覆盖。 */
+    private const val DEFAULT_API_BASE = "http://82.158.231.234"
+
+    /**
+     * 服务器上 nginx 只给 wutong.linux.cn 这个 Host 配了反代，用 IP 访问时
+     * 需要手动带上 Host 头，否则会落到 default server 返回 404。
+     */
+    private const val SERVER_HOST_HEADER = "wutong.linux.cn"
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
@@ -108,10 +114,12 @@ object CardKeyApi {
             .toString()
 
         return runCatching {
-            val request = Request.Builder()
+            val builder = Request.Builder()
                 .url(url)
                 .post(payload.toRequestBody(jsonType))
-                .build()
+            // 直连 IP 时补上站点 Host，让 nginx 命中反向代理的 server 块。
+            if (url.contains("82.158.231.234")) builder.header("Host", SERVER_HOST_HEADER)
+            val request = builder.build()
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (text.isBlank()) {

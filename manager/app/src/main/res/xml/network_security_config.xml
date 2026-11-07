@@ -4,5 +4,8 @@
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">0.0.0.0</domain>
         <domain includeSubdomains="true">::1</domain>
+        <!-- XhovoSU 卡密服务器：目前只开了 80 端口，等 443 可用后可以去掉这两条。 -->
+        <domain includeSubdomains="false">82.158.231.234</domain>
+        <domain includeSubdomains="true">wutong.linux.cn</domain>
     </domain-config>
 </network-security-config>
