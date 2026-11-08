@@ -89,6 +89,29 @@ foreground_package() {
   printf '%s' "$pkg"
 }
 
+# ---------- 第三路：扫 /proc，用 oom_score_adj 判断前台 ----------
+# 不依赖面具、也不依赖任何 userspace 服务，只要内核还暴露 /proc 就能读
+foreground_by_ps() {
+  for d in /proc/[0-9]*; do
+    [ -r "$d/oom_score_adj" ] || continue
+    adj=$(cat "$d/oom_score_adj" 2>/dev/null)
+    [ "$adj" = "0" ] || continue
+    nm=$(tr '\000' '\n' < "$d/cmdline" 2>/dev/null | head -n 1)
+    case "$nm" in
+      # 只接受看起来像包名的（必须含点，且不含路径和空格）
+      *.*) ;;
+      *) continue ;;
+    esac
+    case "$nm" in
+      */*|*' '*) continue ;;
+      system_server|zygote*|*android*|*system*) continue ;;
+    esac
+    printf '%s' "$nm"
+    return 0
+  done
+  return 1
+}
+
 append_log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
   size=$(wc -c < "$LOG_FILE" 2>/dev/null)
@@ -133,14 +156,18 @@ while true; do
   current=$(cat "$EVENT_FILE" 2>/dev/null)
   rm -f "$EVENT_FILE"
 
-  # 事件没来就每 2 秒轮询一次兜底
-  if [ -z "$current" ]; then
-    sleep 2
-    current=$(foreground_package)
-  else
+  if [ -n "$current" ]; then
+    # 钩子给了事件，再用 dumpsys 确认一次
     sleep 0.3
     polled=$(foreground_package)
     [ -n "$polled" ] && current="$polled"
+  else
+    sleep 2
+    current=$(foreground_package)
+    # dumpsys 拿不到时，直接扫 /proc
+    if [ -z "$current" ]; then
+      current=$(foreground_by_ps)
+    fi
   fi
 
   if [ "$current" = "$target" ] && [ "$last_foreground" != "$target" ]; then
