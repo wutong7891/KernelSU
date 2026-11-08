@@ -425,4 +425,8 @@
     <string name="customize_no_output">开启后这里会显示过程</string>
     <string name="customize_refresh">刷新</string>
     <string name="customize_save">保存配置并重启监听</string>
+    <string name="customize_key_down">音量−</string>
+    <string name="customize_key_up">音量+</string>
+    <string name="customize_mode_long">长按</string>
+    <string name="customize_mode_click">连点</string>
 </resources>

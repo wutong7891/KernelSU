@@ -1,6 +1,5 @@
-﻿package me.weishu.kernelsu.ui.customize
+package me.weishu.kernelsu.ui.customize
 
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.compose.foundation.clickable
@@ -77,7 +76,9 @@ fun CustomizeScreen() {
     var showPicker by remember { mutableStateOf(false) }
     var apps by remember { mutableStateOf(emptyList<AppEntry>()) }
 
-    fun announce(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    fun announce(msg: String) {
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    }
 
     fun refresh() {
         scope.launch {
@@ -135,6 +136,29 @@ fun CustomizeScreen() {
         }
     }
 
+    fun saveConfig() {
+        if (busy) return
+        if (target.isBlank()) {
+            announce(context.getString(R.string.customize_need_app))
+            return
+        }
+        scope.launch {
+            busy = true
+            val result = withContext(Dispatchers.IO) {
+                CustomizeController.saveConfig(context, target, key, mode, count, longMs)
+            }
+            busy = false
+            result.onSuccess {
+                log = it
+                announce(it)
+            }.onFailure {
+                log = it.message.orEmpty()
+                announce(it.message ?: context.getString(R.string.customize_failed))
+            }
+            refresh()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -155,7 +179,6 @@ fun CustomizeScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ---------- 寮€鍏?----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -164,8 +187,14 @@ fun CustomizeScreen() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.customize_switch), style = MaterialTheme.typography.titleMedium)
-                            Text(stringResource(R.string.customize_switch_summary), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                stringResource(R.string.customize_switch),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                stringResource(R.string.customize_switch_summary),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                         Switch(checked = watching, onCheckedChange = { toggle(it) }, enabled = !busy)
                     }
@@ -177,32 +206,17 @@ fun CustomizeScreen() {
                             else -> stringResource(R.string.customize_state_off)
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (watching) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (watching) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedButton(
-                        onClick = {
-                            if (target.isBlank()) {
-                                announce(context.getString(R.string.customize_need_app))
-                            } else {
-                                scope.launch {
-                                    busy = true
-                                    val r = withContext(Dispatchers.IO) {
-                                        CustomizeController.saveConfig(context, target, key, mode, count, longMs)
-                                    }
-                                    busy = false
-                                    r.onSuccess { log = it; announce(it) }
-                                        .onFailure { log = it.message.orEmpty(); announce(it.message ?: "失败") }
-                                    refresh()
-                                }
-                            }
-                        },
+                        onClick = { saveConfig() },
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(stringResource(R.string.customize_save)) }
                 }
             }
 
-            // ---------- 鐩爣搴旂敤 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.customize_config), style = MaterialTheme.typography.titleMedium)
@@ -214,13 +228,19 @@ fun CustomizeScreen() {
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = if (target.isBlank()) stringResource(R.string.customize_not_selected) else targetLabel,
+                                text = if (target.isBlank()) stringResource(R.string.customize_not_selected)
+                                else targetLabel,
                                 style = MaterialTheme.typography.bodyLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (target.isNotBlank()) {
-                                Text(target, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                Text(
+                                    target,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                         OutlinedButton(onClick = { showPicker = true }) {
@@ -230,7 +250,6 @@ fun CustomizeScreen() {
                 }
             }
 
-            // ---------- 鎵嬪娍 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(stringResource(R.string.customize_gesture), style = MaterialTheme.typography.titleMedium)
@@ -238,29 +257,35 @@ fun CustomizeScreen() {
 
                     Text(stringResource(R.string.customize_key), style = MaterialTheme.typography.labelMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("voldown" to "闊抽噺鈭?, "volup" to "闊抽噺+").forEach { (v, label) ->
-                            FilterChip(
-                                selected = key == v,
-                                onClick = { key = v },
-                                label = { Text(label) }
-                            )
-                        }
+                        FilterChip(
+                            selected = key == "voldown",
+                            onClick = { key = "voldown" },
+                            label = { Text(stringResource(R.string.customize_key_down)) }
+                        )
+                        FilterChip(
+                            selected = key == "volup",
+                            onClick = { key = "volup" },
+                            label = { Text(stringResource(R.string.customize_key_up)) }
+                        )
                     }
 
                     Text(stringResource(R.string.customize_mode), style = MaterialTheme.typography.labelMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("long" to "闀挎寜", "click" to "杩炵偣").forEach { (v, label) ->
-                            FilterChip(
-                                selected = mode == v,
-                                onClick = { mode = v },
-                                label = { Text(label) }
-                            )
-                        }
+                        FilterChip(
+                            selected = mode == "long",
+                            onClick = { mode = "long" },
+                            label = { Text(stringResource(R.string.customize_mode_long)) }
+                        )
+                        FilterChip(
+                            selected = mode == "click",
+                            onClick = { mode = "click" },
+                            label = { Text(stringResource(R.string.customize_mode_click)) }
+                        )
                     }
 
                     if (mode == "long") {
                         Text(
-                            stringResource(R.string.customize_long_ms) + "  ${longMs}ms",
+                            stringResource(R.string.customize_long_ms) + "  " + longMs + "ms",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -268,13 +293,13 @@ fun CustomizeScreen() {
                                 FilterChip(
                                     selected = longMs == ms,
                                     onClick = { longMs = ms },
-                                    label = { Text("${ms}") }
+                                    label = { Text(ms.toString()) }
                                 )
                             }
                         }
                     } else {
                         Text(
-                            stringResource(R.string.customize_count) + "  ${count}",
+                            stringResource(R.string.customize_count) + "  " + count,
                             style = MaterialTheme.typography.bodySmall
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -282,7 +307,7 @@ fun CustomizeScreen() {
                                 FilterChip(
                                     selected = count == n,
                                     onClick = { count = n },
-                                    label = { Text("$n") }
+                                    label = { Text(n.toString()) }
                                 )
                             }
                         }
@@ -290,22 +315,27 @@ fun CustomizeScreen() {
                 }
             }
 
-            // ---------- 鐘舵€?----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(stringResource(R.string.customize_apk_state), style = MaterialTheme.typography.titleSmall)
                         Text(
-                            if (mirrorBytes > 0) "${mirrorBytes / 1024} KB" else stringResource(R.string.customize_apk_missing),
+                            if (mirrorBytes > 0) (mirrorBytes / 1024).toString() + " KB"
+                            else stringResource(R.string.customize_apk_missing),
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (mirrorBytes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            color = if (mirrorBytes > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
                         )
                     }
-                    Text(CustomizeController.apkPath(), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    Text(
+                        CustomizeController.apkPath(),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
                 }
             }
 
-            // ---------- 杈撳嚭 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -348,14 +378,20 @@ fun CustomizeScreen() {
                                 .padding(vertical = 10.dp)
                         ) {
                             Text(app.label, style = MaterialTheme.typography.bodyLarge)
-                            Text(app.packageName, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                            Text(
+                                app.packageName,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
                         }
                         HorizontalDivider()
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showPicker = false }) { Text("鍙栨秷") } }
+            confirmButton = {
+                TextButton(onClick = { showPicker = false }) { Text("取消") }
+            }
         )
     }
 }
-

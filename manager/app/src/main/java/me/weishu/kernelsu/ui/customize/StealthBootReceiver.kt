@@ -1,4 +1,4 @@
-﻿package me.weishu.kernelsu.ui.customize
+package me.weishu.kernelsu.ui.customize
 
 import android.content.BroadcastReceiver
 import android.content.Context
