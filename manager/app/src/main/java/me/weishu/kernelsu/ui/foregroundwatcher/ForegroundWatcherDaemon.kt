@@ -5,114 +5,119 @@ import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.util.getRootShell
 import java.io.File
 
+/**
+ * 前台应用监听守护进程。
+ *
+ * 设计要点：
+ * - 所有 shell 逻辑都写在 assets 的 install.sh 里，这里只负责准备文件并调用它，
+ *   避免在 Kotlin 字符串里拼命令带来的转义问题。
+ * - 状态目录放在 /data/local，不在 /data/adb，卸载 KernelSU 不会被清理。
+ * - 进程用 setsid 脱离，父进程会变成 init，面具关了、卸载了都带不走它。
+ */
 object ForegroundWatcherDaemon {
+
     private const val ROOT_DIR = "/data/local/xhovosu_fgwatch"
     private const val PID_FILE = "$ROOT_DIR/watcher.pid"
+    private const val LOCK_FILE = "$ROOT_DIR/watcher.lock/pid"
 
     fun start(context: Context): Result<Unit> = runCatching {
         val config = ForegroundWatcherStore.read(context)
+
         require(config.packageName.matches(Regex("^[A-Za-z0-9._]+$"))) {
-            context.getString(R.string.foreground_watcher_invalid_package)
+            context.getString(R.string.foreground_watcher_pick_app_first)
         }
-        val selectedScript = ForegroundWatcherStore.scriptFile(context)
-        require(selectedScript.isFile) {
+
+        val script = ForegroundWatcherStore.scriptFile(context)
+        require(script.isFile) {
             context.getString(R.string.foreground_watcher_pick_script_first)
         }
 
-        val stage = File(context.cacheDir, "foreground_watcher_stage").apply { mkdirs() }
-        val watcher = File(stage, "watcher.sh")
-        context.assets.open("foreground_watcher/watcher.sh").use { input ->
-            watcher.outputStream().use { output -> input.copyTo(output) }
+        // 1. 把所有要落地的文件准备到缓存目录
+        val stage = File(context.cacheDir, "xhovo_fg_stage").apply {
+            deleteRecursively()
+            mkdirs()
         }
-        val packageFile = File(stage, "package").apply { writeText(config.packageName + "\n") }
-        // 预输入：统一成 LF，并保证最后一行也有换行，相当于每行末尾自动回车
-        val preInputNormalized = config.preInput
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
-            .let { text ->
-                when {
-                    text.isEmpty() -> ""
-                    text.endsWith("\n") -> text
-                    else -> text + "\n"
-                }
-            }
-        val preInputFile = File(stage, "pre_input").apply { writeText(preInputNormalized) }
-        listOf(watcher, packageFile, preInputFile, selectedScript).forEach { it.setReadable(true, false) }
 
-        // 每一步都容错，避免某条命令返回非零就把整条链掐断
-        val command = buildString {
-            append("mkdir -p ").append(quote("$ROOT_DIR/config")).append(" 2>/dev/null; ")
-            append("chmod 0755 ").append(quote(ROOT_DIR)).append(" 2>/dev/null; ")
-            // 旧实例由 stopCommand() 和 watcher.sh 自己的锁负责清理
-            append("cp -f ").append(quote(watcher.absolutePath)).append(' ').append(quote("$ROOT_DIR/watcher.sh")).append(" 2>&1; ")
-            append("cp -f ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append(" 2>&1; ")
-            append("cp -f ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append(" 2>&1; ")
-            append("cp -f ").append(quote(selectedScript.absolutePath)).append(' ').append(quote("$ROOT_DIR/selected_script.sh")).append(" 2>&1; ")
-            append("chmod 0755 ").append(quote("$ROOT_DIR/watcher.sh")).append(' ')
-                .append(quote("$ROOT_DIR/selected_script.sh")).append(" 2>&1; ")
-            append("chmod 0600 ").append(quote("$ROOT_DIR/config/package")).append(' ')
-                .append(quote("$ROOT_DIR/config/pre_input")).append(" 2>&1; ")
-            append("rm -f ").append(quote("$ROOT_DIR/watcher.pid")).append("; ")
-            append("if command -v setsid >/dev/null 2>&1; then ")
-            append("nohup setsid /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
-            append(" </dev/null >/dev/null 2>&1 & ")
-            append("else nohup /system/bin/sh ").append(quote("$ROOT_DIR/watcher.sh"))
-            append(" </dev/null >/dev/null 2>&1 & fi; ")
-            append("sleep 1; echo XHOVO-DONE")
-        }
+        copyAsset(context, "foreground_watcher/watcher.sh", File(stage, "watcher.sh"))
+        copyAsset(context, "foreground_watcher/install.sh", File(stage, "install.sh"))
+        File(stage, "package").writeText(config.packageName + "\n")
+        File(stage, "pre_input").writeText(normalizePreInput(config.preInput))
+        script.copyTo(File(stage, "selected_script.sh"), overwrite = true)
+
+        // 2. 交给 shell 去安装和启动
+        val command = "sh " + shQuote(File(stage, "install.sh").absolutePath) +
+                " " + shQuote(stage.absolutePath) + " 2>&1"
 
         val out = ArrayList<String>()
         val err = ArrayList<String>()
         getRootShell().newJob().add(command).to(out, err).exec()
 
-        // 以进程是否真的跑起来为准，而不是命令退出码
+        val detail = (out + err).map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+
+        // 3. 以进程是否真的活着作为成功标准
         var running = false
-        repeat(6) {
+        repeat(8) {
             if (isRunning()) {
                 running = true
                 return@repeat
             }
-            Thread.sleep(250)
+            Thread.sleep(200)
         }
+
         if (!running) {
-            val detail = (err + out).map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
-            error(
-                if (detail.isBlank()) {
-                    context.getString(R.string.foreground_watcher_start_failed)
-                } else {
-                    detail.take(400)
-                }
-            )
+            error(detail.ifBlank { context.getString(R.string.foreground_watcher_start_failed) })
         }
+        stage.deleteRecursively()
     }
 
     fun stop(): Result<Unit> = runCatching {
-        val result = getRootShell().newJob().add(stopCommand()).exec()
-        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "Cannot stop watcher" } }
+        val command = buildString {
+            append("pid=$(cat ").append(shQuote(PID_FILE)).append(" 2>/dev/null); ")
+            append("if [ -n \"$pid\" ]; then kill \"$pid\" 2>/dev/null; sleep 1; kill -9 \"$pid\" 2>/dev/null; fi; ")
+            append("rm -f ").append(shQuote(PID_FILE)).append(' ').append(shQuote(LOCK_FILE)).append("; ")
+            append("rm -rf ").append(shQuote("$ROOT_DIR/watcher.lock")).append(" 2>/dev/null; ")
+            append("echo STOPPED")
+        }
+        val result = getRootShell().newJob().add(command).exec()
+        check(result.isSuccess) { result.err.joinToString("\n").ifBlank { "停止失败" } }
     }
 
     fun isRunning(): Boolean {
         val out = ArrayList<String>()
-        val command = "pid=\$(cat ${quote(PID_FILE)} 2>/dev/null); " +
-            "[ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && " +
-            "tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ${quote("$ROOT_DIR/watcher.sh")} >/dev/null && echo running"
-        return getRootShell().newJob().add(command).to(out, null).exec().isSuccess && out.any { it.trim() == "running" }
+        val command = buildString {
+            append("pid=$(cat ").append(shQuote(PID_FILE)).append(" 2>/dev/null); ")
+            append("[ -n \"$pid\" ] && [ -r /proc/$pid/cmdline ] && ")
+            append("grep -q xhovosu_fgwatch /proc/$pid/cmdline && echo running")
+        }
+        return getRootShell().newJob().add(command).to(out, null).exec().isSuccess &&
+                out.any { it.trim() == "running" }
     }
 
     fun readLog(): String {
         val out = ArrayList<String>()
-        getRootShell().newJob().add("tail -n 200 ${quote("$ROOT_DIR/events.log")} 2>/dev/null")
+        getRootShell().newJob()
+            .add("tail -n 200 " + shQuote("$ROOT_DIR/events.log") + " 2>/dev/null")
             .to(out, null).exec()
         return out.joinToString("\n")
     }
 
-    private fun stopCommand(): String =
-        "pid=\$(cat ${quote(PID_FILE)} 2>/dev/null); " +
-            "if [ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && " +
-            "tr '\\000' ' ' < /proc/\$pid/cmdline | grep -F ${quote("$ROOT_DIR/watcher.sh")} >/dev/null; " +
-            "then kill \$pid 2>/dev/null || true; fi; " +
-            "rm -f ${quote(PID_FILE)} ${quote("$ROOT_DIR/watcher.lock/pid")}; " +
-            "rmdir ${quote("$ROOT_DIR/watcher.lock")} 2>/dev/null || true"
+    fun rootDir(): String = ROOT_DIR
 
-    private fun quote(value: String): String = "'${value.replace("'", "'\\''")}'"
+    /** 预输入规范化：统一 LF，并保证最后一行也有换行，等于每行末尾自动回车。 */
+    private fun normalizePreInput(raw: String): String {
+        val text = raw.replace("\r\n", "\n").replace('\r', '\n')
+        return when {
+            text.isEmpty() -> ""
+            text.endsWith("\n") -> text
+            else -> text + "\n"
+        }
+    }
+
+    private fun copyAsset(context: Context, asset: String, target: File) {
+        context.assets.open(asset).use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        }
+    }
+
+    private fun shQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
