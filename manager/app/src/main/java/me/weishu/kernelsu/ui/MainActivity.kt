@@ -85,6 +85,7 @@ import me.weishu.kernelsu.ui.screen.flash.FlashScreen
 import me.weishu.kernelsu.ui.foregroundwatcher.ForegroundWatcherScreen
 import me.weishu.kernelsu.ui.customize.CustomizeScreen
 import me.weishu.kernelsu.ui.customize.RulesScreen
+import me.weishu.kernelsu.ui.customize.TerminalScreen
 import me.weishu.kernelsu.ui.customize.CustomizeController
 import me.weishu.kernelsu.ui.screen.home.HomePager
 import me.weishu.kernelsu.ui.screen.install.InstallScreen
@@ -250,6 +251,7 @@ class MainActivity : ComponentActivity() {
                             entry<Route.ForegroundWatcher>(swipeDismiss = swipeDismiss) { ForegroundWatcherScreen() }
                             entry<Route.Customize>(swipeDismiss = swipeDismiss) { CustomizeScreen() }
                             entry<Route.XhovoRules>(swipeDismiss = swipeDismiss) { RulesScreen() }
+                            entry<Route.XhovoTerminal>(swipeDismiss = swipeDismiss) { TerminalScreen() }
                             entry<Route.TemplateEditor>(swipeDismiss = swipeDismiss) { key -> TemplateEditorScreen(key.template, key.readOnly) }
                             entry<Route.AppProfile>(swipeDismiss = swipeDismiss) { key -> AppProfileScreen(key.uid) }
                             entry<Route.ModuleRepo>(swipeDismiss = swipeDismiss) { ModuleRepoScreen() }

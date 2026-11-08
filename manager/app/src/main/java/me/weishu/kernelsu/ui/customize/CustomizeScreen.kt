@@ -75,6 +75,7 @@ fun CustomizeScreen() {
     var longMs by remember { mutableStateOf(1500) }
 
     var showPicker by remember { mutableStateOf(false) }
+    var deviceCode by remember { mutableStateOf("") }
     var apps by remember { mutableStateOf(emptyList<AppEntry>()) }
 
     fun announce(msg: String) {
@@ -103,6 +104,7 @@ fun CustomizeScreen() {
     LaunchedEffect(Unit) {
         refresh()
         log = withContext(Dispatchers.IO) { CustomizeController.readLog() }
+        deviceCode = withContext(Dispatchers.IO) { DeviceCode.compute() }
         apps = withContext(Dispatchers.IO) {
             val pm = context.packageManager
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -215,10 +217,19 @@ fun CustomizeScreen() {
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(stringResource(R.string.customize_save)) }
-                    OutlinedButton(
-                        onClick = { navigator.push(Route.XhovoRules) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(stringResource(R.string.customize_rules_entry)) }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { navigator.push(Route.XhovoRules) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(stringResource(R.string.customize_rules_entry)) }
+                        OutlinedButton(
+                            onClick = { navigator.push(Route.XhovoTerminal) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(stringResource(R.string.customize_terminal_entry)) }
+                    }
                 }
             }
 
@@ -334,6 +345,18 @@ fun CustomizeScreen() {
                     }
                     Text(
                         CustomizeController.apkPath(),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(stringResource(R.string.customize_device_code), style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        deviceCode.ifBlank { "…" },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp

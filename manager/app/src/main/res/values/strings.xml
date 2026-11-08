@@ -467,4 +467,8 @@
     <string name="rules_conf_empty">（没有规则）</string>
     <string name="customize_rules_entry">脚本触发</string>
     <string name="customize_rules_summary">按应用和手势执行脚本或拉起面具</string>
+    <string name="terminal_input">Command</string>
+    <string name="terminal_list">List</string>
+    <string name="customize_terminal_entry">Terminal</string>
+    <string name="customize_device_code">Device code</string>
 </resources>
