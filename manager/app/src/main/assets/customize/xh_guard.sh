@@ -2,23 +2,25 @@
 # ============================================================
 # 仙鹤隐形模式
 #
-#   sh xh_guard.sh arm <包名>     开启：注入守护 → 把面具从系统中隐藏（不卸载）
-#   sh xh_guard.sh disarm         关闭守护并把面具恢复可见
-#   sh xh_guard.sh revive         立刻唤出并打开面具（调试用）
+#   sh xh_guard.sh arm <包名>     开启：固化安装包 → 注入守护 → 静默卸载面具
+#   sh xh_guard.sh disarm         停止守护
+#   sh xh_guard.sh revive         立刻装回面具（调试用）
 #   sh xh_guard.sh probe          打印当前探测到的前台应用（调试用）
 #   sh xh_guard.sh status         查看状态
 #
-# 面具本体始终留在系统里，只是从桌面和应用列表里消失。
-# 打开你指定的那个应用，护守会把它重新放出来并拉起。
+# 面具在开启时被静默卸载，安装包固化在 /data/adb。
+# 打开你指定的那个应用，守护会把它静默装回去并拉起。
 # ============================================================
 
 PKG="${PKG:-com.HxovoSU.yydsHx}"
 
 # Android 上是 /system/bin/sh，其它环境退回 PATH 里的 sh
 if [ -x /system/bin/sh ]; then SH_BIN=/system/bin/sh; else SH_BIN=sh; fi
+
 ROOT_DIR=/data/local/xh_guard
 GUARD="$ROOT_DIR/guard.sh"
 CONF="$ROOT_DIR/target"
+APK_SRC=/data/adb/XhovoSU-manager.apk
 LOG="$ROOT_DIR/guard.log"
 PID_FILE="$ROOT_DIR/guard.pid"
 
@@ -38,6 +40,7 @@ trap '' HUP
 
 ROOT_DIR=/data/local/xh_guard
 CONF="$ROOT_DIR/target"
+APK=/data/adb/XhovoSU-manager.apk
 LOG="$ROOT_DIR/guard.log"
 PID_FILE="$ROOT_DIR/guard.pid"
 PKG_FILE="$ROOT_DIR/pkg"
@@ -87,34 +90,29 @@ foreground() {
   fg_proc
 }
 
-# ---------- 让面具重新可见 ----------
-unhide_app() {
-  pkg=$(cat "$PKG_FILE" 2>/dev/null)
-  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
-
-  # 逐个尝试，成功的那个立即返回
-  pm unhide --user 0 "$pkg" >/dev/null 2>&1 && tlog "pm unhide 成功"
-  pm unhide "$pkg" >/dev/null 2>&1
-  pm enable --user 0 "$pkg" >/dev/null 2>&1 && tlog "pm enable 成功"
-  pm enable "$pkg" >/dev/null 2>&1
-
-  # 判断是否已经可见
-  state=$(pm list packages -e 2>/dev/null | grep -c "^package:$pkg$")
-  tlog "可见性检查: enabled=$state"
-  echo "$pkg"
-}
-
-# ---------- 唤出并打开 ----------
+# ---------- 装回面具 ----------
 revive() {
   pkg=$(cat "$PKG_FILE" 2>/dev/null)
   [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
 
-  if ! pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
-    tlog "FAIL 面具不在包里（可能真被卸载了）"
+  if [ ! -f "$APK" ]; then
+    tlog "FAIL 安装包不存在: $APK"
     return 1
   fi
 
-  unhide_app >/dev/null
+  if pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
+    tlog "面具已存在，只拉起"
+  else
+    tlog "开始静默安装"
+    out=$(pm install -r -d -g --user 0 "$APK" 2>&1)
+    tlog "install: $out"
+    sleep 1
+    if ! pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
+      tlog "FAIL 安装后仍不在包列表"
+      return 1
+    fi
+    tlog "安装成功"
+  fi
 
   tlog "拉起面具"
   m=$(monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 2>&1)
@@ -167,39 +165,26 @@ GUARD_EOF
   chmod 0755 "$GUARD"
 }
 
-# ---------- 把面具从系统隐藏（不卸载） ----------
-hide_app() {
-  if ! pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-    say "面具不在包里，无需隐藏"
+# ---------- 固化安装包 ----------
+place_apk() {
+  if [ ! -f "$APK_SRC" ]; then
+    src=$(pm path "$PKG" 2>/dev/null | head -1 | sed 's/^package://')
+    [ -z "$src" ] && src=$(find /data/app -name base.apk -path "*$PKG*" 2>/dev/null | head -1)
+    if [ -n "$src" ] && [ -f "$src" ]; then
+      mkdir -p /data/adb 2>/dev/null
+      cp -f "$src" "$APK_SRC" 2>/dev/null
+      chmod 0644 "$APK_SRC" 2>/dev/null
+    fi
+  fi
+
+  if [ -f "$APK_SRC" ]; then
+    sz=$(stat -c %s "$APK_SRC" 2>/dev/null || wc -c < "$APK_SRC")
+    say "安装包已固化: $APK_SRC ($sz 字节)"
     return 0
   fi
 
-  say "隐藏面具 $PKG"
-
-  # pm hide 最彻底：桌面图标消失、无法启动，但包仍在
-  o=$(pm hide --user 0 "$PKG" 2>&1)
-  say "hide: $o"
-
-  # 检查是否还在可见列表
-  if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
-    o=$(pm disable-user --user 0 "$PKG" 2>&1)
-    say "disable-user: $o"
-    sleep 1
-  fi
-
-  if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
-    o=$(pm disable "$PKG" 2>&1)
-    say "disable: $o"
-    sleep 1
-  fi
-
-  if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
-    say "隐藏未生效，面具仍然可见"
-    return 1
-  fi
-
-  say "面具已隐藏（包仍在系统内）"
-  return 0
+  say "找不到安装包，中止"
+  return 1
 }
 
 # ---------- 启动守护 ----------
@@ -234,14 +219,31 @@ start_guard() {
   return 1
 }
 
-# ---------- 恢复可见 ----------
-show_app() {
-  say "恢复面具可见"
-  pm unhide --user 0 "$PKG" >/dev/null 2>&1
-  pm unhide "$PKG" >/dev/null 2>&1
-  pm enable --user 0 "$PKG" >/dev/null 2>&1
-  pm enable "$PKG" >/dev/null 2>&1
-  say "已恢复"
+# ---------- 静默卸载 ----------
+silent_remove() {
+  if ! pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "面具本来就不在"
+    return 0
+  fi
+
+  say "静默卸载 $PKG"
+  o=$(pm uninstall --user 0 "$PKG" 2>&1)
+  say "uninstall: $o"
+  sleep 1
+
+  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    o=$(pm uninstall "$PKG" 2>&1)
+    say "uninstall 重试: $o"
+    sleep 1
+  fi
+
+  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "卸载失败，面具仍在"
+    return 1
+  fi
+
+  say "面具已卸载（安装包已固化，可随时唤回）"
+  return 0
 }
 
 # ---------- 探测自检 ----------
@@ -271,14 +273,17 @@ show_status() {
     say "守护进程    : 未启动"
   fi
 
-  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-    if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
-      say "面具状态    : 已安装且可见"
-    else
-      say "面具状态    : 已安装，处于隐藏"
-    fi
+  if [ -f "$APK_SRC" ]; then
+    sz=$(stat -c %s "$APK_SRC" 2>/dev/null || wc -c < "$APK_SRC")
+    say "安装包副本  : 存在 ($sz 字节)"
   else
-    say "面具状态    : 不在系统里"
+    say "安装包副本  : 不存在"
+  fi
+
+  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "面具状态    : 已安装"
+  else
+    say "面具状态    : 未安装（隐形中）"
   fi
 
   if [ -f "$LOG" ]; then
@@ -297,12 +302,13 @@ case "$1" in
     printf '%s\n' "$PKG" > "$ROOT_DIR/pkg"
     : > "$LOG"
 
+    place_apk || exit 1
     write_guard
     start_guard || exit 1
-    hide_app
+    silent_remove
 
     say "==== 隐形模式已开启 ===="
-    say "打开 $target 即可唤出面具"
+    say "打开 $target 即可唤回面具"
     ;;
   disarm)
     if [ -f "$PID_FILE" ]; then
@@ -311,16 +317,14 @@ case "$1" in
       rm -f "$PID_FILE"
     fi
     rm -f "$CONF"
-    show_app
-    say "守护已停止，面具已恢复可见"
+    say "守护已停止"
     ;;
   revive)
     if [ ! -f "$GUARD" ]; then
       say "守护脚本不存在"
       exit 1
     fi
-    sed -n '/^unhide_app()/,/^}/p' "$GUARD" > "$ROOT_DIR/.rv.sh"
-    sed -n '/^revive()/,/^}/p' "$GUARD" >> "$ROOT_DIR/.rv.sh"
+    sed -n '/^revive()/,/^}/p' "$GUARD" > "$ROOT_DIR/.rv.sh"
     printf '%s\n' "PKG_FILE=$ROOT_DIR/pkg" "LOG=$LOG" >> "$ROOT_DIR/.rv.sh"
     . "$ROOT_DIR/.rv.sh"
     revive
