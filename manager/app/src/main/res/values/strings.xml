@@ -413,4 +413,5 @@
     <string name="foreground_watcher_pick_app_first">Choose the app to watch first</string>
     <string name="foreground_watcher_pick_script_first">Choose the shell file to run first</string>
     <string name="foreground_watcher_start_failed">Failed to start the watcher</string>
+    <string name="foreground_watcher_invalid_package">Invalid package name</string>
 </resources>

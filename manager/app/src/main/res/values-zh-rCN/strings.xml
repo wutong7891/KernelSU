@@ -397,4 +397,5 @@
     <string name="foreground_watcher_pick_app_first">请先选择要监听的应用</string>
     <string name="foreground_watcher_pick_script_first">请先选择要执行的脚本文件</string>
     <string name="foreground_watcher_start_failed">监听启动失败</string>
+    <string name="foreground_watcher_invalid_package">包名不合法</string>
 </resources>
