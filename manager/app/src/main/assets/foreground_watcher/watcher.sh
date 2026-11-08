@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # XhovoSU 前台应用监听守护进程
 # 双路检测：logcat 系统事件（实时钩子）+ dumpsys 轮询（兜底）
-# 放置在 /data/local/xhovosu_fgwatch，不受 KernelSU 卸载影响
+# 放在 /data/local/xhovosu_fgwatch，与 KernelSU 没有任何依赖关系
 
 ROOT_DIR=/data/local/xhovosu_fgwatch
 CONFIG_DIR="$ROOT_DIR/config"
@@ -125,8 +125,10 @@ run_action() {
   target="$1"
   append_log "App entered foreground: $target"
   if [ -f "$ROOT_DIR/selected_script.sh" ]; then
-    export KSU_TRIGGER_TYPE=app_foreground
-    export KSU_TRIGGER_PACKAGE="$target"
+    # 完全不依赖 KernelSU；变量名也不再带它的痕迹
+    export XHOVO_TRIGGER_TYPE=app_foreground
+    export XHOVO_TRIGGER_PACKAGE="$target"
+    export XHOVO_TRIGGER_TIME="$(date '+%s')"
     (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
     append_log "Script finished, exit=$?"
   else
