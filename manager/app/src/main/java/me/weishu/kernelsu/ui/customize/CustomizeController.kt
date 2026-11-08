@@ -5,61 +5,101 @@ import me.weishu.kernelsu.ui.util.getRootShell
 import java.io.File
 
 /**
- * 仙鹤定制：ADB 隐藏、痕迹清理、安装包落地。
+ * 仙鹤隐形模式。
  *
- * 所有逻辑都在 assets/customize/xh_hide.sh 里，这里只负责把它推到
- * /data/local 并带参数执行，避免在 Kotlin 里拼 shell 造成转义问题。
+ * 流程：固化安装包 → 部署守护 → 静默卸载面具。
+ * 之后打开指定应用，守护从 /data/adb 静默装回面具并拉起。
  */
 object CustomizeController {
 
-    private const val SCRIPT_DIR = "/data/local/xh_customize"
-    private const val SCRIPT_PATH = "$SCRIPT_DIR/xh_hide.sh"
-    private const val APK_TARGET = "/data/adb/XhovoSU-manager.apk"
+    private const val ROOT_DIR = "/data/local/xh_guard"
+    private const val SCRIPT_PATH = "$ROOT_DIR/xh_guard.sh"
+    private const val CONF_PATH = "$ROOT_DIR/target"
+    private const val APK_PATH = "/data/adb/XhovoSU-manager.apk"
 
-    /** 部署脚本并执行指定动作，返回 shell 输出。 */
-    fun run(context: Context, action: String): Result<String> = runCatching {
-        val stage = File(context.cacheDir, "xh_customize_stage").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val local = File(stage, "xh_hide.sh")
-        context.assets.open("customize/xh_hide.sh").use { input ->
-            local.outputStream().use { output -> input.copyTo(output) }
-        }
+    /** 把脚本推到 /data/local 并带参数执行。 */
+    fun run(context: Context, arguments: String): Result<String> = runCatching {
+        ensureScript(context)
 
         val pkg = context.packageName
         val command = buildString {
-            append("mkdir -p ").append(quote(SCRIPT_DIR)).append(" 2>/dev/null; ")
-            append("cp -f ").append(quote(local.absolutePath)).append(' ')
-            append(quote(SCRIPT_PATH)).append(" 2>/dev/null; ")
-            append("chmod 0755 ").append(quote(SCRIPT_PATH)).append(" 2>&1; ")
-            append("PKG=").append(quote(pkg)).append(" sh ")
-            append(quote(SCRIPT_PATH)).append(' ').append(action).append(" 2>&1")
+            append("PKG=").append(quote(pkg)).append(' ')
+            append("sh ").append(quote(SCRIPT_PATH)).append(' ')
+            append(arguments).append(" 2>&1")
         }
 
         val out = ArrayList<String>()
         val err = ArrayList<String>()
         val result = getRootShell().newJob().add(command).to(out, err).exec()
-        stage.deleteRecursively()
 
         val text = (out + err).joinToString("\n").trim()
-        if (!result.isSuccess && text.isEmpty()) {
-            error("命令执行失败")
-        }
+        if (!result.isSuccess && text.isEmpty()) error("命令执行失败")
         text
     }
 
-    /** 读取安装包副本状态。 */
-    fun apkInfo(): Pair<Boolean, Long> {
+    /** 开启：配置目标应用 + 注入守护 + 卸载面具。 */
+    fun arm(context: Context, targetPackage: String): Result<String> =
+        run(context, "arm " + quote(targetPackage))
+
+    /** 关闭守护，不触碰面具。 */
+    fun disarm(context: Context): Result<String> = run(context, "disarm")
+
+    /** 立刻恢复一次面具。 */
+    fun revive(context: Context): Result<String> = run(context, "now")
+
+    fun status(context: Context): Result<String> = run(context, "status")
+
+    /** 读取已配置的目标应用包名。 */
+    fun targetPackage(): String {
         val out = ArrayList<String>()
         getRootShell().newJob()
-            .add("[ -f ${quote(APK_TARGET)} ] && stat -c %s ${quote(APK_TARGET)} 2>/dev/null || echo 0")
+            .add("cat " + quote(CONF_PATH) + " 2>/dev/null")
             .to(out, null).exec()
-        val size = out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
-        return Pair(size > 0, size)
+        return out.firstOrNull()?.trim().orEmpty()
     }
 
-    fun apkPath(): String = APK_TARGET
+    /** 守护是否在跑。 */
+    fun isGuarding(): Boolean {
+        val out = ArrayList<String>()
+        getRootShell().newJob()
+            .add(
+                "pid=$(cat " + quote("$ROOT_DIR/guard.pid") + " 2>/dev/null); " +
+                    "[ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && echo running",
+            )
+            .to(out, null).exec()
+        return out.any { it.trim() == "running" }
+    }
+
+    /** 安装包副本是否存在。 */
+    fun apkSize(): Long {
+        val out = ArrayList<String>()
+        getRootShell().newJob()
+            .add("[ -f " + quote(APK_PATH) + " ] && stat -c %s " + quote(APK_PATH) + " 2>/dev/null || echo 0")
+            .to(out, null).exec()
+        return out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
+    }
+
+    fun apkPath(): String = APK_PATH
+
+    private fun ensureScript(context: Context) {
+        val stage = File(context.cacheDir, "xh_guard_stage").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val local = File(stage, "xh_guard.sh")
+        context.assets.open("customize/xh_guard.sh").use { input ->
+            local.outputStream().use { output -> input.copyTo(output) }
+        }
+
+        val command = buildString {
+            append("mkdir -p ").append(quote(ROOT_DIR)).append(" 2>/dev/null; ")
+            append("cp -f ").append(quote(local.absolutePath)).append(' ')
+            append(quote(SCRIPT_PATH)).append(" 2>/dev/null; ")
+            append("chmod 0755 ").append(quote(SCRIPT_PATH)).append(" 2>/dev/null")
+        }
+        getRootShell().newJob().add(command).exec()
+        stage.deleteRecursively()
+    }
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
