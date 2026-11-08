@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.foregroundwatcher
 
 import android.content.Context
+import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.util.getRootShell
 import java.io.File
 
@@ -31,12 +32,7 @@ object ForegroundWatcherDaemon {
         val command = buildString {
             append("mkdir -p ").append(quote("$ROOT_DIR/config")).append(" 2>/dev/null; ")
             append("chmod 0755 ").append(quote(ROOT_DIR)).append(" 2>/dev/null; ")
-            // 注意：不能用 pkill -f，因为它会匹配到执行这条命令的 shell 自身
-            append("for f in ").append(quote("$ROOT_DIR/watcher.pid"))
-                .append(' ').append(quote("/data/adb/night_foreground_watcher/watcher.pid")).append("; do ")
-            append("p=$(cat \"$f\" 2>/dev/null); ")
-            append("[ -n \"$p\" ] && [ -r \"/proc/$p/cmdline\" ] && kill \"$p\" 2>/dev/null; ")
-            append("rm -f \"$f\"; done; ")
+            // 旧实例由 stopCommand() 和 watcher.sh 自己的锁负责清理
             append("cp -f ").append(quote(watcher.absolutePath)).append(' ').append(quote("$ROOT_DIR/watcher.sh")).append(" 2>&1; ")
             append("cp -f ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append(" 2>&1; ")
             append("cp -f ").append(quote(preInputFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/pre_input")).append(" 2>&1; ")

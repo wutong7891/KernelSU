@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.foregroundwatcher
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,11 +49,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
+import me.weishu.kernelsu.ui.util.getRootShell
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 
 private data class SelectableApp(val packageName: String, val label: String)
@@ -64,6 +68,9 @@ fun ForegroundWatcherScreen() {
     var config by remember { mutableStateOf(ForegroundWatcherStore.read(context)) }
     var apps by remember { mutableStateOf(emptyList<SelectableApp>()) }
     var showAppPicker by remember { mutableStateOf(false) }
+    var showFilePicker by remember { mutableStateOf(false) }
+    var browsePath by remember { mutableStateOf("/") }
+    var browseEntries by remember { mutableStateOf(emptyList<Pair<String, Boolean>>()) }
     var status by remember { mutableStateOf("") }
     var logs by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -92,6 +99,47 @@ fun ForegroundWatcherScreen() {
             ForegroundWatcherStore.write(context, config)
         }
         logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() }
+    }
+
+    // ---------- 从根目录开始的文件浏览 ----------
+    fun loadDirectory(path: String) {
+        browsePath = path
+        scope.launch {
+            val out = ArrayList<String>()
+            withContext(Dispatchers.IO) {
+                getRootShell().newJob()
+                    .add("ls -1Ap " + "'" + path.replace("'", "'\\''") + "' 2>/dev/null")
+                    .to(out, null).exec()
+            }
+            browseEntries = out.map { it.trim() }
+                .filter { it.isNotEmpty() && it != "." && it != ".." }
+                .map { name ->
+                    if (name.endsWith("/")) (name.dropLast(1) to true) else (name to false)
+                }
+                .sortedWith(compareByDescending<Pair<String, Boolean>> { it.second }.thenBy { it.first.lowercase() })
+        }
+    }
+
+    fun pickScriptByName(path: String) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val staged = java.io.File(context.cacheDir, "picked_script.sh")
+                    val src = "/system/bin/cat " + "'" + path.replace("'", "'\\''") + "'"
+                    getRootShell().newJob()
+                        .add("$src > " + "'" + staged.absolutePath + "' && chmod 0600 " + "'" + staged.absolutePath + "'")
+                        .exec()
+                    require(staged.length() > 0) { "读取脚本失败" }
+                    ForegroundWatcherStore.importScript(context, Uri.fromFile(staged), staged.name)
+                }
+            }
+            result.onSuccess {
+                config = ForegroundWatcherStore.read(context)
+                status = context.getString(R.string.foreground_watcher_script_imported)
+            }.onFailure {
+                status = it.message.orEmpty()
+            }
+        }
     }
 
     val scriptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -148,6 +196,62 @@ fun ForegroundWatcherScreen() {
                 announce(result.exceptionOrNull()?.message.orEmpty().ifBlank { context.getString(R.string.foreground_watcher_start_failed) })
             }
         }
+    }
+
+    if (showFilePicker) {
+        AlertDialog(
+            onDismissRequest = { showFilePicker = false },
+            title = { Text(stringResource(R.string.foreground_watcher_choose_script)) },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(
+                        text = browsePath,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    if (browsePath != "/") {
+                        TextButton(
+                            onClick = {
+                                val parent = browsePath.trimEnd('/').substringBeforeLast('/', "")
+                                loadDirectory(if (parent.isEmpty()) "/" else parent)
+                            }
+                        ) { Text(".. 上一级") }
+                    }
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                        items(browseEntries) { entry ->
+                            val (name, isDir) = entry
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (isDir) {
+                                            val base = browsePath.trimEnd('/')
+                                            loadDirectory("$base/$name")
+                                        } else {
+                                            pickScriptByName(browsePath.trimEnd('/') + "/" + name)
+                                            showFilePicker = false
+                                        }
+                                    }
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = if (isDir) "📁  $name" else "📄  $name",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFilePicker = false }) { Text("取消") }
+            }
+        )
     }
 
     if (showAppPicker) {
@@ -246,7 +350,10 @@ fun ForegroundWatcherScreen() {
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         OutlinedButton(
-                            onClick = { scriptPicker.launch(arrayOf("text/*", "application/x-sh")) },
+                            onClick = {
+                                loadDirectory("/")
+                                showFilePicker = true
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(Icons.Filled.Description, null)
