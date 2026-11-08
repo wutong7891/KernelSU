@@ -84,6 +84,7 @@ import me.weishu.kernelsu.ui.screen.executemoduleaction.ExecuteModuleActionScree
 import me.weishu.kernelsu.ui.screen.flash.FlashScreen
 import me.weishu.kernelsu.ui.foregroundwatcher.ForegroundWatcherScreen
 import me.weishu.kernelsu.ui.customize.CustomizeScreen
+import me.weishu.kernelsu.ui.customize.CustomizeController
 import me.weishu.kernelsu.ui.screen.home.HomePager
 import me.weishu.kernelsu.ui.screen.install.InstallScreen
 import me.weishu.kernelsu.ui.screen.module.ModulePager
@@ -144,6 +145,13 @@ class MainActivity : ComponentActivity() {
         if (isManager && Natives.kernelUAPIVersion == Natives.managerUAPIVersion) install()
 
         if (savedInstanceState == null) intent?.let { intentChannel.trySend(it) }
+
+        // 冷启动时确保隐形监听在跑（配置存在且未运行时才启动）
+        if (savedInstanceState == null) {
+            Thread {
+                runCatching { CustomizeController.sync(this) }
+            }.start()
+        }
 
         setContent {
             val viewModel = viewModel<MainActivityViewModel>()

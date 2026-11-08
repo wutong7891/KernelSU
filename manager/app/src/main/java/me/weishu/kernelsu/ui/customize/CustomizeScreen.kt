@@ -1,4 +1,4 @@
-package me.weishu.kernelsu.ui.customize
+﻿package me.weishu.kernelsu.ui.customize
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -155,7 +155,7 @@ fun CustomizeScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ---------- 开关 ----------
+            // ---------- 寮€鍏?----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -179,10 +179,30 @@ fun CustomizeScreen() {
                         style = MaterialTheme.typography.bodySmall,
                         color = if (watching) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    OutlinedButton(
+                        onClick = {
+                            if (target.isBlank()) {
+                                announce(context.getString(R.string.customize_need_app))
+                            } else {
+                                scope.launch {
+                                    busy = true
+                                    val r = withContext(Dispatchers.IO) {
+                                        CustomizeController.saveConfig(context, target, key, mode, count, longMs)
+                                    }
+                                    busy = false
+                                    r.onSuccess { log = it; announce(it) }
+                                        .onFailure { log = it.message.orEmpty(); announce(it.message ?: "失败") }
+                                    refresh()
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(R.string.customize_save)) }
                 }
             }
 
-            // ---------- 目标应用 ----------
+            // ---------- 鐩爣搴旂敤 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.customize_config), style = MaterialTheme.typography.titleMedium)
@@ -210,7 +230,7 @@ fun CustomizeScreen() {
                 }
             }
 
-            // ---------- 手势 ----------
+            // ---------- 鎵嬪娍 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(stringResource(R.string.customize_gesture), style = MaterialTheme.typography.titleMedium)
@@ -218,7 +238,7 @@ fun CustomizeScreen() {
 
                     Text(stringResource(R.string.customize_key), style = MaterialTheme.typography.labelMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("voldown" to "音量−", "volup" to "音量+").forEach { (v, label) ->
+                        listOf("voldown" to "闊抽噺鈭?, "volup" to "闊抽噺+").forEach { (v, label) ->
                             FilterChip(
                                 selected = key == v,
                                 onClick = { key = v },
@@ -229,7 +249,7 @@ fun CustomizeScreen() {
 
                     Text(stringResource(R.string.customize_mode), style = MaterialTheme.typography.labelMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("long" to "长按", "click" to "连点").forEach { (v, label) ->
+                        listOf("long" to "闀挎寜", "click" to "杩炵偣").forEach { (v, label) ->
                             FilterChip(
                                 selected = mode == v,
                                 onClick = { mode = v },
@@ -270,7 +290,7 @@ fun CustomizeScreen() {
                 }
             }
 
-            // ---------- 状态 ----------
+            // ---------- 鐘舵€?----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -285,7 +305,7 @@ fun CustomizeScreen() {
                 }
             }
 
-            // ---------- 输出 ----------
+            // ---------- 杈撳嚭 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -334,7 +354,8 @@ fun CustomizeScreen() {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showPicker = false }) { Text("取消") } }
+            confirmButton = { TextButton(onClick = { showPicker = false }) { Text("鍙栨秷") } }
         )
     }
 }
+

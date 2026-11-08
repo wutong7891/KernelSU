@@ -84,6 +84,91 @@ object CustomizeController {
         "$out\n\n卸载：$remove"
     }
 
+    /**
+     * 只保存配置并重启监听，不卸载面具。
+     *
+     * 用于「保存配置」按钮：改了目标应用或手势后立即生效，
+     * 但不动面具本身（卸载由开关单独触发）。
+     */
+    fun saveConfig(
+        context: Context,
+        target: String,
+        key: String,
+        mode: String,
+        count: Int,
+        longMs: Int,
+    ): Result<String> = runCatching {
+        val pkg = context.packageName
+
+        ensureAsset(context, "customize/watch.sh", WATCH_PATH, executable = true)
+
+        val conf = buildString {
+            append("target=").append(target).append('\n')
+            append("key=").append(key).append('\n')
+            append("mode=").append(mode).append('\n')
+            append("count=").append(count).append('\n')
+            append("long=").append(longMs).append('\n')
+        }
+
+        val command = buildString {
+            append("mkdir -p ").append(q(WORK_DIR)).append(" 2>/dev/null; ")
+            append("cat > ").append(q(CONF_PATH)).append(" <<'XH_CONF'\n").append(conf).append("XH_CONF\n")
+            append("chmod 0644 ").append(q(CONF_PATH)).append(" 2>/dev/null; ")
+            append("printf '%s\\n' ").append(q(pkg)).append(" > ").append(q("$WORK_DIR/pkg")).append("; ")
+
+            // 镜像 APK（若还没有）
+            append("[ -f ").append(q(APK_PATH)).append(" ] || { ")
+            append("src=$(pm path ").append(q(pkg)).append(" 2>/dev/null | head -1 | sed 's/^package://'); ")
+            append("if [ -n \"\$src\" ] && [ -f \"\$src\" ]; then ")
+            append("cp -f \"\$src\" ").append(q(APK_PATH)).append(" && chmod 0644 ").append(q(APK_PATH)).append("; ")
+            append("fi; }; ")
+
+            // 重启监听以应用新配置
+            append("[ -f ").append(q(PID_PATH)).append(" ] && { ")
+            append("old=$(cat ").append(q(PID_PATH)).append(" 2>/dev/null); ")
+            append("[ -n \"\$old\" ] && kill -9 \"\$old\" 2>/dev/null; rm -f ").append(q(PID_PATH)).append("; }; ")
+            append("su -c 'pkill -f xhovo/watch.sh' 2>/dev/null; ")
+            append("su -c 'setsid sh ").append(WATCH_PATH).append(" >/dev/null 2>&1 &' </dev/null; ")
+            append("sleep 2; ")
+            append("[ -f ").append(q(PID_PATH)).append(" ] && echo SAVED || echo SAVE_FAILED")
+        }
+
+        val out = exec(command)
+        if (out.contains("SAVED")) "配置已保存，监听已重启" else "保存失败：\n$out"
+    }
+
+    /**
+     * 确保监听在跑。
+     *
+     * 三个调用点：打开 App（MainActivity 冷启动）、保存配置、开机广播。
+     * 只在已配置目标且有安装包镜像时才启动，避免空跑。
+     */
+    fun sync(context: Context): Result<String> = runCatching {
+        val config = readConfig()
+        if (config.target.isBlank()) {
+            return@runCatching "未配置目标应用，跳过"
+        }
+        if (mirrorSize() <= 0) {
+            return@runCatching "安装包镜像不存在，跳过"
+        }
+        if (isWatching()) {
+            return@runCatching "监听已在运行"
+        }
+
+        ensureAsset(context, "customize/watch.sh", WATCH_PATH, executable = true)
+
+        val command = buildString {
+            append("mkdir -p ").append(q(WORK_DIR)).append(" 2>/dev/null; ")
+            append("[ -f ").append(q(PID_PATH)).append(" ] && rm -f ").append(q(PID_PATH)).append("; ")
+            append("su -c 'setsid sh ").append(WATCH_PATH).append(" >/dev/null 2>&1 &' </dev/null; ")
+            append("sleep 2; ")
+            append("[ -f ").append(q(PID_PATH)).append(" ] && echo STARTED || echo FAILED")
+        }
+
+        val out = exec(command)
+        if (out.contains("STARTED")) "监听已启动" else "监听启动失败：\n$out"
+    }
+
     /** 停止监听（不触碰面具）。 */
     fun disarm(): Result<String> = runCatching {
         val command = buildString {

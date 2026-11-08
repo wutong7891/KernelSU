@@ -424,4 +424,5 @@
     <string name="customize_output">执行日志</string>
     <string name="customize_no_output">开启后这里会显示过程</string>
     <string name="customize_refresh">刷新</string>
+    <string name="customize_save">保存配置并重启监听</string>
 </resources>
