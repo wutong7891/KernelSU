@@ -195,7 +195,7 @@ fun SettingPagerMiuix(
                             val customizeTitle = stringResource(id = R.string.customize_title)
                             ArrowPreference(
                                 title = customizeTitle,
-                                summary = stringResource(id = R.string.customize_summary),
+                                summary = stringResource(id = R.string.customize_switch_summary),
                                 startAction = {
                                     Icon(
                                         Icons.Rounded.Tune,

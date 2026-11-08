@@ -186,7 +186,7 @@ fun SettingPagerMaterial(
                         SegmentedListItem(
                             onClick = actions.onOpenCustomize,
                             headlineContent = { Text(customizeTitle) },
-                            supportingContent = { Text(stringResource(id = R.string.customize_summary)) },
+                            supportingContent = { Text(stringResource(id = R.string.customize_switch_summary)) },
                             leadingContent = { Icon(Icons.Filled.Tune, customizeTitle) },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                         )
