@@ -1,5 +1,8 @@
 package me.weishu.kernelsu.ui.screen.settings
 
+private const val SHOW_FOREGROUND_WATCHER = false
+
+
 import android.content.Intent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -175,7 +178,8 @@ fun SettingPagerMaterial(
                 )
             }
 
-            KsuIsValid {
+            // 前台监听功能暂时下线
+            if (SHOW_FOREGROUND_WATCHER) {
                 val watcherTitle = stringResource(id = R.string.foreground_watcher_title)
                 SegmentedColumn(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),

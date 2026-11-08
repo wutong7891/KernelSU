@@ -1,5 +1,8 @@
 package me.weishu.kernelsu.ui.screen.settings
 
+private const val SHOW_FOREGROUND_WATCHER = false
+
+
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -212,8 +215,9 @@ fun SettingPagerMiuix(
                                 .padding(top = 12.dp)
                                 .fillMaxWidth(),
                         ) {
+                            // 前台监听功能暂时下线
                             val watcherTitle = stringResource(id = R.string.foreground_watcher_title)
-                            ArrowPreference(
+                            if (SHOW_FOREGROUND_WATCHER) ArrowPreference(
                                 title = watcherTitle,
                                 summary = stringResource(id = R.string.foreground_watcher_settings_summary),
                                 startAction = {
