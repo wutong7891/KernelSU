@@ -5,7 +5,7 @@ import me.weishu.kernelsu.ui.util.getRootShell
 import java.io.File
 
 object ForegroundWatcherDaemon {
-    private const val ROOT_DIR = "/data/adb/night_foreground_watcher"
+    private const val ROOT_DIR = "/data/local/xhovosu_fgwatch"
     private const val PID_FILE = "$ROOT_DIR/watcher.pid"
 
     fun start(context: Context): Result<Unit> = runCatching {
@@ -24,7 +24,11 @@ object ForegroundWatcherDaemon {
         listOf(watcher, packageFile, preInputFile, selectedScript).forEach { it.setReadable(true, false) }
 
         val command = buildString {
-            append("set -e; mkdir -p ").append(quote("$ROOT_DIR/config")).append("; ")
+            // 先把旧位置的守护进程收掉，再在新位置重建
+            append("set -e; ")
+            append("pkill -f '/data/adb/night_foreground_watcher/watcher.sh' 2>/dev/null || true; ")
+            append("mkdir -p ").append(quote("$ROOT_DIR/config")).append("; ")
+            append("chmod 0700 ").append(quote(ROOT_DIR)).append("; ")
             append(stopCommand()).append("; ")
             append("cp ").append(quote(watcher.absolutePath)).append(' ').append(quote("$ROOT_DIR/watcher.sh")).append("; ")
             append("cp ").append(quote(packageFile.absolutePath)).append(' ').append(quote("$ROOT_DIR/config/package")).append("; ")

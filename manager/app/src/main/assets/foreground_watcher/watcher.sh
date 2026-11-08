@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-ROOT_DIR=/data/adb/night_foreground_watcher
+ROOT_DIR=/data/local/xhovosu_fgwatch
 CONFIG_DIR="$ROOT_DIR/config"
 LOG_FILE="$ROOT_DIR/events.log"
 PID_FILE="$ROOT_DIR/watcher.pid"
