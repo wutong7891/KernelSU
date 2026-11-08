@@ -445,4 +445,26 @@
     <string name="customize_key_up">音量+</string>
     <string name="customize_mode_long">长按</string>
     <string name="customize_mode_click">连点</string>
+    <string name="rules_title">脚本触发</string>
+    <string name="rules_summary">按「应用 + 手势」触发动作。手势留空表示进入应用就执行。规则同时写到 /data/adb/xhovo/rules.conf 供 root 侧执行。</string>
+    <string name="rules_add">新增规则</string>
+    <string name="rules_empty">还没有规则，点上面新增一条</string>
+    <string name="rules_no_app">未选择应用</string>
+    <string name="rules_edit">编辑</string>
+    <string name="rules_delete">删除</string>
+    <string name="rules_app">目标应用</string>
+    <string name="rules_pick">选择</string>
+    <string name="rules_key">触发按键</string>
+    <string name="rules_key_enter">进入即触发</string>
+    <string name="rules_mode">触发方式</string>
+    <string name="rules_action">动作</string>
+    <string name="rules_action_launch">拉起面具</string>
+    <string name="rules_action_script">执行脚本</string>
+    <string name="rules_script_path">脚本绝对路径</string>
+    <string name="rules_input">预输入（base64，可留空）</string>
+    <string name="rules_save">保存</string>
+    <string name="rules_conf">规则文件</string>
+    <string name="rules_conf_empty">（没有规则）</string>
+    <string name="customize_rules_entry">脚本触发</string>
+    <string name="customize_rules_summary">按应用和手势执行脚本或拉起面具</string>
 </resources>

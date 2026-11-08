@@ -36,6 +36,7 @@ trap '' HUP
 ADB_DIR=/data/adb/xhovo
 WORK="$ADB_DIR/work"
 CONF="$ADB_DIR/stealth.conf"
+RULES="$ADB_DIR/rules.conf"
 PID_FILE="$WORK/watch.pid"
 LOG="$WORK/exec.log"
 FG_FILE="$WORK/fg"
@@ -156,6 +157,119 @@ revive() {
   return 0
 }
 
+# ---------- 规则引擎 ----------
+# 每行 11 段，| 分隔：
+#   enabled|pkg|key|mode|count|window|long|action|script|inputB64|enter
+#
+# action=launch  → 拉起面具
+# action=script  → 执行脚本，inputB64 解码后按行喂入 stdin
+
+# 执行一条规则的 script 动作
+run_script() {
+  spath=$1
+  sinput=$2
+  senter=$3
+
+  [ -f "$spath" ] || { log "规则脚本不存在: $spath"; return 1; }
+
+  if [ -n "$sinput" ]; then
+    # base64 解码到临时文件
+    in_file="$WORK/.rule_input"
+    echo "$sinput" | base64 -d > "$in_file" 2>/dev/null
+    [ -s "$in_file" ] || { log "输入解码失败"; return 1; }
+
+    # 逐行喂入，间隔 0.2 秒，模拟逐行回车
+    fifo="$WORK/.rule_fifo"
+    rm -f "$fifo"
+    if mkfifo "$fifo" 2>/dev/null; then
+      (
+        while IFS= read -r l; do
+          bb sleep 0.2 2>/dev/null || sleep 1
+          if [ "$senter" = "1" ]; then
+            printf '%s\n' "$l"
+          else
+            printf '%s' "$l"
+          fi
+        done < "$in_file"
+      ) > "$fifo" 2>/dev/null &
+      feeder=$!
+      (cd / && sh "$spath" < "$fifo") >> "$LOG" 2>&1
+      rc=$?
+      wait "$feeder" 2>/dev/null
+      rm -f "$fifo"
+      log "脚本退出码=$rc"
+      return 0
+    fi
+    (cd / && sh "$spath" < "$in_file") >> "$LOG" 2>&1
+    log "脚本退出码=$?"
+    return 0
+  fi
+
+  (cd / && sh "$spath" < /dev/null) >> "$LOG" 2>&1
+  log "脚本退出码=$?"
+  return 0
+}
+
+# 在规则文件里查找匹配当前包名的规则
+# 命中返回：规则整行的剩余字段（用全局变量传递）
+match_rule() {
+  cur_pkg=$1
+  cur_key=$2
+  cur_mode=$3
+
+  [ -f "$RULES" ] || return 1
+
+  # 末尾补读一行，避免最后一行没换行时 read 返回非 0
+  while IFS='|' read -r r_en r_pkg r_key r_mode r_cnt r_win r_lng r_act r_scr r_in r_ent || [ -n "$r_en" ]; do
+    [ "$r_en" = "1" ] || continue
+    [ "$r_pkg" = "$cur_pkg" ] || continue
+    [ "$r_key" = "$cur_key" ] || continue
+    [ "$r_mode" = "$cur_mode" ] || continue
+
+    R_CNT=$r_cnt
+    R_WIN=$r_win
+    R_LNG=$r_lng
+    R_ACT=$r_act
+    R_SCR=$r_scr
+    R_IN=$r_in
+    R_ENT=$r_ent
+    return 0
+  done < "$RULES"
+
+  return 1
+}
+
+# 进入应用即触发的规则（key 留空）
+match_enter_rule() {
+  cur_pkg=$1
+  [ -f "$RULES" ] || return 1
+
+  while IFS='|' read -r r_en r_pkg r_key r_mode r_cnt r_win r_lng r_act r_scr r_in r_ent || [ -n "$r_en" ]; do
+    [ "$r_en" = "1" ] || continue
+    [ "$r_pkg" = "$cur_pkg" ] || continue
+    [ -z "$r_key" ] || continue
+
+    R_ACT=$r_act
+    R_SCR=$r_scr
+    R_IN=$r_in
+    R_ENT=$r_ent
+    return 0
+  done < "$RULES"
+
+  return 1
+}
+
+# 执行规则动作
+exec_rule_action() {
+  if [ "$R_ACT" = "script" ]; then
+    log "规则动作: script $R_SCR"
+    run_script "$R_SCR" "$R_IN" "$R_ENT"
+  else
+    log "规则动作: launch"
+    revive
+  fi
+}
+
 # ---------- 手动安装检测 ----------
 # 用户不走手势、自己手动装了面具，说明想正常用。
 # 2 秒轮询发现「从无到有」→ 恢复显示 + 清数据 + 停止监听。
@@ -247,6 +361,7 @@ press_start=0
 click_count=0
 click_window_start=0
 WINDOW_MS=2000
+last_fg=""
 
 for dev in $DEVICES; do
   name=$(basename "$dev")
@@ -269,29 +384,69 @@ while true; do
     # 必须用文件重定向。管道会开子 shell，exit/continue 和计数变量都不生效
     printf '%s\n' "$chunk" > "$WORK/.chunk"
     while IFS= read -r line; do
+      # 只关心音量键
       case "$line" in
-        *KEY_VOL*) ;;
+        *KEY_VOLUMEDOWN*|*KEY_VOLUMEUP*) ;;
         *) continue ;;
       esac
+
+      # 从事件行解析出实际按的是哪个键（规则引擎要按规则区分）
       case "$line" in
-        *"$KEYCODE"*) ;;
+        *KEY_VOLUMEDOWN*) cur_key=voldown ;;
+        *KEY_VOLUMEUP*)   cur_key=volup ;;
         *) continue ;;
       esac
 
       case "$line" in
         *DOWN*)
           printf '%s' "$(now_ms)" > "$WORK/.press"
+          printf '%s' "$cur_key" > "$WORK/.presskey"
           ;;
         *UP*)
           start=$(cat "$WORK/.press" 2>/dev/null)
           [ -z "$start" ] && continue
-          rm -f "$WORK/.press" 2>/dev/null
+          pressed=$(cat "$WORK/.presskey" 2>/dev/null)
+          [ -z "$pressed" ] && pressed=$KEY
+          rm -f "$WORK/.press" "$WORK/.presskey" 2>/dev/null
           dur=$(( $(now_ms) - start ))
+          KEY="$pressed"
 
           fg=$(cat "$FG_FILE" 2>/dev/null)
+          [ -z "$fg" ] && continue
+
+          log "前台 $fg 手势 键=$KEY 时长=${dur}ms"
+
+          # ---------- 1. 先查规则引擎 ----------
+          if match_rule "$fg" "$KEY" "$MODE"; then
+            hit=0
+            if [ "$MODE" = "long" ]; then
+              [ "$dur" -ge "$R_LNG" ] && hit=1
+            else
+              click_now=$(now_ms)
+              if [ "$click_window_start" = "0" ] || \
+                 [ $((click_now - click_window_start)) -gt "$R_WIN" ]; then
+                click_window_start=$click_now
+                click_count=1
+              else
+                click_count=$((click_count + 1))
+              fi
+              log "规则连点 $click_count/$R_CNT"
+              [ "$click_count" -ge "$R_CNT" ] && hit=1
+            fi
+
+            if [ "$hit" = "1" ]; then
+              log "规则命中: $fg -> $R_ACT"
+              click_count=0
+              click_window_start=0
+              exec_rule_action
+            fi
+            continue
+          fi
+
+          # ---------- 2. 再回退到隐形唤回配置 ----------
           [ "$fg" != "$TARGET" ] && continue
 
-          log "目标应用内手势 时长=${dur}ms"
+          log "隐形唤回手势 时长=${dur}ms"
 
           if [ "$MODE" = "long" ]; then
             if [ "$dur" -ge "$LONGMS" ]; then
@@ -325,6 +480,16 @@ while true; do
       esac
     done < "$WORK/.chunk"
   done
+
+  # 前台变化 → 检查免按键规则
+  cur_fg=$(cat "$FG_FILE" 2>/dev/null)
+  if [ -n "$cur_fg" ] && [ "$cur_fg" != "$last_fg" ]; then
+    last_fg="$cur_fg"
+    if match_enter_rule "$cur_fg"; then
+      log "进入 $cur_fg，命中免按键规则 -> $R_ACT"
+      exec_rule_action
+    fi
+  fi
 
   sleepf 0.2
 done

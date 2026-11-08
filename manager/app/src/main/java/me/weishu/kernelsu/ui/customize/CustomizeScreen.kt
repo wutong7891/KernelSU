@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
+import me.weishu.kernelsu.ui.navigation3.Route
 
 private data class AppEntry(val packageName: String, val label: String)
 
@@ -214,6 +215,10 @@ fun CustomizeScreen() {
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(stringResource(R.string.customize_save)) }
+                    OutlinedButton(
+                        onClick = { navigator.push(Route.XhovoRules) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(R.string.customize_rules_entry)) }
                 }
             }
 
