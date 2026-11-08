@@ -96,9 +96,16 @@ object CustomizeController {
             mkdirs()
         }
         val local = File(stage, "xh_guard.sh")
-        context.assets.open("customize/xh_guard.sh").use { input ->
-            local.outputStream().use { output -> input.copyTo(output) }
-        }
+
+        // Android 的 sh 不认 \r，脚本必须落成纯 LF。
+        // assets 里的文件在 Windows 上检出时可能是 CRLF，这里统一转换，
+        // 否则会出现 "syntax error: unexpected 'in'" 这类诡异报错。
+        val text = context.assets.open("customize/xh_guard.sh")
+            .bufferedReader()
+            .use { it.readText() }
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+        local.writeText(text)
 
         val command = buildString {
             append("mkdir -p ").append(quote(ROOT_DIR)).append(" 2>/dev/null; ")
