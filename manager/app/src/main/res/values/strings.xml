@@ -410,4 +410,7 @@
     <string name="foreground_watcher_log">Recent executions</string>
     <string name="foreground_watcher_refresh_log">Refresh log</string>
     <string name="foreground_watcher_no_log">No executions yet</string>
+    <string name="foreground_watcher_pick_app_first">Choose the app to watch first</string>
+    <string name="foreground_watcher_pick_script_first">Choose the shell file to run first</string>
+    <string name="foreground_watcher_start_failed">Failed to start the watcher</string>
 </resources>

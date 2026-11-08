@@ -394,4 +394,7 @@
     <string name="foreground_watcher_log">最近执行记录</string>
     <string name="foreground_watcher_refresh_log">刷新记录</string>
     <string name="foreground_watcher_no_log">暂无执行记录</string>
+    <string name="foreground_watcher_pick_app_first">请先选择要监听的应用</string>
+    <string name="foreground_watcher_pick_script_first">请先选择要执行的脚本文件</string>
+    <string name="foreground_watcher_start_failed">监听启动失败</string>
 </resources>

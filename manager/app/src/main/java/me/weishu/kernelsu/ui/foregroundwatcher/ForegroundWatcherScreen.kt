@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.foregroundwatcher
 
 import android.content.Intent
+import android.widget.Toast
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,9 +117,18 @@ fun ForegroundWatcherScreen() {
         ForegroundWatcherStore.write(context, updated)
     }
 
+    fun announce(message: String) {
+        status = message
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
     fun setListening(enabled: Boolean) {
-        if (enabled && (config.packageName.isBlank() || !ForegroundWatcherStore.scriptFile(context).isFile)) {
-            status = context.getString(R.string.foreground_watcher_incomplete)
+        if (enabled && config.packageName.isBlank()) {
+            announce(context.getString(R.string.foreground_watcher_pick_app_first))
+            return
+        }
+        if (enabled && !ForegroundWatcherStore.scriptFile(context).isFile) {
+            announce(context.getString(R.string.foreground_watcher_pick_script_first))
             return
         }
         status = context.getString(R.string.foreground_watcher_working)
@@ -128,12 +138,14 @@ fun ForegroundWatcherScreen() {
             }
             if (result.isSuccess) {
                 persist(config.copy(enabled = enabled))
-                status = context.getString(
-                    if (enabled) R.string.foreground_watcher_started else R.string.foreground_watcher_stopped
+                announce(
+                    context.getString(
+                        if (enabled) R.string.foreground_watcher_started else R.string.foreground_watcher_stopped
+                    )
                 )
                 logs = withContext(Dispatchers.IO) { ForegroundWatcherDaemon.readLog() }
             } else {
-                status = result.exceptionOrNull()?.message.orEmpty()
+                announce(result.exceptionOrNull()?.message.orEmpty().ifBlank { context.getString(R.string.foreground_watcher_start_failed) })
             }
         }
     }
