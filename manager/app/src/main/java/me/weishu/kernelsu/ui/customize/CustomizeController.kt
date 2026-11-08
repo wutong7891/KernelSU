@@ -19,6 +19,8 @@ object CustomizeController {
     private const val WORK_DIR = "$ADB_DIR/work"
     private const val CONF_PATH = "$ADB_DIR/stealth.conf"
     private const val WATCH_PATH = "$ADB_DIR/watch.sh"
+    private const val SERVICE_DIR = "/data/adb/service.d"
+    private const val SERVICE_PATH = "$SERVICE_DIR/xhovosu-watch.sh"
     private const val APK_PATH = "$ADB_DIR/manager.apk"
     private const val PID_PATH = "$WORK_DIR/watch.pid"
     private const val LOG_PATH = "$WORK_DIR/exec.log"
@@ -35,6 +37,7 @@ object CustomizeController {
         val pkg = context.packageName
 
         ensureAsset(context, "customize/watch.sh", WATCH_PATH, executable = true)
+        ensureAsset(context, "customize/xhovosu-watch.sh", SERVICE_PATH, executable = true)
 
         val conf = buildString {
             append("target=").append(target).append('\n')
@@ -101,6 +104,7 @@ object CustomizeController {
         val pkg = context.packageName
 
         ensureAsset(context, "customize/watch.sh", WATCH_PATH, executable = true)
+        ensureAsset(context, "customize/xhovosu-watch.sh", SERVICE_PATH, executable = true)
 
         val conf = buildString {
             append("target=").append(target).append('\n')

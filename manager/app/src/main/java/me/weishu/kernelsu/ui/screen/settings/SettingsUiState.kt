@@ -73,6 +73,8 @@ data class SettingsScreenActions(
     val onOpenProfileTemplate: () -> Unit,
     val onOpenForegroundWatcher: () -> Unit,
     val onOpenCustomize: () -> Unit,
+    val onOpenStealth: () -> Unit,
+    val onOpenRules: () -> Unit,
     val onSetSuCompatMode: (Int) -> Unit,
     val onSetKernelUmountEnabled: (Boolean) -> Unit,
     val onSetSelinuxHideEnabled: (Boolean) -> Unit,

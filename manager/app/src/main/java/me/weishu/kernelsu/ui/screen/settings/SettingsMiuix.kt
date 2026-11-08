@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Bolt
 
 private const val SHOW_FOREGROUND_WATCHER = false
 
@@ -133,7 +134,45 @@ fun SettingPagerMiuix(
                             checked = uiState.checkUpdate,
                             onCheckedChange = actions.onSetCheckUpdate
                         )
-                        KsuIsValid {
+                        // ---------- 特色功能 ----------
+                    KsuIsValid {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            val stealthTitle = stringResource(id = R.string.customize_title)
+                            ArrowPreference(
+                                title = stealthTitle,
+                                summary = stringResource(id = R.string.customize_switch_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Visibility,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stealthTitle,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onOpenStealth,
+                            )
+                            val rulesTitle = stringResource(id = R.string.rules_title)
+                            ArrowPreference(
+                                title = rulesTitle,
+                                summary = stringResource(id = R.string.rules_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Bolt,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = rulesTitle,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onOpenRules,
+                            )
+                        }
+                    }
+
+                    KsuIsValid {
                             SwitchPreference(
                                 title = stringResource(id = R.string.settings_module_check_update),
                                 summary = stringResource(id = R.string.settings_check_update_summary),
