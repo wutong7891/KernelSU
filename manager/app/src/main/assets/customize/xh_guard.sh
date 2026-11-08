@@ -13,6 +13,9 @@
 # ============================================================
 
 PKG="${PKG:-com.HxovoSU.yydsHx}"
+
+# Android 上是 /system/bin/sh，其它环境退回 PATH 里的 sh
+if [ -x /system/bin/sh ]; then SH_BIN=/system/bin/sh; else SH_BIN=sh; fi
 ROOT_DIR=/data/local/xh_guard
 GUARD="$ROOT_DIR/guard.sh"
 CONF="$ROOT_DIR/target"
@@ -208,9 +211,9 @@ start_guard() {
   fi
 
   if command -v setsid >/dev/null 2>&1; then
-    nohup setsid /system/bin/sh "$GUARD" </dev/null >/dev/null 2>&1 &
+    nohup setsid "$SH_BIN" "$GUARD" </dev/null >/dev/null 2>&1 &
   else
-    nohup /system/bin/sh "$GUARD" </dev/null >/dev/null 2>&1 &
+    nohup "$SH_BIN" "$GUARD" </dev/null >/dev/null 2>&1 &
   fi
 
   i=0
