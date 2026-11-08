@@ -64,7 +64,8 @@ fun CustomizeScreen() {
     var guarding by remember { mutableStateOf(false) }
     var targetPkg by remember { mutableStateOf("") }
     var targetLabel by remember { mutableStateOf("") }
-    var apkSize by remember { mutableStateOf(0L) }
+    var present by remember { mutableStateOf(true) }
+    var visible by remember { mutableStateOf(true) }
     var log by remember { mutableStateOf("") }
     var showPicker by remember { mutableStateOf(false) }
     var apps by remember { mutableStateOf(emptyList<InstalledApp>()) }
@@ -79,12 +80,13 @@ fun CustomizeScreen() {
                 Triple(
                     CustomizeController.isGuarding(),
                     CustomizeController.targetPackage(),
-                    CustomizeController.apkSize(),
+                    CustomizeController.isManagerVisible(context),
                 )
             }
             guarding = state.first
             targetPkg = state.second
-            apkSize = state.third
+            visible = state.third
+            present = withContext(Dispatchers.IO) { CustomizeController.isManagerPresent(context) }
             targetLabel = if (targetPkg.isBlank()) "" else runCatching {
                 val pm = context.packageManager
                 pm.getApplicationLabel(pm.getApplicationInfo(targetPkg, 0)).toString()
@@ -258,17 +260,26 @@ fun CustomizeScreen() {
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(
-                            if (apkSize > 0) "${apkSize / 1024} KB" else stringResource(R.string.customize_apk_missing),
+                            text = when {
+                                !present -> stringResource(R.string.customize_apk_missing)
+                                visible -> stringResource(R.string.customize_state_visible)
+                                else -> stringResource(R.string.customize_state_hidden)
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (apkSize > 0) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.error
+                            color = when {
+                                !present -> MaterialTheme.colorScheme.error
+                                visible -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.tertiary
+                            }
                         )
                     }
                     Text(
-                        CustomizeController.apkPath(),
+                        text = when {
+                            !present -> stringResource(R.string.customize_state_missing_hint)
+                            visible -> stringResource(R.string.customize_state_visible_hint)
+                            else -> stringResource(R.string.customize_state_hidden_hint)
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
                     )
                 }
             }

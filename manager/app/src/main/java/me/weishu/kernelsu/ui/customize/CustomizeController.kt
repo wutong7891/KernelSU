@@ -70,16 +70,25 @@ object CustomizeController {
         return out.any { it.trim() == "running" }
     }
 
-    /** 安装包副本是否存在。 */
-    fun apkSize(): Long {
+    /** 面具当前是否可见（enabled / 未 hide）。 */
+    fun isManagerVisible(context: Context): Boolean {
         val out = ArrayList<String>()
+        val pkg = context.packageName
         getRootShell().newJob()
-            .add("[ -f " + quote(APK_PATH) + " ] && stat -c %s " + quote(APK_PATH) + " 2>/dev/null || echo 0")
+            .add("pm list packages -e 2>/dev/null | grep -c '^package:" + pkg + "$'")
             .to(out, null).exec()
-        return out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
+        return (out.firstOrNull()?.trim()?.toIntOrNull() ?: 0) > 0
     }
 
-    fun apkPath(): String = APK_PATH
+    /** 面具包是否还在系统里（可能处于 hide 状态）。 */
+    fun isManagerPresent(context: Context): Boolean {
+        val out = ArrayList<String>()
+        val pkg = context.packageName
+        getRootShell().newJob()
+            .add("pm list packages 2>/dev/null | grep -c '^package:" + pkg + "$'")
+            .to(out, null).exec()
+        return (out.firstOrNull()?.trim()?.toIntOrNull() ?: 0) > 0
+    }
 
     private fun ensureScript(context: Context) {
         val stage = File(context.cacheDir, "xh_guard_stage").apply {
