@@ -41,6 +41,9 @@ trap '' HUP
 ROOT_DIR=/data/local/xh_guard
 CONF="$ROOT_DIR/target"
 APK=/data/adb/XhovoSU-manager.apk
+# /data/adb 的 SELinux 标签是 adb_data_file，system_server 读不了，
+# 安装前必须先复制到 /data/local/tmp 再让 pm 去读
+TMP_APK=/data/local/tmp/xh_manager_install.apk
 LOG="$ROOT_DIR/guard.log"
 PID_FILE="$ROOT_DIR/guard.pid"
 PKG_FILE="$ROOT_DIR/pkg"
@@ -100,19 +103,28 @@ revive() {
     return 1
   fi
 
-  if pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
-    tlog "面具已存在，只拉起"
-  else
-    tlog "开始静默安装"
-    out=$(pm install -r -d -g --user 0 "$APK" 2>&1)
-    tlog "install: $out"
-    sleep 1
-    if ! pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
-      tlog "FAIL 安装后仍不在包列表"
-      return 1
-    fi
-    tlog "安装成功"
+  tlog "开始静默安装"
+  cp -f "$APK" "$TMP_APK" 2>/dev/null
+  chmod 0644 "$TMP_APK" 2>/dev/null
+  if [ ! -f "$TMP_APK" ]; then
+    tlog "FAIL 复制到 /data/local/tmp 失败"
+    return 1
   fi
+
+  out=$(pm install -r -d -g --user 0 "$TMP_APK" 2>&1)
+  tlog "install: $out"
+  rm -f "$TMP_APK"
+  sleep 1
+
+  case "$out" in
+    *Success*)
+      tlog "安装成功"
+      ;;
+    *)
+      tlog "FAIL 安装返回非 Success"
+      return 1
+      ;;
+  esac
 
   tlog "拉起面具"
   m=$(monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 2>&1)
@@ -221,8 +233,10 @@ start_guard() {
 
 # ---------- 静默卸载 ----------
 silent_remove() {
-  if ! pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-    say "面具本来就不在"
+  # 注意：pm uninstall --user 0 之后，pm list packages 仍会列出这个包，
+  # 必须用 -e（启用列表）判断是否真的对用户不可见
+  if ! pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "面具已对用户隐藏"
     return 0
   fi
 
@@ -231,14 +245,14 @@ silent_remove() {
   say "uninstall: $o"
   sleep 1
 
-  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+  if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
     o=$(pm uninstall "$PKG" 2>&1)
     say "uninstall 重试: $o"
     sleep 1
   fi
 
-  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-    say "卸载失败，面具仍在"
+  if pm list packages -e 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "卸载失败，面具仍可见"
     return 1
   fi
 
