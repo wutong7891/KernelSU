@@ -124,16 +124,45 @@ append_log() {
 run_action() {
   target="$1"
   append_log "App entered foreground: $target"
-  if [ -f "$ROOT_DIR/selected_script.sh" ]; then
-    # 完全不依赖 KernelSU；变量名也不再带它的痕迹
-    export XHOVO_TRIGGER_TYPE=app_foreground
-    export XHOVO_TRIGGER_PACKAGE="$target"
-    export XHOVO_TRIGGER_TIME="$(date '+%s')"
-    (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$CONFIG_DIR/pre_input") >> "$LOG_FILE" 2>&1
-    append_log "Script finished, exit=$?"
-  else
+
+  if [ ! -f "$ROOT_DIR/selected_script.sh" ]; then
     append_log "Selected script is missing"
+    return
   fi
+
+  export XHOVO_TRIGGER_TYPE=app_foreground
+  export XHOVO_TRIGGER_PACKAGE="$target"
+  export XHOVO_TRIGGER_TIME="$(date '+%s')"
+
+  PRE="$CONFIG_DIR/pre_input"
+  if [ -s "$PRE" ]; then
+    # 用 FIFO 把预输入一行一行喂进去，每行之间停顿，
+    # 效果等于在控制台里逐行敲内容再按回车。
+    FIFO="$ROOT_DIR/.stdin_fifo"
+    rm -f "$FIFO"
+    if mkfifo "$FIFO" 2>/dev/null; then
+      (
+        while IFS= read -r line; do
+          sleep 0.2
+          printf '%s\n' "$line"
+        done < "$PRE"
+      ) > "$FIFO" 2>/dev/null &
+      feeder=$!
+      (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$FIFO") >> "$LOG_FILE" 2>&1
+      rc=$?
+      wait "$feeder" 2>/dev/null
+      rm -f "$FIFO"
+      append_log "Script finished, exit=$rc"
+      return
+    fi
+    # 没有 mkfifo 就退回一次性重定向
+    (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < "$PRE") >> "$LOG_FILE" 2>&1
+    append_log "Script finished, exit=$?"
+    return
+  fi
+
+  (cd / && /system/bin/sh "$ROOT_DIR/selected_script.sh" < /dev/null) >> "$LOG_FILE" 2>&1
+  append_log "Script finished, exit=$?"
 }
 
 append_log "Detached watcher started, pid=$$"

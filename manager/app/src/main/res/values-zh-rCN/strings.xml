@@ -374,7 +374,7 @@
     <string name="foreground_watcher_settings_summary">选择前台应用与执行文件，进入前台时自动执行</string>
     <string name="foreground_watcher_enable">启用监听</string>
     <string name="foreground_watcher_enable_summary">启动独立 Root Shell 进程，每次进入前台只触发一次</string>
-    <string name="foreground_watcher_developer_notice">个人开发爱好与自动化功能；Night 退出后，已脱离的进程仍可继续运行。</string>
+    <string name="foreground_watcher_developer_notice">面具关闭甚至卸载后，这个后台进程仍会继续运行；重启手机后需要重新启用。</string>
     <string name="foreground_watcher_target">被监听应用</string>
     <string name="foreground_watcher_choose_app">选择应用</string>
     <string name="foreground_watcher_script">需要执行的文件</string>
@@ -383,7 +383,7 @@
     <string name="foreground_watcher_use_root">默认使用 su 执行</string>
     <string name="foreground_watcher_use_root_summary">默认开启；关闭后使用面具自身身份执行。</string>
     <string name="foreground_watcher_preinput">预输入台</string>
-    <string name="foreground_watcher_preinput_summary">每一行会按顺序发送到脚本标准输入并模拟回车。</string>
+    <string name="foreground_watcher_preinput_summary">每行会逐条发给脚本，相当于依次输入内容并回车。</string>
     <string name="foreground_watcher_start">启动</string>
     <string name="foreground_watcher_stop">停止</string>
     <string name="foreground_watcher_started">前台监听已启动</string>

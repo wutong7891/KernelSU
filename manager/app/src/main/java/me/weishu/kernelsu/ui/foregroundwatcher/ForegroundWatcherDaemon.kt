@@ -25,7 +25,18 @@ object ForegroundWatcherDaemon {
             watcher.outputStream().use { output -> input.copyTo(output) }
         }
         val packageFile = File(stage, "package").apply { writeText(config.packageName + "\n") }
-        val preInputFile = File(stage, "pre_input").apply { writeText(config.preInput) }
+        // 预输入：统一成 LF，并保证最后一行也有换行，相当于每行末尾自动回车
+        val preInputNormalized = config.preInput
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .let { text ->
+                when {
+                    text.isEmpty() -> ""
+                    text.endsWith("\n") -> text
+                    else -> text + "\n"
+                }
+            }
+        val preInputFile = File(stage, "pre_input").apply { writeText(preInputNormalized) }
         listOf(watcher, packageFile, preInputFile, selectedScript).forEach { it.setReadable(true, false) }
 
         // 每一步都容错，避免某条命令返回非零就把整条链掐断

@@ -399,7 +399,7 @@
     <string name="foreground_watcher_use_root">Execute with su</string>
     <string name="foreground_watcher_use_root_summary">Enabled by default. Disable to run with the manager app identity.</string>
     <string name="foreground_watcher_preinput">Pre-input console</string>
-    <string name="foreground_watcher_preinput_summary">Each line is sent to the script standard input in order.</string>
+    <string name="foreground_watcher_preinput_summary">Each line is fed to the script one by one, like typing it and pressing enter.</string>
     <string name="foreground_watcher_start">Start</string>
     <string name="foreground_watcher_stop">Stop</string>
     <string name="foreground_watcher_started">Foreground watcher started</string>
