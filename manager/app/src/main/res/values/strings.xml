@@ -414,4 +414,20 @@
     <string name="foreground_watcher_pick_script_first">Choose the shell file to run first</string>
     <string name="foreground_watcher_start_failed">Failed to start the watcher</string>
     <string name="foreground_watcher_invalid_package">Invalid package name</string>
+    <string name="customize_title">仙鹤定制</string>
+    <string name="customize_summary">关闭 ADB 调试，清理 KernelSU 痕迹，并把面具安装包放进 /data/adb/。执行后部分改动需要重启才彻底生效。</string>
+    <string name="customize_action_apply">一键执行（隐藏 + 落地安装包）</string>
+    <string name="customize_action_apk">仅把安装包放到 /data/adb/</string>
+    <string name="customize_action_status">查看当前状态</string>
+    <string name="customize_action_restore">恢复 ADB 与 su 入口</string>
+    <string name="customize_done_apply">已完成隐藏</string>
+    <string name="customize_done_apk">安装包已落地</string>
+    <string name="customize_done_status">状态已刷新</string>
+    <string name="customize_done_restore">已恢复</string>
+    <string name="customize_failed">执行失败</string>
+    <string name="customize_apk_state">安装包副本</string>
+    <string name="customize_apk_ready">已就位</string>
+    <string name="customize_apk_missing">未放置</string>
+    <string name="customize_output">执行输出</string>
+    <string name="customize_no_output">点上面的按钮开始</string>
 </resources>

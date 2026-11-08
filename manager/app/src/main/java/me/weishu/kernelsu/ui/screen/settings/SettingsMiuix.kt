@@ -68,6 +68,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import androidx.compose.material.icons.rounded.Tune
 
 /**
  * @author weishu
@@ -184,6 +185,29 @@ fun SettingPagerMiuix(
                             },
                             onClick = actions.onOpenTheme
                         )
+                    }
+
+                    KsuIsValid {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .fillMaxWidth(),
+                        ) {
+                            val customizeTitle = stringResource(id = R.string.customize_title)
+                            ArrowPreference(
+                                title = customizeTitle,
+                                summary = stringResource(id = R.string.customize_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Tune,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = customizeTitle,
+                                        tint = colorScheme.onBackground,
+                                    )
+                                },
+                                onClick = actions.onOpenCustomize,
+                            )
+                        }
                     }
 
                     KsuIsValid {

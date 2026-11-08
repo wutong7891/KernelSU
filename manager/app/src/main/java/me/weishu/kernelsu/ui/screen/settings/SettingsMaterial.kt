@@ -66,6 +66,7 @@ import me.weishu.kernelsu.ui.component.material.SendLogBottomSheet
 import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
+import androidx.compose.material.icons.filled.Tune
 
 /**
  * @author weishu
@@ -175,6 +176,22 @@ fun SettingPagerMaterial(
                             }
                         )
                     }
+                )
+            }
+
+            KsuIsValid {
+                val customizeTitle = stringResource(id = R.string.customize_title)
+                SegmentedColumn(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                    content = listOf {
+                        SegmentedListItem(
+                            onClick = actions.onOpenCustomize,
+                            headlineContent = { Text(customizeTitle) },
+                            supportingContent = { Text(stringResource(id = R.string.customize_summary)) },
+                            leadingContent = { Icon(Icons.Filled.Tune, customizeTitle) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                        )
+                    },
                 )
             }
 
