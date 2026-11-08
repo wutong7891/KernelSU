@@ -1,8 +1,5 @@
 package me.weishu.kernelsu.ui.screen.settings
 
-private const val SHOW_FOREGROUND_WATCHER = false
-
-
 import android.content.Intent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -67,6 +64,8 @@ import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import androidx.compose.material.icons.filled.Tune
+
+private const val SHOW_FOREGROUND_WATCHER = false
 
 /**
  * @author weishu

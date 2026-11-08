@@ -1,8 +1,5 @@
 package me.weishu.kernelsu.ui.screen.settings
 
-private const val SHOW_FOREGROUND_WATCHER = false
-
-
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -69,6 +66,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import androidx.compose.material.icons.rounded.Tune
+
+private const val SHOW_FOREGROUND_WATCHER = false
 
 /**
  * @author weishu

@@ -56,7 +56,7 @@ object CustomizeController {
             .add("[ -f ${quote(APK_TARGET)} ] && stat -c %s ${quote(APK_TARGET)} 2>/dev/null || echo 0")
             .to(out, null).exec()
         val size = out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
-        return size > 0 to size
+        return Pair(size > 0, size)
     }
 
     fun apkPath(): String = APK_TARGET

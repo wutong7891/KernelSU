@@ -73,7 +73,7 @@ object ForegroundWatcherDaemon {
     fun stop(): Result<Unit> = runCatching {
         val command = buildString {
             append("pid=$(cat ").append(shQuote(PID_FILE)).append(" 2>/dev/null); ")
-            append("if [ -n \"$pid\" ]; then kill \"$pid\" 2>/dev/null; sleep 1; kill -9 \"$pid\" 2>/dev/null; fi; ")
+            append("if [ -n \"\$pid\" ]; then kill \"\$pid\" 2>/dev/null; sleep 1; kill -9 \"\$pid\" 2>/dev/null; fi; ")
             append("rm -f ").append(shQuote(PID_FILE)).append(' ').append(shQuote(LOCK_FILE)).append("; ")
             append("rm -rf ").append(shQuote("$ROOT_DIR/watcher.lock")).append(" 2>/dev/null; ")
             append("echo STOPPED")
@@ -86,8 +86,8 @@ object ForegroundWatcherDaemon {
         val out = ArrayList<String>()
         val command = buildString {
             append("pid=$(cat ").append(shQuote(PID_FILE)).append(" 2>/dev/null); ")
-            append("[ -n \"$pid\" ] && [ -r /proc/$pid/cmdline ] && ")
-            append("grep -q xhovosu_fgwatch /proc/$pid/cmdline && echo running")
+            append("[ -n \"\$pid\" ] && [ -r /proc/\$pid/cmdline ] && ")
+            append("grep -q xhovosu_fgwatch /proc/\$pid/cmdline && echo running")
         }
         return getRootShell().newJob().add(command).to(out, null).exec().isSuccess &&
                 out.any { it.trim() == "running" }
