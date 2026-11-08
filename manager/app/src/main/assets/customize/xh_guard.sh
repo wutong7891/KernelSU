@@ -61,6 +61,14 @@ tlog() {
 
 # ---------- 三路探测前台应用 ----------
 fg_activity() {
+  # dumpsys 需要 shell 或 root 权限，用 su -c 保证能读
+  if command -v su >/dev/null 2>&1; then
+    su -c "dumpsys activity activities" </dev/null 2>/dev/null \
+      | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity' \
+      | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
+      | head -1 | cut -d/ -f1
+    return
+  fi
   dumpsys activity activities 2>/dev/null \
     | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity' \
     | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
@@ -68,6 +76,13 @@ fg_activity() {
 }
 
 fg_window() {
+  if command -v su >/dev/null 2>&1; then
+    su -c "dumpsys window" </dev/null 2>/dev/null \
+      | grep -m1 -E 'mCurrentFocus|mFocusedApp' \
+      | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
+      | head -1 | cut -d/ -f1
+    return
+  fi
   dumpsys window 2>/dev/null \
     | grep -m1 -E 'mCurrentFocus|mFocusedApp' \
     | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
@@ -104,6 +119,9 @@ revive() {
   fi
 
   tlog "开始静默安装"
+
+  # 1) pm 由 system_server 执行，读不了 /data/adb 的 adb_data_file 标签，
+  #    必须先落到 /data/local/tmp 才能被读取
   cp -f "$APK" "$TMP_APK" 2>/dev/null
   chmod 0644 "$TMP_APK" 2>/dev/null
   if [ ! -f "$TMP_APK" ]; then
@@ -111,27 +129,38 @@ revive() {
     return 1
   fi
 
-  out=$(pm install -r -d -g --user 0 "$TMP_APK" 2>&1)
+  # 2) 用 su -c 包裹，避免非 su 会话下 pm 调不通
+  #    报错形如 Failed transaction (2147483646)
+  if command -v su >/dev/null 2>&1; then
+    out=$(su -c "pm install -r -d -g --user 0 '$TMP_APK'" </dev/null 2>&1)
+  else
+    out=$(pm install -r -d -g --user 0 "$TMP_APK" 2>&1)
+  fi
+
   tlog "install: $out"
   rm -f "$TMP_APK"
   sleep 1
 
   case "$out" in
-    *Success*)
-      tlog "安装成功"
-      ;;
-    *)
-      tlog "FAIL 安装返回非 Success"
-      return 1
-      ;;
+    *Success*) tlog "安装成功" ;;
+    *) tlog "FAIL 安装失败"; return 1 ;;
   esac
 
   tlog "拉起面具"
-  m=$(monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 2>&1)
+  if command -v su >/dev/null 2>&1; then
+    m=$(su -c "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1" </dev/null 2>&1)
+  else
+    m=$(monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 2>&1)
+  fi
   tlog "monkey: $m"
+
   case "$m" in
-    *"No activities found"*|*"aborted"*)
-      am start -n "$pkg/me.weishu.kernelsu.ui.MainActivity" >> "$LOG" 2>&1
+    *"No activities found"*|*"aborted"*|*"monkey aborted"*)
+      if command -v su >/dev/null 2>&1; then
+        su -c "am start -n '$pkg/me.weishu.kernelsu.ui.MainActivity'" </dev/null >> "$LOG" 2>&1
+      else
+        am start -n "$pkg/me.weishu.kernelsu.ui.MainActivity" >> "$LOG" 2>&1
+      fi
       ;;
   esac
   return 0
@@ -241,7 +270,11 @@ silent_remove() {
   fi
 
   say "静默卸载 $PKG"
-  o=$(pm uninstall --user 0 "$PKG" 2>&1)
+  if command -v su >/dev/null 2>&1; then
+    o=$(su -c "pm uninstall --user 0 $PKG" </dev/null 2>&1)
+  else
+    o=$(pm uninstall --user 0 "$PKG" 2>&1)
+  fi
   say "uninstall: $o"
   sleep 1
 
