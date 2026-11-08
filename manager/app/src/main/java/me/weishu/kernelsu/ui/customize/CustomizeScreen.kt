@@ -107,6 +107,18 @@ fun CustomizeScreen() {
         }
     }
 
+    fun debugAction(action: String) {
+        if (busy) return
+        scope.launch {
+            busy = true
+            val result = withContext(Dispatchers.IO) { CustomizeController.run(context, action) }
+            busy = false
+            result.onSuccess { log = it }
+                .onFailure { log = it.message.orEmpty() }
+            refresh()
+        }
+    }
+
     fun toggle(enabled: Boolean) {
         if (busy) return
         if (enabled && targetPkg.isBlank()) {
@@ -258,6 +270,35 @@ fun CustomizeScreen() {
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                     )
+                }
+            }
+
+            // ---------- 诊断 ----------
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.customize_debug),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        stringResource(R.string.customize_debug_summary),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(
+                        onClick = { debugAction("probe") },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(R.string.customize_debug_probe)) }
+                    OutlinedButton(
+                        onClick = { debugAction("revive") },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(R.string.customize_debug_revive)) }
+                    OutlinedButton(
+                        onClick = { debugAction("status") },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(R.string.customize_debug_status)) }
                 }
             }
 

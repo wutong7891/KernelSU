@@ -2,20 +2,11 @@
 # ============================================================
 # 仙鹤隐形模式
 #
-# 一次性完成三件事：
-#   1. 把面具安装包固化到 /data/adb/XhovoSU-manager.apk
-#   2. 把守护脚本放进 /data/local 并用 setsid 脱离启动
-#   3. 静默卸载面具本体
-#
-# 之后守护进程一直盯着前台应用：
-#   一旦用户打开你指定的那个应用，就从 /data/adb 静默装回面具并拉起，
-#   装完继续盯着，下次再触发还会重新装。
-#
-# 用法：
-#   sh xh_guard.sh arm <包名>     开启隐形模式
-#   sh xh_guard.sh disarm         关闭隐形模式（停守护，不动面具）
+#   sh xh_guard.sh arm <包名>     开启：固化安装包 → 注入守护 → 静默卸载面具
+#   sh xh_guard.sh disarm         停止守护（不动面具）
+#   sh xh_guard.sh revive         立刻手动装回面具（调试用）
+#   sh xh_guard.sh probe          打印当前探测到的前台应用（调试用）
 #   sh xh_guard.sh status         查看状态
-#   sh xh_guard.sh now            立刻手动恢复一次面具（调试用）
 # ============================================================
 
 PKG="${PKG:-com.HxovoSU.yydsHx}"
@@ -26,14 +17,9 @@ APK_SRC=/data/adb/XhovoSU-manager.apk
 LOG="$ROOT_DIR/guard.log"
 PID_FILE="$ROOT_DIR/guard.pid"
 
-log() {
-  printf '[%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$1" >> "$LOG"
-  [ $(wc -c < "$LOG" 2>/dev/null || echo 0) -gt 200000 ] && : > "$LOG"
-}
-
 say() {
   echo "$1"
-  log "$1"
+  printf '[%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$1" >> "$LOG" 2>/dev/null
 }
 
 # ---------- 写守护脚本本体 ----------
@@ -43,7 +29,6 @@ write_guard() {
 
   cat > "$GUARD" <<'GUARD_EOF'
 #!/system/bin/sh
-# 仙鹤隐形守护：盯前台应用，命中就静默装回面具
 trap '' HUP
 
 ROOT_DIR=/data/local/xh_guard
@@ -56,73 +41,118 @@ PKG_FILE="$ROOT_DIR/pkg"
 echo $$ > "$PID_FILE"
 chmod 0644 "$PID_FILE" 2>/dev/null
 
-mkdir -p "$ROOT_DIR" 2>/dev/null
-touch "$LOG" 2>/dev/null
-
-pkg_now() {
-  cat "$PKG_FILE" 2>/dev/null
-}
-
 tlog() {
   printf '[%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$1" >> "$LOG"
-  [ $(wc -c < "$LOG" 2>/dev/null || echo 0) -gt 200000 ] && : > "$LOG"
-}
-
-# 当前前台包名：优先系统事件，退到 dumpsys
-foreground() {
-  local out
-  out=$(dumpsys activity activities 2>/dev/null \
-    | grep -m1 -E 'mResumedActivity|topResumedActivity' \
-    | grep -oE '[a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+' \
-    | head -1 | cut -d/ -f1)
-  if [ -z "$out" ]; then
-    out=$(dumpsys window 2>/dev/null \
-      | grep -m1 -E 'mCurrentFocus|mFocusedApp' \
-      | grep -oE '[a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+' \
-      | head -1 | cut -d/ -f1)
+  sz=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+  if [ "$sz" -gt 200000 ]; then
+    tail -n 400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv -f "$LOG.tmp" "$LOG" 2>/dev/null
   fi
-  echo "$out"
 }
 
-# 恢复面具：装回去再拉起
+# ---------- 三路探测前台应用 ----------
+fg_activity() {
+  dumpsys activity activities 2>/dev/null \
+    | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity' \
+    | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
+    | head -1 | cut -d/ -f1
+}
+
+fg_window() {
+  dumpsys window 2>/dev/null \
+    | grep -m1 -E 'mCurrentFocus|mFocusedApp' \
+    | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
+    | head -1 | cut -d/ -f1
+}
+
+fg_proc() {
+  # 兜底：/proc 里 oom_score_adj == 0 的进程，取名字像包名的那个
+  for d in /proc/[0-9]*; do
+    adj=$(cat "$d/oom_score_adj" 2>/dev/null)
+    [ "$adj" = "0" ] || continue
+    name=$(cat "$d/cmdline" 2>/dev/null | tr '\0' ' ' | awk '{print $1}')
+    case "$name" in
+      *.*) [ -n "$name" ] && { echo "$name"; return; } ;;
+    esac
+  done
+}
+
+foreground() {
+  f=$(fg_activity)
+  [ -n "$f" ] && { echo "$f"; return; }
+  f=$(fg_window)
+  [ -n "$f" ] && { echo "$f"; return; }
+  fg_proc
+}
+
+# ---------- 装回面具 ----------
 revive() {
-  local pkg
-  pkg=$(pkg_now)
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
   [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
 
   if [ ! -f "$APK" ]; then
-    tlog "缺少安装包 $APK，跳过"
+    tlog "FAIL 安装包不存在: $APK"
     return 1
   fi
 
   if pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
-    tlog "面具已在，直接拉起"
+    tlog "面具已存在，只拉起"
   else
-    tlog "静默安装面具"
-    pm install -r -d --user 0 "$APK" >> "$LOG" 2>&1
+    tlog "开始静默安装 $APK"
+    out=$(pm install -r -d -g --user 0 "$APK" 2>&1)
+    tlog "install 输出: $out"
     sleep 1
+    if ! pm list packages 2>/dev/null | grep -q "^package:$pkg$"; then
+      tlog "FAIL 安装后仍不在包列表"
+      return 1
+    fi
+    tlog "安装成功"
   fi
 
   tlog "拉起面具"
-  monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >> "$LOG" 2>&1 \
-    || am start -n "$pkg/me.weishu.kernelsu.ui.MainActivity" >> "$LOG" 2>&1
+  m=$(monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 2>&1)
+  tlog "monkey 输出: $m"
+  case "$m" in
+    *"No activities found"*|*"aborted"*)
+      am start -n "$pkg/me.weishu.kernelsu.ui.MainActivity" >> "$LOG" 2>&1
+      ;;
+  esac
+  return 0
 }
 
 target=$(cat "$CONF" 2>/dev/null)
-[ -z "$target" ] && { tlog "没有配置目标应用，退出"; exit 0; }
+[ -z "$target" ] && { tlog "没有配置目标，退出"; exit 0; }
 
-tlog "守护启动 pid=$$ 目标=$target"
+tlog "===== 守护启动 pid=$$ target=$target ====="
+tlog "探测自检: activity=$(fg_activity) window=$(fg_window) proc=$(fg_proc)"
 
 last=""
+idle=0
+
 while true; do
   now=$(foreground)
 
-  if [ -n "$now" ] && [ "$now" = "$target" ] && [ "$now" != "$last" ]; then
-    tlog "命中目标应用: $now"
-    revive
+  if [ -n "$now" ]; then
+    idle=0
+    if [ "$now" = "$target" ] && [ "$now" != "$last" ]; then
+      tlog "命中目标 $now"
+      if revive; then
+        tlog "唤回完成"
+      else
+        tlog "唤回失败，稍后重试"
+        last=""
+        sleep 3
+        continue
+      fi
+    fi
+    last="$now"
+  else
+    # 连续探测不到任何前台，说明 dumpsys 这条路可能被封了
+    idle=$((idle + 1))
+    if [ $((idle % 30)) -eq 0 ]; then
+      tlog "WARN 连续 $idle 次探测不到前台，当前可用通道: activity/window/proc 均为空"
+    fi
   fi
 
-  last="$now"
   sleep 2
 done
 GUARD_EOF
@@ -148,7 +178,7 @@ place_apk() {
     return 0
   fi
 
-  say "找不到安装包，无法开启隐形模式"
+  say "找不到安装包，中止"
   return 1
 }
 
@@ -156,10 +186,7 @@ place_apk() {
 start_guard() {
   if [ -f "$PID_FILE" ]; then
     old=$(cat "$PID_FILE" 2>/dev/null)
-    if [ -n "$old" ] && [ -r "/proc/$old/cmdline" ]; then
-      kill "$old" 2>/dev/null
-      sleep 1
-    fi
+    [ -n "$old" ] && kill -9 "$old" 2>/dev/null
     rm -f "$PID_FILE"
   fi
 
@@ -170,7 +197,7 @@ start_guard() {
   fi
 
   i=0
-  while [ $i -lt 12 ]; do
+  while [ $i -lt 15 ]; do
     if [ -f "$PID_FILE" ]; then
       pid=$(cat "$PID_FILE" 2>/dev/null)
       if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
@@ -189,34 +216,45 @@ start_guard() {
 
 # ---------- 静默卸载面具 ----------
 silent_remove() {
-  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-    say "静默卸载面具 $PKG"
-    pm uninstall --user 0 "$PKG" >> "$LOG" 2>&1
-    sleep 1
-    if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-      pm uninstall "$PKG" >> "$LOG" 2>&1
-      sleep 1
-    fi
-    if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
-      say "卸载失败，面具仍在"
-      return 1
-    fi
-    say "面具已卸载"
-  else
+  if ! pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
     say "面具本来就不在"
+    return 0
   fi
+
+  say "静默卸载 $PKG"
+  o=$(pm uninstall --user 0 "$PKG" 2>&1)
+  say "uninstall 输出: $o"
+  sleep 1
+
+  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    o=$(pm uninstall "$PKG" 2>&1)
+    say "uninstall 重试: $o"
+    sleep 1
+  fi
+
+  if pm list packages 2>/dev/null | grep -q "^package:$PKG$"; then
+    say "卸载失败，面具仍在"
+    return 1
+  fi
+
+  say "面具已卸载"
   return 0
+}
+
+# ---------- 探测自检 ----------
+probe_now() {
+  say "==== 探测自检 ===="
+  a=$(dumpsys activity activities 2>/dev/null | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity')
+  say "activity 行: ${a:-（空）}"
+  w=$(dumpsys window 2>/dev/null | grep -m1 -E 'mCurrentFocus|mFocusedApp')
+  say "window 行: ${w:-（空）}"
+  say "目标配置: $(cat "$CONF" 2>/dev/null)"
 }
 
 # ---------- 状态 ----------
 show_status() {
   say "==== 仙鹤隐形模式 ===="
-
-  if [ -f "$CONF" ]; then
-    say "目标应用    : $(cat "$CONF" 2>/dev/null)"
-  else
-    say "目标应用    : 未配置"
-  fi
+  say "目标应用    : $(cat "$CONF" 2>/dev/null || echo 未配置)"
 
   if [ -f "$PID_FILE" ]; then
     pid=$(cat "$PID_FILE" 2>/dev/null)
@@ -224,7 +262,7 @@ show_status() {
       ppid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)
       say "守护进程    : 运行中 pid=$pid ppid=$ppid"
     else
-      say "守护进程    : 已停止"
+      say "守护进程    : 已退出（pid 文件残留）"
     fi
   else
     say "守护进程    : 未启动"
@@ -242,19 +280,22 @@ show_status() {
   else
     say "面具状态    : 未安装（隐形中）"
   fi
+
+  if [ -f "$LOG" ]; then
+    say "---- 最近 20 行日志 ----"
+    tail -n 20 "$LOG"
+  fi
 }
 
 case "$1" in
   arm)
     target="$2"
-    if [ -z "$target" ]; then
-      echo "缺少目标应用包名"
-      exit 1
-    fi
+    [ -z "$target" ] && { echo "缺少目标应用包名"; exit 1; }
 
     mkdir -p "$ROOT_DIR" 2>/dev/null
     printf '%s\n' "$target" > "$CONF"
     printf '%s\n' "$PKG" > "$ROOT_DIR/pkg"
+    : > "$LOG"
 
     place_apk || exit 1
     write_guard
@@ -267,26 +308,30 @@ case "$1" in
   disarm)
     if [ -f "$PID_FILE" ]; then
       old=$(cat "$PID_FILE" 2>/dev/null)
-      [ -n "$old" ] && kill "$old" 2>/dev/null
+      [ -n "$old" ] && kill -9 "$old" 2>/dev/null
       rm -f "$PID_FILE"
     fi
     rm -f "$CONF"
     say "守护已停止"
     ;;
-  now)
-    revive_script="$GUARD"
-    if [ -f "$GUARD" ]; then
-      sh -c ". /dev/null; $(sed -n '/^revive()/,/^}/p' "$GUARD"); revive" 2>/dev/null
+  revive)
+    if [ ! -f "$GUARD" ]; then
+      say "守护脚本不存在"
+      exit 1
     fi
-    if [ -f "$APK_SRC" ]; then
-      pm install -r -d --user 0 "$APK_SRC" >> "$LOG" 2>&1
-      say "已手动恢复面具"
-    fi
+    # 从守护脚本里取出 revive 函数直接调用
+    sed -n '/^revive()/,/^}/p' "$GUARD" > "$ROOT_DIR/.revive.sh"
+    printf '%s\n' "PKG_FILE=$ROOT_DIR/pkg" >> "$ROOT_DIR/.revive.sh"
+    . "$ROOT_DIR/.revive.sh"
+    revive
+    ;;
+  probe)
+    probe_now
     ;;
   status|"")
     show_status
     ;;
   *)
-    echo "用法: sh xh_guard.sh [arm <包名>|disarm|status|now]"
+    echo "用法: sh xh_guard.sh [arm <包名>|disarm|revive|probe|status]"
     ;;
 esac

@@ -433,4 +433,9 @@
     <string name="customize_apk_missing">未放置</string>
     <string name="customize_output">执行输出</string>
     <string name="customize_no_output">切换开关后这里会显示过程</string>
+    <string name="customize_debug">诊断</string>
+    <string name="customize_debug_summary">唤回没反应时用这三个排查：探测看能不能读到前台应用，恢复是立刻装一次，状态看守护还活着没。</string>
+    <string name="customize_debug_probe">探测当前前台</string>
+    <string name="customize_debug_revive">立刻装回面具</string>
+    <string name="customize_debug_status">查看守护状态</string>
 </resources>
