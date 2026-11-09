@@ -58,12 +58,11 @@ object CustomizeController {
             // 记录包名
             append("printf '%s\\n' ").append(q(pkg)).append(" > ").append(q("$WORK_DIR/pkg")).append("; ")
 
-            // 镜像 APK 到私有目录（真卸载后靠它恢复）
-            append("[ -f ").append(q(APK_PATH)).append(" ] || { ")
+            // 每次都重新镜像，覆盖旧副本，确保拿到的是当前安装的这个版本
             append("src=$(pm path ").append(q(pkg)).append(" 2>/dev/null | head -1 | sed 's/^package://'); ")
             append("if [ -n \"\$src\" ] && [ -f \"\$src\" ]; then ")
             append("cp -f \"\$src\" ").append(q(APK_PATH)).append(" && chmod 0644 ").append(q(APK_PATH)).append("; ")
-            append("fi; }; ")
+            append("fi; ")
 
             // 停旧监听
             append("[ -f ").append(q(PID_PATH)).append(" ] && { ")
@@ -120,12 +119,11 @@ object CustomizeController {
             append("chmod 0644 ").append(q(CONF_PATH)).append(" 2>/dev/null; ")
             append("printf '%s\\n' ").append(q(pkg)).append(" > ").append(q("$WORK_DIR/pkg")).append("; ")
 
-            // 镜像 APK（若还没有）
-            append("[ -f ").append(q(APK_PATH)).append(" ] || { ")
+            // 每次都重新镜像（覆盖），保存配置时也顺手更新一份
             append("src=$(pm path ").append(q(pkg)).append(" 2>/dev/null | head -1 | sed 's/^package://'); ")
             append("if [ -n \"\$src\" ] && [ -f \"\$src\" ]; then ")
             append("cp -f \"\$src\" ").append(q(APK_PATH)).append(" && chmod 0644 ").append(q(APK_PATH)).append("; ")
-            append("fi; }; ")
+            append("fi; ")
 
             // 重启监听以应用新配置
             append("[ -f ").append(q(PID_PATH)).append(" ] && { ")
