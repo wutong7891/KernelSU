@@ -64,7 +64,6 @@ import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.material.expressiveTopAppBarColors
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Bolt
 
 private const val SHOW_FOREGROUND_WATCHER = false
 
@@ -113,15 +112,6 @@ fun SettingPagerMaterial(
                                 headlineContent = { Text(stringResource(id = R.string.customize_title)) },
                                 supportingContent = { Text(stringResource(id = R.string.customize_switch_summary)) },
                                 leadingContent = { Icon(Icons.Filled.Visibility, null) },
-                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
-                            )
-                        },
-                        {
-                            SegmentedListItem(
-                                onClick = actions.onOpenRules,
-                                headlineContent = { Text(stringResource(id = R.string.rules_title)) },
-                                supportingContent = { Text(stringResource(id = R.string.rules_summary)) },
-                                leadingContent = { Icon(Icons.Filled.Bolt, null) },
                                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                             )
                         },

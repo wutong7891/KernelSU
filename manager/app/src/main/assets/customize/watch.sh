@@ -2,16 +2,22 @@
 # ============================================================
 # 仙鹤隐形监听
 #
-# 在目标应用内监听音量键手势，命中后装回面具并拉起，然后自己退出。
+# 监听分三类，生命周期各不相同：
+#
+#   1. 规则引擎（rules.conf）
+#      常驻。规则一直有效，除非手动删除，不会因为触发过就失效。
+#
+#   2. 隐形唤回（stealth.conf）
+#      一次性。音量键命中并装回面具后，监听退出。
+#
+#   3. KSU 生命周期
+#      打开 KSU → 装回面具；退出 KSU → 自动从系统卸载。
+#      只在隐形模式开启时生效。
 #
 # 启动方式（三处，均由 App 侧调用 sync 触发）：
 #   1. 打开 App（MainActivity 冷启动）
 #   2. 在「仙鹤定制」里保存配置
-#   3. 开机（StealthBootReceiver）
-#
-# 退出条件：
-#   1. 手势命中并成功装回面具 → 立即退出
-#   2. 检测到面具被手动安装（不走手势）→ 清理隐形配置并退出
+#   3. 开机 /data/adb/service.d/xhovosu-watch.sh
 #
 # 配置：/data/adb/xhovo/stealth.conf
 #   target=com.xxx        目标应用包名
@@ -270,6 +276,63 @@ exec_rule_action() {
   fi
 }
 
+# ---------- KSU 生命周期 ----------
+# 打开 KSU → 确保面具装着；退出 KSU → 自动卸载。
+# 只在隐形模式开启（stealth.conf 有 target）时生效。
+
+ksu_running() {
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
+  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+
+  # 用 pidof 判断进程是否存活（比 ps 可靠，不受输出格式影响）
+  if command -v pidof >/dev/null 2>&1; then
+    pidof "$pkg" >/dev/null 2>&1 && return 0
+  fi
+  ps -A 2>/dev/null | grep -q "$pkg" && return 0
+  return 1
+}
+
+pkg_installed() {
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
+  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+  pm list packages 2>/dev/null | grep -q "^package:$pkg$"
+}
+
+ksu_cycle() {
+  # 没配隐形就不管
+  [ -f "$CONF" ] || return 0
+
+  was=0
+  while true; do
+    bb sleep 2 2>/dev/null || sleep 2
+
+    # 隐形模式被关掉就退出这个监控
+    [ -f "$CONF" ] || { log "隐形配置已移除，KSU 监控退出"; return 0; }
+
+    if ksu_running; then
+      was=1
+      if ! pkg_installed; then
+        log "KSU 打开，装回面具"
+        # 打标记，避免被「手动安装检测」误判成用户自己装的
+        printf '1' > "$WORK/.ksu_install" 2>/dev/null
+        revive
+      fi
+    else
+      if [ "$was" = "1" ]; then
+        log "KSU 已退出"
+        was=0
+        if pkg_installed; then
+          log "自动卸载面具"
+          pkg=$(cat "$PKG_FILE" 2>/dev/null)
+          [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+          su -c "pm uninstall --user 0 $pkg" </dev/null >> "$LOG" 2>&1
+          rm -f "$WORK/.press" "$WORK/.presskey" 2>/dev/null
+        fi
+      fi
+    fi
+  done
+}
+
 # ---------- 手动安装检测 ----------
 # 用户不走手势、自己手动装了面具，说明想正常用。
 # 2 秒轮询发现「从无到有」→ 恢复显示 + 清数据 + 停止监听。
@@ -296,6 +359,14 @@ watch_manual_install() {
 
     # 只有基线是「不在」时才认为是「从无到有」
     if [ "$baseline" = "0" ] && [ "$present" = "1" ]; then
+      # 这次出现如果是我们自己装回来的，不算手动安装
+      if [ -f "$WORK/.ksu_install" ]; then
+        rm -f "$WORK/.ksu_install" 2>/dev/null
+        log "面具由 KSU 生命周期装回，跳过手动安装判定"
+        baseline=$present
+        continue
+      fi
+
       log "检测到面具被手动安装，恢复显示并清理配置"
 
       # 恢复显示：解除 hide / disable
@@ -331,6 +402,10 @@ FG_PID=$!
 watch_manual_install &
 MANUAL_PID=$!
 
+# ---------- 后台 KSU 生命周期监控 ----------
+ksu_cycle &
+KSU_PID=$!
+
 # ---------- 每设备一个常驻 getevent ----------
 for dev in $DEVICES; do
   name=$(basename "$dev")
@@ -351,6 +426,7 @@ done
 cleanup() {
   kill $FG_PID 2>/dev/null
   kill $MANUAL_PID 2>/dev/null
+  kill $KSU_PID 2>/dev/null
   for p in $(ps -A 2>/dev/null | grep -E 'getevent|script' | awk '{print $2}'); do
     kill "$p" 2>/dev/null
   done

@@ -66,7 +66,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Bolt
 
 private const val SHOW_FOREGROUND_WATCHER = false
 
@@ -154,20 +153,6 @@ fun SettingPagerMiuix(
                                     )
                                 },
                                 onClick = actions.onOpenStealth,
-                            )
-                            val rulesTitle = stringResource(id = R.string.rules_title)
-                            ArrowPreference(
-                                title = rulesTitle,
-                                summary = stringResource(id = R.string.rules_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Bolt,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = rulesTitle,
-                                        tint = colorScheme.onBackground,
-                                    )
-                                },
-                                onClick = actions.onOpenRules,
                             )
                         }
                     }
