@@ -49,40 +49,80 @@ object RulesStore {
     private const val WORK = "/data/adb/xhovo/work"
 
     // ---------- 读 ----------
+    /**
+     * 读规则。
+     *
+     * 优先 SharedPreferences（App 内编辑的权威副本），
+     * 为空时回退到 /data/adb/xhovo/rules.conf。
+     *
+     * 这样即使 App 数据被 pm clear 清掉，只要 conf 还在，
+     * 规则就能原样恢复——面具卸载不会带走规则。
+     */
     fun load(context: Context): List<Rule> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_RULES, null)
-        if (raw.isNullOrBlank()) return emptyList()
 
-        return runCatching {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Rule(
-                    enabled = o.optBoolean("enabled", true),
-                    pkg = o.optString("pkg", ""),
-                    key = o.optString("key", ""),
-                    mode = o.optString("mode", "long"),
-                    count = o.optInt("count", 3),
-                    windowMs = o.optInt("window", 2000),
-                    longMs = o.optInt("long", 1500),
-                    action = o.optString("action", "launch"),
-                    script = o.optString("script", ""),
-                    inputB64 = o.optString("inputB64", ""),
-                    enter = o.optBoolean("enter", true),
-                )
-            }
-        }.getOrDefault(emptyList())
+        if (!raw.isNullOrBlank()) {
+            val parsed = runCatching { parseJson(raw) }.getOrDefault(emptyList())
+            if (parsed.isNotEmpty()) return parsed
+        }
+
+        // 回退：从 root 侧的 conf 反解
+        val confText = runCatching { exec("cat " + q(CONF) + " 2>/dev/null") }.getOrDefault("")
+        if (confText.isBlank()) return emptyList()
+
+        val recovered = parseConf(confText)
+        if (recovered.isNotEmpty()) {
+            // 顺手写回 SharedPreferences，避免每次都读文件
+            writePrefs(context, recovered)
+        }
+        return recovered
     }
 
-    // ---------- 写 ----------
-    /**
-     * 保存到 SharedPreferences 并镜像到 rules.conf。
-     *
-     * 注意：rules.conf 最后必须带换行，否则 shell 的
-     * `while read` 在 EOF 处读不到最后一行，整份规则等于失效。
-     */
-    fun save(context: Context, rules: List<Rule>): Result<Unit> = runCatching {
+    private fun parseJson(raw: String): List<Rule> {
+        val arr = JSONArray(raw)
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            Rule(
+                enabled = o.optBoolean("enabled", true),
+                pkg = o.optString("pkg", ""),
+                key = o.optString("key", ""),
+                mode = o.optString("mode", "long"),
+                count = o.optInt("count", 3),
+                windowMs = o.optInt("window", 2000),
+                longMs = o.optInt("long", 1500),
+                action = o.optString("action", "launch"),
+                script = o.optString("script", ""),
+                inputB64 = o.optString("inputB64", ""),
+                enter = o.optBoolean("enter", true),
+            )
+        }
+    }
+
+    /** 从 rules.conf 的 11 段格式反解。 */
+    private fun parseConf(text: String): List<Rule> {
+        return text.lines()
+            .filter { it.isNotBlank() && it.contains('|') }
+            .mapNotNull { line ->
+                val p = line.split('|')
+                if (p.size < 8) return@mapNotNull null
+                Rule(
+                    enabled = p[0].trim() == "1",
+                    pkg = p[1].trim(),
+                    key = p[2].trim(),
+                    mode = p[3].trim().ifBlank { "long" },
+                    count = p.getOrNull(4)?.trim()?.toIntOrNull() ?: 3,
+                    windowMs = p.getOrNull(5)?.trim()?.toIntOrNull() ?: 2000,
+                    longMs = p.getOrNull(6)?.trim()?.toIntOrNull() ?: 1500,
+                    action = p.getOrNull(7)?.trim()?.ifBlank { "launch" } ?: "launch",
+                    script = p.getOrNull(8)?.trim().orEmpty(),
+                    inputB64 = p.getOrNull(9)?.trim().orEmpty(),
+                    enter = p.getOrNull(10)?.trim() != "0",
+                )
+            }
+    }
+
+    private fun writePrefs(context: Context, rules: List<Rule>) {
         val arr = JSONArray()
         rules.forEach { r ->
             arr.put(
@@ -101,11 +141,21 @@ object RulesStore {
                 },
             )
         }
-
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_RULES, arr.toString())
             .apply()
+    }
+
+    // ---------- 写 ----------
+    /**
+     * 保存到 SharedPreferences 并镜像到 rules.conf。
+     *
+     * 注意：rules.conf 最后必须带换行，否则 shell 的
+     * `while read` 在 EOF 处读不到最后一行，整份规则等于失效。
+     */
+    fun save(context: Context, rules: List<Rule>): Result<Unit> = runCatching {
+        writePrefs(context, rules)
 
         // 生成 shell 侧规则文件
         val lines = rules.joinToString("\n") { r ->

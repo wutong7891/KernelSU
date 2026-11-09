@@ -13,6 +13,8 @@
 #   3. KSU 生命周期
 #      打开 KSU → 装回面具；退出 KSU → 自动从系统卸载。
 #      只在隐形模式开启时生效。
+#      注意：卸面具不会删规则文件，rules.conf 和 stealth.conf 原样保留，
+#      下次 KSU 打开装回面具后规则继续有效。
 #
 # 启动方式（三处，均由 App 侧调用 sync 触发）：
 #   1. 打开 App（MainActivity 冷启动）
@@ -322,9 +324,10 @@ ksu_cycle() {
         log "KSU 已退出"
         was=0
         if pkg_installed; then
-          log "自动卸载面具"
+          log "自动卸载面具（规则文件保留）"
           pkg=$(cat "$PKG_FILE" 2>/dev/null)
           [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+          # 只卸面具，不动 $RULES 和 $CONF——规则要继续有效
           su -c "pm uninstall --user 0 $pkg" </dev/null >> "$LOG" 2>&1
           rm -f "$WORK/.press" "$WORK/.presskey" 2>/dev/null
         fi
@@ -373,8 +376,20 @@ watch_manual_install() {
       su -c "pm unhide --user 0 $pkg" </dev/null >> "$LOG" 2>&1
       su -c "pm enable --user 0 $pkg" </dev/null >> "$LOG" 2>&1
 
+      # 清数据前先把规则备份到私密目录，pm clear 之后能还原
+      if [ -f "$RULES" ]; then
+        cp -f "$RULES" "$ADB_DIR/rules.conf.bak" 2>/dev/null
+        log "规则已备份到 rules.conf.bak"
+      fi
+
       # 清数据：让 App 恢复到未配置状态
       su -c "pm clear $pkg" </dev/null >> "$LOG" 2>&1
+
+      # 还原规则
+      if [ -f "$ADB_DIR/rules.conf.bak" ]; then
+        cp -f "$ADB_DIR/rules.conf.bak" "$RULES" 2>/dev/null
+        log "规则已还原"
+      fi
 
       # 移除隐形配置，避免下次又被隐藏
       rm -f "$CONF" 2>/dev/null
