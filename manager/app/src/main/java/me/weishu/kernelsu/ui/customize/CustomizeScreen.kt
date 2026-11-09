@@ -52,8 +52,6 @@ import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Route
 
-private data class AppEntry(val packageName: String, val label: String)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomizeScreen() {
