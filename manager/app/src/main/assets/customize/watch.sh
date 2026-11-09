@@ -12,8 +12,10 @@
 #      监听进程继续跑，规则照常生效。
 #
 #   3. KSU 生命周期
-#      打开 KSU → 装回面具；退出 KSU → 自动从系统卸载。
+#      KSU 在前台 → 装回面具；KSU 不在前台（切后台/退出）→ 立刻卸载。
 #      只在隐形模式开启时生效。
+#      卸载动作不影响规则引擎：watch.sh 常驻在 /data/adb/xhovo，
+#      规则照常匹配、照常执行脚本；规则动作是 launch 时会自动先装回面具。
 #      注意：卸面具不会删规则文件，rules.conf 和 stealth.conf 原样保留，
 #      下次 KSU 打开装回面具后规则继续有效。
 #
@@ -290,15 +292,23 @@ exec_rule_action() {
 # 打开 KSU → 确保面具装着；退出 KSU → 自动卸载。
 # 只在隐形模式开启（stealth.conf 有 target）时生效。
 
+# KSU 是否在前台。
+# 注意：这里判断的是「前台」而不是「进程存活」——
+# 切到后台就算离开，立刻卸载面具。
 ksu_running() {
   pkg=$(cat "$PKG_FILE" 2>/dev/null)
   [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
 
-  # 用 pidof 判断进程是否存活（比 ps 可靠，不受输出格式影响）
-  if command -v pidof >/dev/null 2>&1; then
-    pidof "$pkg" >/dev/null 2>&1 && return 0
-  fi
-  ps -A 2>/dev/null | grep -q "$pkg" && return 0
+  fg=$(cat "$FG_FILE" 2>/dev/null)
+  [ -n "$fg" ] && [ "$fg" = "$pkg" ] && return 0
+
+  # 前台文件可能还没刷新，补一路 dumpsys 直查
+  cur=$(dumpsys activity activities 2>/dev/null \
+    | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity' \
+    | grep -oE '[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+' \
+    | head -1 | cut -d/ -f1)
+  [ "$cur" = "$pkg" ] && return 0
+
   return 1
 }
 
@@ -314,7 +324,8 @@ ksu_cycle() {
 
   was=0
   while true; do
-    bb sleep 2 2>/dev/null || sleep 2
+    # 前台切换要跟得上，间隔压到 1 秒
+    bb sleep 1 2>/dev/null || sleep 1
 
     # 隐形模式被关掉就退出这个监控
     [ -f "$CONF" ] || { log "隐形配置已移除，KSU 监控退出"; return 0; }
@@ -322,17 +333,17 @@ ksu_cycle() {
     if ksu_running; then
       was=1
       if ! pkg_installed; then
-        log "KSU 打开，装回面具"
+        log "KSU 进入前台，装回面具"
         # 打标记，避免被「手动安装检测」误判成用户自己装的
         printf '1' > "$WORK/.ksu_install" 2>/dev/null
         revive
       fi
     else
       if [ "$was" = "1" ]; then
-        log "KSU 已退出"
+        log "KSU 离开前台"
         was=0
         if pkg_installed; then
-          log "自动卸载面具（规则文件保留）"
+          log "自动卸载面具（规则文件保留，规则引擎继续工作）"
           pkg=$(cat "$PKG_FILE" 2>/dev/null)
           [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
           # 只卸面具，不动 $RULES 和 $CONF——规则要继续有效
