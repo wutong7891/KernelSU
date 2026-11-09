@@ -12,7 +12,9 @@
 #      监听进程继续跑，规则照常生效。
 #
 #   3. KSU 生命周期
-#      KSU 在前台 → 装回面具；KSU 不在前台（切后台/退出）→ 立刻卸载。
+#      判定同时看两件事：进程是否存活、是否在前台。
+#      两个都满足才算「在用」→ 装回面具；
+#      任一不满足（切后台 / 进程退出）→ 立刻卸载。
 #      只在隐形模式开启时生效。
 #      卸载动作不影响规则引擎：watch.sh 常驻在 /data/adb/xhovo，
 #      规则照常匹配、照常执行脚本；规则动作是 launch 时会自动先装回面具。
@@ -292,10 +294,20 @@ exec_rule_action() {
 # 打开 KSU → 确保面具装着；退出 KSU → 自动卸载。
 # 只在隐形模式开启（stealth.conf 有 target）时生效。
 
+# KSU 进程是否存活。
+ksu_alive() {
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
+  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+
+  if command -v pidof >/dev/null 2>&1; then
+    pidof "$pkg" >/dev/null 2>&1 && return 0
+  fi
+  ps -A 2>/dev/null | grep -q "$pkg" && return 0
+  return 1
+}
+
 # KSU 是否在前台。
-# 注意：这里判断的是「前台」而不是「进程存活」——
-# 切到后台就算离开，立刻卸载面具。
-ksu_running() {
+ksu_foreground() {
   pkg=$(cat "$PKG_FILE" 2>/dev/null)
   [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
 
@@ -310,6 +322,15 @@ ksu_running() {
   [ "$cur" = "$pkg" ] && return 0
 
   return 1
+}
+
+# 两个条件都要满足才算「KSU 在用」：
+#   进程活着（排除已退出/被杀）
+#   且在前台（排除切后台）
+ksu_running() {
+  ksu_alive || return 1
+  ksu_foreground || return 1
+  return 0
 }
 
 pkg_installed() {
@@ -340,7 +361,11 @@ ksu_cycle() {
       fi
     else
       if [ "$was" = "1" ]; then
-        log "KSU 离开前台"
+        if ksu_alive; then
+          log "KSU 切到后台（进程仍在）"
+        else
+          log "KSU 进程已退出"
+        fi
         was=0
         if pkg_installed; then
           log "自动卸载面具（规则文件保留，规则引擎继续工作）"
