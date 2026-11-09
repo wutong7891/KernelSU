@@ -8,7 +8,8 @@
 #      常驻。规则一直有效，除非手动删除，不会因为触发过就失效。
 #
 #   2. 隐形唤回（stealth.conf）
-#      一次性。音量键命中并装回面具后，监听退出。
+#      一次性。音量键命中并装回面具后，只删掉 stealth.conf，
+#      监听进程继续跑，规则照常生效。
 #
 #   3. KSU 生命周期
 #      打开 KSU → 装回面具；退出 KSU → 自动从系统卸载。
@@ -87,7 +88,14 @@ MODE=$(cfg mode); [ -z "$MODE" ] && MODE=long
 COUNT=$(cfg count); [ -z "$COUNT" ] && COUNT=3
 LONGMS=$(cfg long); [ -z "$LONGMS" ] && LONGMS=1500
 
-[ -z "$TARGET" ] && { log "配置缺 target，退出"; exit 0; }
+# 没有隐形配置不算错：只要还有规则，就继续跑规则引擎
+if [ -z "$TARGET" ]; then
+  if [ ! -f "$RULES" ] || [ ! -s "$RULES" ]; then
+    log "既没有隐形配置也没有规则，退出"
+    exit 0
+  fi
+  log "无隐形配置，只跑规则引擎"
+fi
 
 case "$KEY" in
   volup)   KEYCODE=0073 ;;
@@ -391,10 +399,10 @@ watch_manual_install() {
         log "规则已还原"
       fi
 
-      # 移除隐形配置，避免下次又被隐藏
+      # 移除隐形配置，避免下次又被隐藏；规则文件保持不动
       rm -f "$CONF" 2>/dev/null
-      log "已清理，监听退出"
-      exit 0
+      log "隐形配置已清理，规则继续监听"
+      return 0
     fi
 
     baseline=$present
@@ -404,8 +412,8 @@ watch_manual_install() {
 # ---------- 收集设备 ----------
 DEVICES=$(find_devices)
 if [ -z "$DEVICES" ]; then
-  log "FAIL 没有找到带音量键的输入设备"
-  exit 1
+  log "WARN 没有找到带音量键的输入设备，手势功能不可用（免按键规则仍生效）"
+  DEVICES=""
 fi
 log "监听设备: $(echo $DEVICES | tr '\n' ' ')"
 
@@ -460,6 +468,7 @@ for dev in $DEVICES; do
 done
 
 while true; do
+  # DEVICES 为空时跳过事件消费，只保留前台变化检测
   for dev in $DEVICES; do
     name=$(basename "$dev")
     evlog="$WORK/ev.$name.log"
@@ -543,9 +552,9 @@ while true; do
             if [ "$dur" -ge "$LONGMS" ]; then
               log "长按命中"
               if revive; then
-                log "唤回完成，监听退出"
-                cleanup
-                exit 0
+                log "唤回完成，本次隐形配置已用掉，规则继续监听"
+                rm -f "$CONF" 2>/dev/null
+                TARGET=""
               fi
             fi
           else
@@ -560,10 +569,12 @@ while true; do
             log "连点 $click_count/$COUNT"
             if [ "$click_count" -ge "$COUNT" ]; then
               log "连点命中"
+              click_count=0
+              click_window_start=0
               if revive; then
-                log "唤回完成，监听退出"
-                cleanup
-                exit 0
+                log "唤回完成，本次隐形配置已用掉，规则继续监听"
+                rm -f "$CONF" 2>/dev/null
+                TARGET=""
               fi
             fi
           fi
