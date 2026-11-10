@@ -142,7 +142,19 @@ object CustomizeController {
         }
 
         val out = exec(command)
-        if (out.contains("SAVED")) "配置已保存，监听已重启" else "保存失败：\n$out"
+
+        // 只要配置文件落盘就算保存成功。
+        // 没配目标应用、也没有规则时，watch.sh 会直接退出不写 pid，
+        // 那种情况下不该报「保存失败」——配置本身是存下来的。
+        val verify = exec(
+            "[ -s " + q(CONF_PATH) + " ] && echo CONFIG_OK || echo CONFIG_MISSING",
+        )
+
+        when {
+            !verify.contains("CONFIG_OK") -> "保存失败：配置文件未写入\n$out"
+            out.contains("SAVED") -> "配置已保存，监听已重启"
+            else -> "配置已保存（当前没有可监听的目标，监听未启动）"
+        }
     }
 
     /**
