@@ -258,23 +258,40 @@ revive() {
   # 稍微等一下让 PackageManager 缓存刷新，再拉起，避免拉起时包还没注册
   bb sleep 1 2>/dev/null || sleep 1
 
-  # 用 am start 精确启动，不用 monkey。
-  # monkey 是压力测试工具，即便限了 syskeys/nav，仍会发随机事件，
-  # 包括旋转屏幕和触发 Activity 重建——表现就是「闪一下又重开、方向被强制」。
-  start_out=$(su -c "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p '$pkg' --user 0" </dev/null 2>&1)
-  log "am start: $start_out"
+  # ---------- 拉起面具 ----------
+  # 依次尝试三种方式，前一种成功就不走后一种。
+  #   1. am start -p       最简单，只发启动 Intent
+  #   2. resolve-activity  拿到组件名后用 am start -n
+  #   3. monkey           最后的兜底，会发随机事件但至少能起来
+  launched=0
 
+  start_out=$(su -c "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p '$pkg' --user 0" </dev/null 2>&1)
+  log "am start -p: $start_out"
   case "$start_out" in
-    *Error*|*error*|*Exception*)
-      # 极少数 ROM 上 -p 找不到入口，退回用 -n 指定 Launcher Activity
-      log "am start -p 失败，改用组件名重试"
-      act=$(su -c "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER '$pkg'" </dev/null 2>&1 | tail -n 1 | tr -d '\r')
-      if [ -n "$act" ]; then
-        su -c "am start -n '$act' --user 0" </dev/null >> "$LOG" 2>&1
-        log "am start -n $act"
-      fi
-      ;;
+    *Error*|*error*|*Exception*|*does\ not\ exist*) : ;;
+    *) launched=1 ;;
   esac
+
+  if [ "$launched" = "0" ]; then
+    act=$(su -c "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER '$pkg'" </dev/null 2>&1 | tail -n 1 | tr -d '\r')
+    log "resolve-activity: $act"
+    case "$act" in
+      */*)
+        start2=$(su -c "am start -n '$act' --user 0" </dev/null 2>&1)
+        log "am start -n: $start2"
+        case "$start2" in
+          *Error*|*error*|*Exception*) : ;;
+          *) launched=1 ;;
+        esac
+        ;;
+    esac
+  fi
+
+  if [ "$launched" = "0" ]; then
+    log "am start 两次都失败，退回 monkey 兜底"
+    su -c "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1 --pct-syskeys 0 --pct-nav 0" </dev/null >> "$LOG" 2>&1
+  fi
+
   log "已拉起面具"
 
   return 0
