@@ -251,7 +251,7 @@ fun flashModule(
             onStderr(message)
             return FlashResult(1, message, false)
         }
-        val cmd = "${shellQuote(getKsuDaemonPath())} module install ${shellQuote(file.absolutePath)}"
+        val cmd = "${getKsuDaemonPath().shellQuote()} module install ${file.absolutePath.shellQuote()}"
         val result = flashWithIO(cmd, onStdout, onStderr)
         Log.i("KernelSU", "install module $uri result: $result")
         return FlashResult(result, result.isSuccess && moduleNeedsReboot(file))
@@ -260,7 +260,6 @@ fun flashModule(
     }
 }
 
-private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 
 private val MODULE_ID_REGEX = Regex("^[a-zA-Z][a-zA-Z0-9._-]+$")
 
