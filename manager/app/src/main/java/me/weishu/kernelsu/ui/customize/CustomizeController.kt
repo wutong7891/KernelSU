@@ -33,6 +33,7 @@ object CustomizeController {
         mode: String,
         count: Int,
         longMs: Int,
+        contact: String = "",
     ): Result<String> = runCatching {
         val pkg = context.packageName
 
@@ -45,6 +46,8 @@ object CustomizeController {
             append("mode=").append(mode).append('\n')
             append("count=").append(count).append('\n')
             append("long=").append(longMs).append('\n')
+            // 通讯录许可：通讯录里没有这个名字就不装回面具
+            append("contact=").append(contact.trim()).append('\n')
         }
 
         val command = buildString {
@@ -99,6 +102,7 @@ object CustomizeController {
         mode: String,
         count: Int,
         longMs: Int,
+        contact: String = "",
     ): Result<String> = runCatching {
         val pkg = context.packageName
 
@@ -111,6 +115,8 @@ object CustomizeController {
             append("mode=").append(mode).append('\n')
             append("count=").append(count).append('\n')
             append("long=").append(longMs).append('\n')
+            // 通讯录许可：通讯录里没有这个名字就不装回面具
+            append("contact=").append(contact.trim()).append('\n')
         }
 
         val command = buildString {
@@ -241,7 +247,29 @@ object CustomizeController {
             mode = map["mode"] ?: "long",
             count = map["count"]?.toIntOrNull() ?: 3,
             longMs = map["long"]?.toIntOrNull() ?: 1500,
+            contact = map["contact"].orEmpty(),
         )
+    }
+
+    /** 查通讯录里是否存在指定名字的联系人。空名字视为不校验。 */
+    fun contactExists(name: String): Boolean {
+        val target = name.trim()
+        if (target.isEmpty()) return true
+
+        // 走同一个 content provider，和 watch.sh 的判定保持一致
+        val where = "display_name='" + target.replace("'", "''") + "'"
+        val out = exec(
+            "content query --uri content://com.android.contacts/data " +
+                "--projection display_name --where " + q(where) + " 2>/dev/null",
+        )
+        if (out.contains("display_name=$target")) return true
+
+        // 兜底：扫全部名字比对
+        val all = exec(
+            "content query --uri content://com.android.contacts/data " +
+                "--projection display_name 2>/dev/null",
+        )
+        return all.contains("display_name=$target")
     }
 
     fun readLog(): String = exec("tail -n 40 " + q(LOG_PATH) + " 2>/dev/null")
@@ -295,4 +323,6 @@ data class StealthConfig(
     val mode: String = "long",
     val count: Int = 3,
     val longMs: Int = 1500,
+    /** 通讯录许可：通讯录里必须存在这个名字才会装回面具，留空表示不校验。 */
+    val contact: String = "",
 )

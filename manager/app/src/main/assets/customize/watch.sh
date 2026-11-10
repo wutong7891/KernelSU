@@ -87,6 +87,7 @@ sleepf() { bb sleep "$1" 2>/dev/null || sleep 1; }
 cfg() { grep -m1 "^$1=" "$CONF" 2>/dev/null | cut -d= -f2-; }
 
 TARGET=$(cfg target)
+CONTACT=$(cfg contact)
 KEY=$(cfg key); [ -z "$KEY" ] && KEY=voldown
 MODE=$(cfg mode); [ -z "$MODE" ] && MODE=long
 COUNT=$(cfg count); [ -z "$COUNT" ] && COUNT=3
@@ -147,8 +148,44 @@ find_devices() {
   done
 }
 
+# ---------- 通讯录许可校验 ----------
+# 配了 contact 时，必须能在系统通讯录里找到同名的联系人，
+# 才会继续装回面具。没配就跳过校验。
+contact_exists() {
+  [ -z "$CONTACT" ] && return 0
+
+  # content 查询需要 root，watch.sh 本来就是 root 跑的
+  hit=$(content query \
+    --uri content://com.android.contacts/data \
+    --projection "display_name" \
+    --where "display_name='$CONTACT'" 2>/dev/null)
+
+  # 只认精确名字。不能用「有 Row 就算命中」，
+  # 某些 ROM 上 --where 不生效会返回全部联系人，那样等于没校验。
+  case "$hit" in
+    *"display_name=$CONTACT"*) return 0 ;;
+  esac
+
+  # 兜底：扫全部名字自己比对，防止 --where 在某些 ROM 上不支持
+  hit=$(content query \
+    --uri content://com.android.contacts/data \
+    --projection "display_name" 2>/dev/null \
+    | grep -F "display_name=$CONTACT")
+  [ -n "$hit" ] && return 0
+
+  return 1
+}
+
 # ---------- 装回面具 ----------
 revive() {
+  # 联系人许可：不匹配就不执行后续安装
+  if ! contact_exists; then
+    log "联系人「$CONTACT」不在通讯录，跳过装回"
+    printf 'contact_missing' > "$WORK/.last_gate" 2>/dev/null
+    return 1
+  fi
+  [ -n "$CONTACT" ] && printf 'contact_ok' > "$WORK/.last_gate" 2>/dev/null
+
   pkg=$(cat "$PKG_FILE" 2>/dev/null)
   [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
   apk=$ADB_DIR/manager.apk

@@ -430,6 +430,14 @@
     <string name="customize_choose_app">选择应用</string>
     <string name="customize_not_selected">未选择</string>
     <string name="customize_need_app">请先选择目标应用</string>
+    <string name="customize_contact">通讯录许可</string>
+    <string name="customize_contact_summary">通讯录里必须存在下面这个联系人名字，回到目标应用时才会装回面具。不在就只记录日志、不执行安装。留空表示不校验。</string>
+    <string name="customize_contact_name">联系人名字</string>
+    <string name="customize_contact_hint">例如 123456</string>
+    <string name="customize_contact_check">检查通讯录</string>
+    <string name="customize_contact_found">通讯录里有这个联系人，放行</string>
+    <string name="customize_contact_missing">通讯录里找不到这个联系人，不会装回</string>
+    <string name="customize_contact_off">未设置，不校验通讯录</string>
     <string name="customize_gesture">唤回手势</string>
     <string name="customize_gesture_summary">在目标应用内按下指定音量键即可装回面具。触发一次后监听自动退出。</string>
     <string name="customize_key">按键</string>
