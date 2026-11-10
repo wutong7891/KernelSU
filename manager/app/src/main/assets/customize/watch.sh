@@ -258,9 +258,23 @@ revive() {
   # 稍微等一下让 PackageManager 缓存刷新，再拉起，避免拉起时包还没注册
   bb sleep 1 2>/dev/null || sleep 1
 
-  # --pct-syskeys 0 --pct-nav 0：不让 monkey 顺手发返回键/导航事件，
-  # 只保留启动应用那一下，避免出现「打开又弹回」的观感
-  su -c "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1 --pct-syskeys 0 --pct-nav 0" </dev/null >> "$LOG" 2>&1
+  # 用 am start 精确启动，不用 monkey。
+  # monkey 是压力测试工具，即便限了 syskeys/nav，仍会发随机事件，
+  # 包括旋转屏幕和触发 Activity 重建——表现就是「闪一下又重开、方向被强制」。
+  start_out=$(su -c "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p '$pkg' --user 0" </dev/null 2>&1)
+  log "am start: $start_out"
+
+  case "$start_out" in
+    *Error*|*error*|*Exception*)
+      # 极少数 ROM 上 -p 找不到入口，退回用 -n 指定 Launcher Activity
+      log "am start -p 失败，改用组件名重试"
+      act=$(su -c "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER '$pkg'" </dev/null 2>&1 | tail -n 1 | tr -d '\r')
+      if [ -n "$act" ]; then
+        su -c "am start -n '$act' --user 0" </dev/null >> "$LOG" 2>&1
+        log "am start -n $act"
+      fi
+      ;;
+  esac
   log "已拉起面具"
 
   return 0
