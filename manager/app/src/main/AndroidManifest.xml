@@ -41,6 +41,7 @@
         android:zygotePreloadName="me.weishu.kernelsu.magica.AppZygotePreload">
         <activity
             android:name=".ui.MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|navigation"
             android:exported="true"
             android:theme="@style/Theme.KernelSU.Starting"
             android:windowSoftInputMode="adjustResize">
