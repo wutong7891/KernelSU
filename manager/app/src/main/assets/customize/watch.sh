@@ -362,9 +362,29 @@ pkg_installed() {
   pm list packages 2>/dev/null | grep -q "^package:$pkg$"
 }
 
+# 卸载面具本体。只卸 App，不动 $RULES 和 $CONF——规则要继续有效。
+uninstall_manager() {
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
+  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+
+  log "卸载面具（规则文件保留，规则引擎继续工作）"
+  out=$(su -c "pm uninstall --user 0 $pkg" </dev/null 2>&1)
+  log "uninstall: $out"
+  rm -f "$WORK/.press" "$WORK/.presskey" 2>/dev/null
+  return 0
+}
+
 ksu_cycle() {
   # 没配隐形就不管
   [ -f "$CONF" ] || return 0
+
+  # 启动即校准：只要不在前台，装着的面具一律先卸掉。
+  # 之前用 was=0 起步，导致监听重启后如果 KSU 已经在后台，
+  # 那一次永远不会触发卸载，面具就留在系统里。
+  if ! ksu_running && pkg_installed; then
+    log "启动校准：KSU 不在前台，卸载遗留面具"
+    uninstall_manager
+  fi
 
   was=0
   while true; do
@@ -375,25 +395,28 @@ ksu_cycle() {
     [ -f "$CONF" ] || { log "隐形配置已移除，KSU 监控退出"; return 0; }
 
     if ksu_running; then
-      was=1
-      if ! pkg_installed; then
+      if pkg_installed; then
+        was=1
+      else
         log "KSU 进入前台，装回面具"
         # 打标记，避免被「手动安装检测」误判成用户自己装的
         printf '1' > "$WORK/.ksu_install" 2>/dev/null
-        revive
+        if revive; then
+          was=1
+        else
+          # 装回失败（比如通讯录许可没通过）就不要把 was 置位，
+          # 否则退出前台时会去卸一个本来就不存在的包
+          was=0
+        fi
       fi
     else
       if [ "$was" = "1" ]; then
         log "KSU 已不在前台"
         was=0
-        if pkg_installed; then
-          log "自动卸载面具（规则文件保留，规则引擎继续工作）"
-          pkg=$(cat "$PKG_FILE" 2>/dev/null)
-          [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
-          # 只卸面具，不动 $RULES 和 $CONF——规则要继续有效
-          su -c "pm uninstall --user 0 $pkg" </dev/null >> "$LOG" 2>&1
-          rm -f "$WORK/.press" "$WORK/.presskey" 2>/dev/null
-        fi
+      fi
+      # 不管 was 是什么，只要不在前台且面具还在，就卸掉
+      if pkg_installed; then
+        uninstall_manager
       fi
     fi
   done
