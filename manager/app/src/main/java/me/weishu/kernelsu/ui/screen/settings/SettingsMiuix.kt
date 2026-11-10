@@ -216,29 +216,6 @@ fun SettingPagerMiuix(
                                 .padding(top = 12.dp)
                                 .fillMaxWidth(),
                         ) {
-                            val customizeTitle = stringResource(id = R.string.customize_title)
-                            ArrowPreference(
-                                title = customizeTitle,
-                                summary = stringResource(id = R.string.customize_switch_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Tune,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = customizeTitle,
-                                        tint = colorScheme.onBackground,
-                                    )
-                                },
-                                onClick = actions.onOpenCustomize,
-                            )
-                        }
-                    }
-
-                    KsuIsValid {
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
                             val profileTemplate = stringResource(id = R.string.settings_profile_template)
                             ArrowPreference(
                                 title = profileTemplate,

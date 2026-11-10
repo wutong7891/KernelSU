@@ -177,7 +177,13 @@ object CustomizeController {
         if (out.contains("STARTED")) "监听已启动" else "监听启动失败：\n$out"
     }
 
-    /** 停止监听（不触碰面具）。 */
+    /**
+     * 关闭隐形模式：停监听并删掉 stealth.conf。
+     *
+     * 配置必须删。监听进程靠 stealth.conf 的存在与否判断「是否还在隐形模式」，
+     * 留着的话下次 App 冷启动或开机广播的 sync() 会把监听重新拉起来，
+     * 用户会觉得开关关不掉。
+     */
     fun disarm(): Result<String> = runCatching {
         val command = buildString {
             append("[ -f ").append(q(PID_PATH)).append(" ] && { ")
@@ -185,6 +191,8 @@ object CustomizeController {
             append("[ -n \"\$old\" ] && kill -9 \"\$old\" 2>/dev/null; ")
             append("rm -f ").append(q(PID_PATH)).append("; }; ")
             append("su -c 'pkill -f xhovo/watch.sh' 2>/dev/null; ")
+            append("rm -f ").append(q(CONF_PATH)).append(" 2>/dev/null; ")
+            append("rm -f ").append(q("$WORK_DIR/.ksu_install")).append(" 2>/dev/null; ")
             append("echo STOPPED")
         }
         exec(command)
@@ -251,25 +259,38 @@ object CustomizeController {
         )
     }
 
-    /** 查通讯录里是否存在指定名字的联系人。空名字视为不校验。 */
+    /**
+     * 查通讯录里是否存在指定名字的联系人。
+     *
+     * 必须完整相等：设 123456 只认 123456，
+     * 1234567 或 abc123456 这类包含关系不算命中。
+     * 空名字视为不校验。
+     */
     fun contactExists(name: String): Boolean {
         val target = name.trim()
         if (target.isEmpty()) return true
 
-        // 走同一个 content provider，和 watch.sh 的判定保持一致
-        val where = "display_name='" + target.replace("'", "''") + "'"
-        val out = exec(
-            "content query --uri content://com.android.contacts/data " +
-                "--projection display_name --where " + q(where) + " 2>/dev/null",
-        )
-        if (out.contains("display_name=$target")) return true
+        // 逐行取出 display_name= 后面的部分，做整串相等比较
+        fun anyLineMatches(output: String): Boolean = output.lines().any { line ->
+            val marker = "display_name="
+            val idx = line.indexOf(marker)
+            idx >= 0 && line.substring(idx + marker.length).trim() == target
+        }
 
-        // 兜底：扫全部名字比对
+        // 主路径：--where 是 SQL 等值查询
+        val escaped = target.replace("'", "''")
+        val hit = exec(
+            "content query --uri content://com.android.contacts/data " +
+                "--projection display_name --where " + q("display_name='$escaped'") + " 2>/dev/null",
+        )
+        if (anyLineMatches(hit)) return true
+
+        // 兜底：某些 ROM 忽略 --where，全量扫一遍自己比对
         val all = exec(
             "content query --uri content://com.android.contacts/data " +
                 "--projection display_name 2>/dev/null",
         )
-        return all.contains("display_name=$target")
+        return anyLineMatches(all)
     }
 
     fun readLog(): String = exec("tail -n 40 " + q(LOG_PATH) + " 2>/dev/null")

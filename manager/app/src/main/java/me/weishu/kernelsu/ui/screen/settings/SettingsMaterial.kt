@@ -196,22 +196,6 @@ fun SettingPagerMaterial(
                 )
             }
 
-            KsuIsValid {
-                val customizeTitle = stringResource(id = R.string.customize_title)
-                SegmentedColumn(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-                    content = listOf {
-                        SegmentedListItem(
-                            onClick = actions.onOpenCustomize,
-                            headlineContent = { Text(customizeTitle) },
-                            supportingContent = { Text(stringResource(id = R.string.customize_switch_summary)) },
-                            leadingContent = { Icon(Icons.Filled.Tune, customizeTitle) },
-                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
-                        )
-                    },
-                )
-            }
-
             // 前台监听功能暂时下线
             if (SHOW_FOREGROUND_WATCHER) {
                 val watcherTitle = stringResource(id = R.string.foreground_watcher_title)

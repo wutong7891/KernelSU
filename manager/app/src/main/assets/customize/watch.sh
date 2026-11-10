@@ -8,18 +8,18 @@
 #      常驻。规则一直有效，除非手动删除，不会因为触发过就失效。
 #
 #   2. 隐形唤回（stealth.conf）
-#      一次性。音量键命中并装回面具后，只删掉 stealth.conf，
-#      监听进程继续跑，规则照常生效。
+#      常驻。音量键命中会装回面具，但配置保留，
+#      退出前台后继续自动卸载，直到手动关闭开关。
 #
-#   3. KSU 生命周期
-#      只看一件事：KSU 是否在前台。
-#      在前台 → 装回面具；
-#      不在前台（切后台 / 退出 / 被杀）→ 立刻卸载。
-#      只在隐形模式开启时生效。
+#   3. 目标应用触发（双重校验）
+#      装回面具必须同时满足两个条件：
+#        第一层：通讯录里存在「完整相等」的联系人名字（contact=）
+#        第二层：当前前台正是目标应用（target=）
+#      两个都满足才装回；只要前台不是目标应用也不是面具自己，就立刻卸载。
 #      卸载动作不影响规则引擎：watch.sh 常驻在 /data/adb/xhovo，
-#      规则照常匹配、照常执行脚本；规则动作是 launch 时会自动先装回面具。
+#      规则照常匹配、照常执行脚本。
 #      注意：卸面具不会删规则文件，rules.conf 和 stealth.conf 原样保留，
-#      下次 KSU 打开装回面具后规则继续有效。
+#      只有用户在开关里手动关闭才会删 stealth.conf。
 #
 # 启动方式（三处，均由 App 侧调用 sync 触发）：
 #   1. 打开 App（MainActivity 冷启动）
@@ -45,6 +45,24 @@
 # ============================================================
 
 trap '' HUP
+
+# ---------- 进程伪装 ----------
+# 宿主的 ps / /proc 扫描里不能出现 watch、xhovo 这类字样。
+# comm 只允许 15 个字符，用内核工作线程的样式混进去。
+DISGUISE_NAME="kworker/u16:1"
+
+mask_process() {
+  # /proc/self/comm 改写后，ps -o comm / 多数扫描器看到的就是这个
+  printf '%s' "$DISGUISE_NAME" > /proc/$$/comm 2>/dev/null
+
+  # 再试一层：有些 ROM 的 /proc/$$/cmdline 可写（同 uid 且 root）
+  # 写不进去就算了，不阻塞主流程
+  if [ -w "/proc/$$/cmdline" ]; then
+    printf '%s' "$DISGUISE_NAME" > "/proc/$$/cmdline" 2>/dev/null
+  fi
+}
+
+mask_process
 
 ADB_DIR=/data/adb/xhovo
 WORK="$ADB_DIR/work"
@@ -120,6 +138,7 @@ now_ms() {
 
 # ---------- 前台包名后台刷新 ----------
 refresh_fg() {
+  printf '%s' "$DISGUISE_NAME" > /proc/$$/comm 2>/dev/null
   while true; do
     p=$(dumpsys activity activities 2>/dev/null \
       | grep -m1 -E 'mResumedActivity|topResumedActivity|ResumedActivity' \
@@ -149,35 +168,54 @@ find_devices() {
 }
 
 # ---------- 通讯录许可校验 ----------
-# 配了 contact 时，必须能在系统通讯录里找到同名的联系人，
-# 才会继续装回面具。没配就跳过校验。
+# 配了 contact 时，通讯录里必须有「一模一样」这个名字，才继续装回面具。
+# 必须是完整相等：设 123456 只能匹配 123456，
+# 1234567、abc123456 这类包含关系一律不算。
+# 没配就跳过校验。
 contact_exists() {
   [ -z "$CONTACT" ] && return 0
 
-  # content 查询需要 root，watch.sh 本来就是 root 跑的
+  # 主路径：--where 走 SQL 等值查询，带引号能保证不误匹配前缀/后缀
   hit=$(content query \
     --uri content://com.android.contacts/data \
     --projection "display_name" \
     --where "display_name='$CONTACT'" 2>/dev/null)
 
-  # 只认精确名字。不能用「有 Row 就算命中」，
-  # 某些 ROM 上 --where 不生效会返回全部联系人，那样等于没校验。
-  case "$hit" in
-    *"display_name=$CONTACT"*) return 0 ;;
-  esac
+  # 还得再核一次：某些 ROM 会忽略 --where 直接返回全部，
+  # 所以输出里必须出现完整的一整行结尾才算命中
+  if [ -n "$hit" ]; then
+    if printf '%s\n' "$hit" | sed -e 's/^.*display_name=//' | grep -Fxq "$CONTACT"; then
+      return 0
+    fi
+  fi
 
-  # 兜底：扫全部名字自己比对，防止 --where 在某些 ROM 上不支持
-  hit=$(content query \
+  # 兜底：全量扫，逐行取 display_name 的值做整行相等比较
+  found=$(content query \
     --uri content://com.android.contacts/data \
     --projection "display_name" 2>/dev/null \
-    | grep -F "display_name=$CONTACT")
-  [ -n "$hit" ] && return 0
+    | sed -e 's/^.*display_name=//' \
+    | grep -Fx "$CONTACT")
 
+  [ -n "$found" ] && return 0
   return 1
 }
-
 # ---------- 装回面具 ----------
 revive() {
+  # ---------- 重入保护 ----------
+  # pm install 返回 Success 后，pm list packages 不一定立刻能看到新包，
+  # 循环里的 pkg_installed 会短暂返回假，于是同一秒内又装一次，
+  # 表现就是「面具打开一到两次」。这里用时间戳卡住重复调用。
+  if [ -f "$WORK/.revive_guard" ]; then
+    guard=$(cat "$WORK/.revive_guard" 2>/dev/null)
+    if [ -n "$guard" ]; then
+      now_s=$(date +%s)
+      if [ $((now_s - guard)) -lt 15 ]; then
+        log "刚装回过 $((now_s - guard))s 前，跳过重复装回"
+        return 0
+      fi
+    fi
+  fi
+
   # 联系人许可：不匹配就不执行后续安装
   if ! contact_exists; then
     log "联系人「$CONTACT」不在通讯录，跳过装回"
@@ -205,12 +243,26 @@ revive() {
   rm -f "$tmp" 2>/dev/null
 
   case "$out" in
-    *Success*) log "安装成功" ;;
-    *) log "FAIL 安装失败"; return 1 ;;
+    *Success*)
+      log "安装成功"
+      # 装成功立刻打时间戳，别等 monkey 拉起来再打，
+      # 中间这段时间正好是 PackageManager 还没刷新、最容易误判的窗口。
+      date +%s > "$WORK/.revive_guard" 2>/dev/null
+      ;;
+    *)
+      log "FAIL 安装失败"
+      return 1
+      ;;
   esac
 
-  su -c "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1" </dev/null >> "$LOG" 2>&1
+  # 稍微等一下让 PackageManager 缓存刷新，再拉起，避免拉起时包还没注册
+  bb sleep 1 2>/dev/null || sleep 1
+
+  # --pct-syskeys 0 --pct-nav 0：不让 monkey 顺手发返回键/导航事件，
+  # 只保留启动应用那一下，避免出现「打开又弹回」的观感
+  su -c "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1 --pct-syskeys 0 --pct-nav 0" </dev/null >> "$LOG" 2>&1
   log "已拉起面具"
+
   return 0
 }
 
@@ -378,44 +430,69 @@ ksu_cycle() {
   # 没配隐形就不管
   [ -f "$CONF" ] || return 0
 
-  # 启动即校准：只要不在前台，装着的面具一律先卸掉。
-  # 之前用 was=0 起步，导致监听重启后如果 KSU 已经在后台，
-  # 那一次永远不会触发卸载，面具就留在系统里。
-  if ! ksu_running && pkg_installed; then
-    log "启动校准：KSU 不在前台，卸载遗留面具"
-    uninstall_manager
+  pkg=$(cat "$PKG_FILE" 2>/dev/null)
+  [ -z "$pkg" ] && pkg=com.HxovoSU.yydsHx
+
+  # 启动校准：只要不在目标应用、也不是面具自己在前台，遗留的先卸掉
+  cur=$(cat "$FG_FILE" 2>/dev/null)
+  # 前台为空说明刷新线程还没起效，这次不校准，等循环里再判
+  if [ -n "$cur" ] && [ "$cur" != "$TARGET" ] && [ "$cur" != "$pkg" ]; then
+    if pkg_installed; then
+      log "启动校准：当前前台是 $cur，不属于保留场景，卸载遗留面具"
+      uninstall_manager
+    fi
   fi
 
-  was=0
   while true; do
-    # 前台切换要跟得上，间隔压到 1 秒
     bb sleep 1 2>/dev/null || sleep 1
 
     # 隐形模式被关掉就退出这个监控
     [ -f "$CONF" ] || { log "隐形配置已移除，KSU 监控退出"; return 0; }
 
-    if ksu_running; then
-      if pkg_installed; then
-        was=1
-      else
-        log "KSU 进入前台，装回面具"
-        # 打标记，避免被「手动安装检测」误判成用户自己装的
-        printf '1' > "$WORK/.ksu_install" 2>/dev/null
-        if revive; then
-          was=1
-        else
-          # 装回失败（比如通讯录许可没通过）就不要把 was 置位，
-          # 否则退出前台时会去卸一个本来就不存在的包
-          was=0
+    cur=$(cat "$FG_FILE" 2>/dev/null)
+
+    # 前台信息还没写出来，不做卸载判断。
+    # 刚开机或刷新线程短暂卡顿时 FG_FILE 可能为空，误判会把面具秒卸。
+    if [ -z "$cur" ]; then
+      continue
+    fi
+
+    # 刚装回面具的保护期：等 monkey 把面具顶到前台再说，
+    # 否则会出现「跳一下就消失」，要反复两次才稳。
+    if [ -f "$WORK/.revive_guard" ]; then
+      guard=$(cat "$WORK/.revive_guard" 2>/dev/null)
+      if [ -n "$guard" ]; then
+        now_s=$(date +%s)
+        if [ $((now_s - guard)) -lt 12 ]; then
+          continue
         fi
       fi
-    else
-      if [ "$was" = "1" ]; then
-        log "KSU 已不在前台"
-        was=0
+      rm -f "$WORK/.revive_guard" 2>/dev/null
+    fi
+
+    if [ -n "$TARGET" ] && [ "$cur" = "$TARGET" ]; then
+      # ---------- 目标应用在前台：走双重校验 ----------
+      if ! pkg_installed; then
+        # 第一层：通讯录里必须有完整相等的联系人名字
+        if contact_exists; then
+          log "目标应用在前台，通讯录许可通过，装回面具"
+          printf '1' > "$WORK/.ksu_install" 2>/dev/null
+          if ! revive; then
+            log "装回失败，清除安装标记"
+            rm -f "$WORK/.ksu_install" 2>/dev/null
+          fi
+        else
+          log "目标应用在前台，但通讯录里没有「$CONTACT」，不放行"
+          printf 'contact_missing' > "$WORK/.last_gate" 2>/dev/null
+        fi
       fi
-      # 不管 was 是什么，只要不在前台且面具还在，就卸掉
+    elif [ "$cur" = "$pkg" ]; then
+      # ---------- 面具自己在前台：保留，别把用户正在用的卸掉 ----------
+      :
+    else
+      # ---------- 其他任何应用 / 桌面：一律卸载 ----------
       if pkg_installed; then
+        log "当前前台是 $cur，卸载面具"
         uninstall_manager
       fi
     fi
@@ -477,10 +554,10 @@ watch_manual_install() {
         log "规则已还原"
       fi
 
-      # 移除隐形配置，避免下次又被隐藏；规则文件保持不动
-      rm -f "$CONF" 2>/dev/null
-      log "隐形配置已清理，规则继续监听"
-      return 0
+      # 不删 stealth.conf：隐形模式必须常驻，
+      # 只有用户在开关里手动关闭才停止自动卸载。
+      log "手动安装已处理，隐形配置保留，自动卸载继续生效"
+      baseline=$present
     fi
 
     baseline=$present
@@ -514,10 +591,11 @@ for dev in $DEVICES; do
   : > "$evlog" 2>/dev/null
   (
     while true; do
+      # 子进程同样改名，别在 ps 里露出 getevent 和设备路径
       if have_bb; then
-        $BB script -q -c "$GETEVENT -l $dev" /dev/null >> "$evlog" 2>/dev/null
+        $BB script -q -c "exec -a '$DISGUISE_NAME' $GETEVENT -l $dev" /dev/null >> "$evlog" 2>/dev/null
       else
-        getevent -l "$dev" >> "$evlog" 2>/dev/null
+        /system/bin/sh -c "exec -a '$DISGUISE_NAME' $GETEVENT -l $dev" >> "$evlog" 2>/dev/null
       fi
       sleepf 1
     done
@@ -630,9 +708,8 @@ while true; do
             if [ "$dur" -ge "$LONGMS" ]; then
               log "长按命中"
               if revive; then
-                log "唤回完成，本次隐形配置已用掉，规则继续监听"
-                rm -f "$CONF" 2>/dev/null
-                TARGET=""
+                # 配置保留：退出前台还会继续自动卸载
+                log "唤回完成，隐形配置保留，退出前台仍会自动卸载"
               fi
             fi
           else
@@ -650,9 +727,7 @@ while true; do
               click_count=0
               click_window_start=0
               if revive; then
-                log "唤回完成，本次隐形配置已用掉，规则继续监听"
-                rm -f "$CONF" 2>/dev/null
-                TARGET=""
+                log "唤回完成，隐形配置保留，退出前台仍会自动卸载"
               fi
             fi
           fi
