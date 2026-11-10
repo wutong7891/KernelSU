@@ -205,6 +205,28 @@ object CustomizeController {
         return out.trim().toLongOrNull() ?: 0L
     }
 
+    /**
+     * 从规则里推导「隐形唤回」的目标应用。
+     *
+     * 定制页不再单独选应用，直接用规则页配好的：
+     * 优先取第一条「拉起面具」的启用规则，没有就退到任意启用规则。
+     * 这样两个地方不会出现选了两次、还可能选得不一样的问题。
+     */
+    fun resolveTarget(context: Context): String {
+        val rules = runCatching { RulesStore.load(context) }.getOrDefault(emptyList())
+        val hit = rules.firstOrNull { it.enabled && it.action == "launch" && it.pkg.isNotBlank() }
+            ?: rules.firstOrNull { it.enabled && it.pkg.isNotBlank() }
+        return hit?.pkg.orEmpty()
+    }
+
+    /** 规则里所有「拉起面具」的目标包名，去重后返回。 */
+    fun launchTargets(context: Context): List<String> {
+        val rules = runCatching { RulesStore.load(context) }.getOrDefault(emptyList())
+        return rules.filter { it.enabled && it.action == "launch" && it.pkg.isNotBlank() }
+            .map { it.pkg }
+            .distinct()
+    }
+
     fun readConfig(): StealthConfig {
         val out = exec("cat " + q(CONF_PATH) + " 2>/dev/null")
         val map = out.lines()

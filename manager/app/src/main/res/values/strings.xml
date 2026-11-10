@@ -421,6 +421,10 @@
     <string name="customize_state_off">未开启</string>
     <string name="customize_state_uninstalled">面具当前不在系统里</string>
     <string name="customize_working">处理中…</string>
+    <string name="customize_target_from_rules">目标应用直接取自定义规则，不用在这里重复选择。</string>
+    <string name="customize_no_rule_target">规则里还没有「拉起面具」的目标应用，去配置一条规则。</string>
+    <string name="customize_more_targets">另有</string>
+    <string name="customize_go_rules">去配置规则</string>
     <string name="customize_config">目标应用</string>
     <string name="customize_config_summary">只有在这个应用里按手势才会唤回，别的应用里按没用。</string>
     <string name="customize_choose_app">选择应用</string>

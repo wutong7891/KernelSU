@@ -1,8 +1,6 @@
 package me.weishu.kernelsu.ui.customize
 
-import android.content.pm.PackageManager
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,17 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -72,9 +66,8 @@ fun CustomizeScreen() {
     var count by remember { mutableStateOf(3) }
     var longMs by remember { mutableStateOf(1500) }
 
-    var showPicker by remember { mutableStateOf(false) }
     var deviceCode by remember { mutableStateOf("") }
-    var apps by remember { mutableStateOf(emptyList<AppEntry>()) }
+    var launchTargetLabels by remember { mutableStateOf(emptyList<String>()) }
 
     fun announce(msg: String) {
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -83,15 +76,17 @@ fun CustomizeScreen() {
     fun refresh() {
         scope.launch {
             val cfg = withContext(Dispatchers.IO) { CustomizeController.readConfig() }
-            target = cfg.target
+            // 目标应用统一从规则推导，不在定制页单独选
+            val fromRules = withContext(Dispatchers.IO) { CustomizeController.resolveTarget(context) }
+            target = if (fromRules.isNotBlank()) fromRules else cfg.target
             key = cfg.key
             mode = cfg.mode
             count = cfg.count
             longMs = cfg.longMs
-            targetLabel = if (cfg.target.isBlank()) "" else runCatching {
+            targetLabel = if (target.isBlank()) "" else runCatching {
                 val pm = context.packageManager
-                pm.getApplicationLabel(pm.getApplicationInfo(cfg.target, 0)).toString()
-            }.getOrDefault(cfg.target)
+                pm.getApplicationLabel(pm.getApplicationInfo(target, 0)).toString()
+            }.getOrDefault(target)
 
             watching = withContext(Dispatchers.IO) { CustomizeController.isWatching() }
             installed = withContext(Dispatchers.IO) { CustomizeController.isManagerInstalled(context) }
@@ -103,12 +98,13 @@ fun CustomizeScreen() {
         refresh()
         log = withContext(Dispatchers.IO) { CustomizeController.readLog() }
         deviceCode = withContext(Dispatchers.IO) { DeviceCode.compute() }
-        apps = withContext(Dispatchers.IO) {
+        launchTargetLabels = withContext(Dispatchers.IO) {
             val pm = context.packageManager
-            pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-                .map { AppEntry(it.packageName, pm.getApplicationLabel(it).toString()) }
-                .sortedBy { it.label.lowercase() }
+            CustomizeController.launchTargets(context).map { pkg ->
+                runCatching {
+                    pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                }.getOrDefault(pkg)
+            }
         }
     }
 
@@ -234,31 +230,38 @@ fun CustomizeScreen() {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.customize_config), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.customize_config_summary), style = MaterialTheme.typography.bodySmall)
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.customize_target_from_rules), style = MaterialTheme.typography.bodySmall)
+
+                    if (target.isBlank()) {
+                        Text(
+                            stringResource(R.string.customize_no_rule_target),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        OutlinedButton(
+                            onClick = { navigator.push(Route.XhovoRules) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(stringResource(R.string.customize_go_rules)) }
+                    } else {
+                        Text(
+                            targetLabel,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            target,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        )
+                        if (launchTargetLabels.size > 1) {
                             Text(
-                                text = if (target.isBlank()) stringResource(R.string.customize_not_selected)
-                                else targetLabel,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
+                                stringResource(R.string.customize_more_targets) + " " + launchTargetLabels.drop(1).joinToString("、"),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (target.isNotBlank()) {
-                                Text(
-                                    target,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                        OutlinedButton(onClick = { showPicker = true }) {
-                            Text(stringResource(R.string.customize_choose_app))
                         }
                     }
                 }
@@ -384,40 +387,5 @@ fun CustomizeScreen() {
                 }
             }
         }
-    }
-
-    if (showPicker) {
-        AlertDialog(
-            onDismissRequest = { showPicker = false },
-            title = { Text(stringResource(R.string.customize_choose_app)) },
-            text = {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
-                    items(apps) { app ->
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    target = app.packageName
-                                    targetLabel = app.label
-                                    showPicker = false
-                                }
-                                .padding(vertical = 10.dp)
-                        ) {
-                            Text(app.label, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                app.packageName,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                        }
-                        HorizontalDivider()
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showPicker = false }) { Text("取消") }
-            }
-        )
     }
 }
