@@ -139,10 +139,8 @@ fun CustomizeScreen() {
 
     fun saveConfig() {
         if (busy) return
-        if (target.isBlank()) {
-            announce(context.getString(R.string.customize_need_app))
-            return
-        }
+        // 不再要求目标应用非空：配一半也要能存，否则用户填了手势和通讯录
+        // 却没选应用时点保存会直接被弹回，等于白填。
         scope.launch {
             busy = true
             val result = withContext(Dispatchers.IO) {
